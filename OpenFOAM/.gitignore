@@ -1,0 +1,13 @@
+log*build*
+.*.md
+.*.swp
+run
+platforms
+linux64GccDPInt64Opt
+wmake
+old*
+localDisk
+.*.def
+.*.sh
+._*
+slurm*
