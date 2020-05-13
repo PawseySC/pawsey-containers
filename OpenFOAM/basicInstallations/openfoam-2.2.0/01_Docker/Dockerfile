@@ -3,8 +3,8 @@
 #---------------------------------------------------------------
 # 0. Initial main definintion
 # Defining the base container to build from
-# In this case: mpich 3.1.4 and ubuntu 14.04; MPICH is needed for crays
-FROM pawsey/mpich-base:3.1.4_ubuntu14.04
+# In this case: mpich 3.1.4 and ubuntu 16.04; MPICH is needed for crays
+FROM pawsey/mpich-base:3.1.4_ubuntu16.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -61,7 +61,7 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 #
 #Then, Will follow a combination of both.
 #
-#(Also checking wiki for OpenFOAM-2.2.2/Ubuntu14.04 and the already successful installation recipe for 2.4.x)
+#(Also checking wiki for OpenFOAM-2.2.2/Ubuntu16.04 and the already successful installation recipe for 2.4.x)
 
 #...........
 #Definition of the installation directory within the container
@@ -117,10 +117,10 @@ RUN wget --no-check-certificate -O OpenFOAM-${OFVERSION}.tgz \
  && rm -f ThirdParty-${OFVERSION}.tgz
 
 #...........
-#Step Additional.
-#Adapting settings for the use of the case: WM_MPLIB=SYSTEMMPI, which is not present by default in OpenFoam-2.2.0
-#Example of the creation of these files and settings were taken from default files that do exist in
-# standard OpenFOAM-2.4.x
+#Step 3. (Additional, not in the instructions)
+#Adapting settings for the use of the case: WM_MPLIB=SYSTEMMPI
+#Rule files for SYSTEMMPI are not present by default in OpenFoam-2.2.0. Then, these files need to be created.
+#Examples of these files were taken from the ones that do exist in standard OpenFOAM-2.4.x installation
 ARG MPIRULEFILE1=${OFINSTDIR}/OpenFOAM-${OFVERSION}/wmake/rules/General/mplibSYSTEMMPI
 ARG MPIRULEFILE2=${OFINSTDIR}/OpenFOAM-${OFVERSION}/wmake/rules/linux64Gcc/mplibSYSTEMMPI
 ARG OFSETTINGS=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/settings.sh
@@ -131,7 +131,7 @@ RUN echo 'PFLAGS     = $(MPI_ARCH_FLAGS)' > ${MPIRULEFILE1} \
  && sed -i $'s@^OPENMPI)@SYSTEMMPI)\\\n    export FOAM_MPI=mpi-system\\\n   export MPI_ARCH_PATH=$MPI_ROOT\\\n    ;;\\\nOPENMPI)@' ${OFSETTINGS}
 
 #...........
-#Step 3. Definitions for the prefs and bashrc files.
+#Step 4. Definitions for the prefs and bashrc files.
 ARG OFPREFS=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/prefs.sh
 ARG OFBASHRC=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/bashrc
 
@@ -225,6 +225,15 @@ RUN . ${OFBASHRC} \
 #...........
 #Step 6.
 
+#Fix for the flex version to be checked (idea obtained from the wiki instructions for 2.2.2 ubuntu 16.04)
+#Because flex is causing problems for the compilation of openfoam also for this version
+RUN . ${OFBASHRC} \
+ && cd $WM_PROJECT_DIR \
+ && find src applications -name "*.L" -type f -exec cp \{} \{}.original \; \
+ && find src applications -name "*.L" -type f | xargs sed -i -e \
+    's=\(YY\_FLEX\_SUBMINOR\_VERSION\)=YY_FLEX_MINOR_VERSION < 6 \&\& \1='
+
+
 #OpenFOAM compilation 
 ENV WM_NCOMPPROCS=4
 RUN . ${OFBASHRC} \
@@ -239,7 +248,7 @@ RUN . ${OFBASHRC} \
  && ./Allwmake 2>&1 | tee log.AllwmakeSummary
 
 #...........
-#Step 4.
+#Step 7.
 #Install one or the other: paraview or VTK
 #Install paraview or VTK for runTimePostprocessing of OpenFOAM to properly compile
 #Install paraview for graphical postprocessing to be available in the container 
@@ -279,11 +288,11 @@ RUN . ${OFBASHRC} \
 
 
 #...........
-#Step 7.
+#Step 8.
 #Defining defaults of the controlDict
 
 #...........
-#Step 8.
+#Step 9.
 ##Checking if openfoam is working
 RUN . ${OFBASHRC} \
  && cd $WM_PROJECT_DIR \
