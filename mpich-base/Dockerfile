@@ -1,6 +1,10 @@
-FROM ubuntu:16.04
+ARG OS_VERSION=18.04
+FROM ubuntu:${OS_VERSION}
 
 LABEL maintainer="alexis.espinosa@pawsey.org.au"
+#Previously maintained by:
+#LABEL maintainer="brian.skjerven@pawsey.org.au"
+
 
 # Install package dependencies
 RUN apt-get update -qq \
