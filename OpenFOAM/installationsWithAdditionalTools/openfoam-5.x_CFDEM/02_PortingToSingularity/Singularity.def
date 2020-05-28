@@ -1,0 +1,8 @@
+Bootstrap: docker
+From: pawsey/openfoam:5.x_CFDEM
+
+%post
+/bin/mv /bin/sh /bin/sh.original
+/bin/ln -s /bin/bash /bin/sh
+echo ". /opt/OpenFOAM/OpenFOAM-5.x/etc/bashrc" >> $SINGULARITY_ENVIRONMENT
+echo ". /opt/CFDEM/CFDEMcoupling-PUBLIC-5.x/src/lagrangian/cfdemParticle/etc/bashrc" >> $SINGULARITY_ENVIRONMENT
