@@ -53,14 +53,16 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 #---------------------------------------------------------------
 # III. INSTALLING OPENFOAM.
 #This section is for installing OpenFOAM
-#Will NOT follow strictly the official installation instructions:
+#Will follow PARTIALLY the official installation instructions:
 #https://openfoam.org/download/2-4-0-source/
 #
-#Will NOT follow strictly the instructions for OpenFOAM-2.4.x  available in the wiki:
+#Will follow PARTIALLY the instructions for OpenFOAM-2.4.x  available in the wiki:
 #https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-2.4.x/Ubuntu#Ubuntu_16.04
 #
 #Then, Will follow a combination of both
 #(Also checking wiki for OpenFOAM-2.4.0)
+#
+#Where recipe deviates from the instructions mentioned above, comments from the maintainer are labelled as: AEG
 
 #...........
 #Definition of the installation directory within the container
@@ -88,7 +90,7 @@ RUN apt-get update -qq\
    gnuplot libreadline-dev libncurses-dev libxt-dev \
    qt4-dev-tools libqt4-dev libqt4-opengl-dev \ 
    freeglut3-dev libqtwebkit-dev \
-#AEG:No scotch because it installs openmpi which later messes up with shifter at pawsey
+#AEG:No scotch because it installs openmpi which later messes up with MPICH
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
 #AEG:NoScotch:   libscotch-dev \
    libcgal-dev \
@@ -123,24 +125,29 @@ ARG OFBASHRC=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/bashrc
 #Defining the prefs.sh:
 RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/example/prefs.sh > $OFPREFS \
  && echo '#------------------------------------------------------------------------------' >> ${OFPREFS} \
-#Using a combination of the variable definition recommended for the use of system mpich here:
-#https://bugs.openfoam.org/view.php?id=1167
+#Using a combination of the variable definition recommended for the use of system mpich in this link:
+#   https://bugs.openfoam.org/view.php?id=1167
 #And in the file .../OpenFOAM-$OFVERSION/wmake/rules/General/mplibMPICH
-#(These MPI_* environmental variables are set in the prefs.sh as suggested in the link above,
-# and this file is sourced automatically by the bashrc when the bashrc is sourced)
-#--As suggested in the link, WM_MPLIB and MPI_ROOT need to be set:
+#(These MPI_* environmental variables are set in the prefs.sh,
+# and this file will be sourced automatically by the bashrc when the bashrc is sourced)
+#
+#--As suggested in the link above, WM_MPLIB and MPI_ROOT need to be set:
  && echo 'export WM_MPLIB=SYSTEMMPI' >> ${OFPREFS} \
  && echo 'export MPI_ROOT="/usr"' >> ${OFPREFS} \
-#--As suggested in the link, MPI_ARCH_FLAGS,MPI_ARCH_INC,MPI_ARCH_LIBS need to be set
-#The suggestions from the link are: (only those that work for this installation are left alive)
+#
+#--As suggested in the link above, MPI_ARCH_FLAGS,MPI_ARCH_INC,MPI_ARCH_LIBS need to be set:
+#--Leaving active only the options that worked from different suggestions (A,B,C)
+#  ~(A)The suggestions from the link above:
 ## && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_INC="-I/usr/include/mpich"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_LIBS="-L/usr/lib/x86_64-linux-gnu -lmpich"' >> ${OFPREFS} \
-#--The suggestions from the file mplibMPICH are: (only those that work are left alive)
+#
+#  ~(B)The suggestions from the file mplibMPICH are:
  && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OFPREFS} \
  && echo 'export MPI_ARCH_INC="-I${MPI_ROOT}/include"' >> ${OFPREFS} \
  && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OFPREFS} \
-#--Even further modifications needed are: (only those that work are left alive)
+#
+#  ~(C)Even further modifications were needed for some other OpenFOAM versions:
 ##AEG:Gcc7 has problems with the -isystem flag. Using -I instead:
 ## && echo 'export MPI_ARCH_INC="-I${MPI_ROOT}/include"' >> ${OFPREFS} \
 ##AEG:Only one library path and using -lmpich
@@ -159,7 +166,7 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #" (This comment line is needed to let vi to show the right syntax)
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file 
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
-#   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
+#   1. You can mount a directory of your local-host into this directory 
 #   2. Or you can include and build stuff inside the container and save it as your own image for later use.
  && sed -i '/^export WM_PROJECT_USER_DIR=.*/aexport WM_PROJECT_USER_DIR="'"${OFUSERDIR}/ofuser"'-$WM_PROJECT_VERSION"' ${OFBASHRC} \
  && sed -i '0,/^export WM_PROJECT_USER_DIR/s//# export WM_PROJECT_USER_DIR/' ${OFBASHRC} \
