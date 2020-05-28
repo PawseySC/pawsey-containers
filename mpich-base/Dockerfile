@@ -1,6 +1,10 @@
-FROM ubuntu:18.04
+ARG OS_VERSION=18.04
+FROM ubuntu:${OS_VERSION}
 
-LABEL maintainer="brian.skjerven@pawsey.org.au"
+LABEL maintainer="alexis.espinosa@pawsey.org.au"
+#Previously maintained by:
+#LABEL maintainer="brian.skjerven@pawsey.org.au"
+
 
 # Install package dependencies
 RUN apt-get update -qq \
@@ -45,6 +49,11 @@ RUN wget http://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks
       && make ${OSU_BENCH_MAKE_OPTIONS} \
       && make install
 
+### Quick Test ###
+RUN mpiexec -n 8 /tmp/mpich-build/mpich-3.1.4/examples/cpi 2>&1 | tee log.cpi
+
+
+### Final settings ###
 WORKDIR /
 RUN rm -rf /tmp/*
 CMD ["/bin/bash"]
