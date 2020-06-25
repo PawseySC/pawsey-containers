@@ -53,10 +53,10 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 #---------------------------------------------------------------
 # III. INSTALLING OPENFOAM.
 #This section is for installing OpenFOAM
-#Will follow (NOT strictly) the official installation instructions:
+#Will follow PARTIALLY the official installation instructions:
 #https://openfoam.org/download/2-2-0-source/
 #
-#Will follow (NOT strictly) the instructions for OpenFOAM-2.2.0  available in the wiki:
+#Will follow PARTIALLY the instructions for OpenFOAM-2.2.0  available in the wiki:
 #https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-2.2.0/Ubuntu#Ubuntu_13.10
 #
 #Then, Will follow a combination of both.
@@ -82,8 +82,7 @@ RUN apt-get update -qq\
  &&  apt-get -y --no-install-recommends --no-install-suggests install \
    build-essential\
    flex bison cmake zlib1g-dev \
-#DD:Not listed:   libboost-system-dev libboost-thread-dev \
-#AEG:No OpenMPI because MPICH will be used (installed in the parent FROM container)
+#AEG:No OpenMPI because MPICH will be used (installed in the parent FROM image)
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
    gnuplot libreadline-dev libncurses-dev libxt-dev \
    qt4-dev-tools libqt4-dev libqt4-opengl-dev \ 
@@ -91,12 +90,6 @@ RUN apt-get update -qq\
 #AEG:No scotch because it installs openmpi which later messes up with shifter at pawsey
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
 #AEG:NoScotch:   libscotch-dev \
-#DD:Not listed:   libcgal-dev \
-#DD:Not listed:#AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
-#DD:Not listed:   libgmp-dev libmpfr-dev\
-#DD:Not listed:#AEG: Some more suggestions from the wiki instructions:
-#DD:Not listed:   python python-dev \
-#DD:Not listed:   libglu1-mesa-dev \
 #AEG:I found the following was needed to install  FlexLexer.h
    libfl-dev \
  && apt-get clean all \
@@ -120,7 +113,7 @@ RUN wget --no-check-certificate -O OpenFOAM-${OFVERSION}.tgz \
 #Step 3. (Additional, not in the instructions)
 #Adapting settings for the use of the case: WM_MPLIB=SYSTEMMPI
 #Rule files for SYSTEMMPI are not present by default in OpenFoam-2.2.0. Then, these files need to be created.
-#Examples of these files were taken from the ones that do exist in standard OpenFOAM-2.4.x installation
+#Examples of these files were checked from the ones that do exist in standard OpenFOAM-2.4.x installation
 ARG MPIRULEFILE1=${OFINSTDIR}/OpenFOAM-${OFVERSION}/wmake/rules/General/mplibSYSTEMMPI
 ARG MPIRULEFILE2=${OFINSTDIR}/OpenFOAM-${OFVERSION}/wmake/rules/linux64Gcc/mplibSYSTEMMPI
 ARG OFSETTINGS=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/settings.sh
@@ -139,24 +132,29 @@ ARG OFBASHRC=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/bashrc
 #Defining the prefs.sh:
 RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/example/prefs.sh > $OFPREFS \
  && echo '#------------------------------------------------------------------------------' >> ${OFPREFS} \
-#Using a combination of the variable definition recommended for the use of system mpich here:
-#https://bugs.openfoam.org/view.php?id=1167
+#Using a combination of the variable definition recommended for the use of system mpich in this link:
+#   https://bugs.openfoam.org/view.php?id=1167
 #And in the file .../OpenFOAM-$OFVERSION/wmake/rules/General/mplibMPICH
-#(These MPI_* environmental variables are set in the prefs.sh as suggested in the link above,
-# and this file is sourced automatically by the bashrc when the bashrc is sourced)
-#--As suggested in the link, WM_MPLIB and MPI_ROOT need to be set:
+#(These MPI_* environmental variables are set in the prefs.sh,
+# and this file will be sourced automatically by the bashrc when the bashrc is sourced)
+#
+#--As suggested in the link above, WM_MPLIB and MPI_ROOT need to be set:
  && echo 'export WM_MPLIB=SYSTEMMPI' >> ${OFPREFS} \
  && echo 'export MPI_ROOT="/usr"' >> ${OFPREFS} \
-#--As suggested in the link, MPI_ARCH_FLAGS,MPI_ARCH_INC,MPI_ARCH_LIBS need to be set
-#The suggestions from the link are: (only those that work for this installation are left alive)
+#
+#--As suggested in the link above, MPI_ARCH_FLAGS,MPI_ARCH_INC,MPI_ARCH_LIBS need to be set:
+#--Leaving active only the options that worked from different suggestions (A,B,C)
+#  ~(A)The suggestions from the link above:
 ## && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_INC="-I/usr/include/mpich"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_LIBS="-L/usr/lib/x86_64-linux-gnu -lmpich"' >> ${OFPREFS} \
-#--The suggestions from the file mplibMPICH are: (only those that work are left alive)
+#
+#  ~(B)The suggestions from the file mplibMPICH are:
  && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OFPREFS} \
  && echo 'export MPI_ARCH_INC="-I${MPI_ROOT}/include"' >> ${OFPREFS} \
  && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OFPREFS} \
-#--Even further modifications needed are: (only those that work are left alive)
+#
+#  ~(C)Even further modifications were needed for some other OpenFOAM versions:
 ##AEG:Gcc7 has problems with the -isystem flag. Using -I instead:
 ## && echo 'export MPI_ARCH_INC="-I${MPI_ROOT}/include"' >> ${OFPREFS} \
 ##AEG:Only one library path and using -lmpich
@@ -183,34 +181,9 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #--Dummy line:
  && echo ''
 
-
 #...........
 #Step 5.
 #Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
-
-#DD:Not Needed:#Download scotch because we are not installing from apt-get(see above)
-#DD:Not Needed:# (Instructions taken from wiki for Ubuntu 12.04)
-#DD:Not Needed:RUN . ${OFBASHRC} \
-#DD:Not Needed: && cd $WM_THIRD_PARTY_DIR \
-#DD:Not Needed: && mkdir download \
-#DD:Not Needed: && wget --no-check-certificate -P download \
-#DD:Not Needed:    https://gforge.inria.fr/frs/download.php/file/34099/scotch_6.0.3.tar.gz \
-#DD:Not Needed: && tar -xzf download/scotch_6.0.3.tar.gz \
-#DD:Not Needed: && rm -rf download
-
-#DD:Not Needed:#Updating the CGAL setting to the system one (installed at the beginning):
-#DD:Not Needed:#boost is already signaling to the system one (installed at the beginning too):
-#DD:Not Needed:ARG OFCGAL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/CGAL.sh
-#DD:Not Needed:RUN . ${OFBASHRC} \
-#DD:Not Needed: && cp ${OFCGAL} ${OFCGAL}.original \
-#DD:Not Needed: && sed -i '/^cgal_version=.*/acgal_version=cgal-system' ${OFCGAL} \
-#DD:Not Needed: && sed -i '0,/^cgal_version/s//# cgal_version/' ${OFCGAL} \
-#DD:Not Needed:#AEG: commenting the definition of variables to avoid further settings as will use system installed tools
-#DD:Not Needed: && sed -i 's,export BOOST_ARCH_PATH,# export BOOST_ARCH_PATH,' ${OFCGAL} \
-#DD:Not Needed: && sed -i 's,export CGAL_ARCH_PATH,# export CGAL_ARCH_PATH,' ${OFCGAL} \
-#DD:Not Needed:#" (This comment line is needed to let vi to show the right syntax)
-#DD:Not Needed:#--Dummy line:
-#DD:Not Needed: && echo ''
 
 #Fix for the build options for scotch:
 RUN . ${OFBASHRC} \
@@ -233,7 +206,6 @@ RUN . ${OFBASHRC} \
  && find src applications -name "*.L" -type f | xargs sed -i -e \
     's=\(YY\_FLEX\_SUBMINOR\_VERSION\)=YY_FLEX_MINOR_VERSION < 6 \&\& \1='
 
-
 #OpenFOAM compilation 
 ENV WM_NCOMPPROCS=4
 RUN . ${OFBASHRC} \
@@ -252,6 +224,7 @@ RUN . ${OFBASHRC} \
 #Install one or the other: paraview or VTK
 #Install paraview or VTK for runTimePostprocessing of OpenFOAM to properly compile
 #Install paraview for graphical postprocessing to be available in the container 
+#Note (for OpenFOAM-2.2.0 The paraview installation only worked when done after the OpenFOAM installation)
 
 ##Installation of old version of cmake (following wiki instructions for OpenFOAM-2.2.2/ubuntu16.04)
 RUN . ${OFBASHRC} \
@@ -285,7 +258,6 @@ RUN . ${OFBASHRC} \
  && cd $FOAM_UTILITIES/postProcessing/graphics/PV3Readers \ 
  && ./Allwclean \
  && ./Allwmake
-
 
 #...........
 #Step 8.
