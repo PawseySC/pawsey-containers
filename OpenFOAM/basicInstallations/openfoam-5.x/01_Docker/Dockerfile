@@ -8,7 +8,7 @@ FROM pawsey/mpich-base:3.1.4_ubuntu16.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
-ARG OFVERSION="2.4.x"
+ARG OFVERSION="5.x"
 #Using bash from now on
 SHELL ["/bin/bash", "-c"]
 

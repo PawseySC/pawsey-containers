@@ -87,7 +87,7 @@ RUN apt-get update -qq\
    gnuplot libreadline-dev libncurses-dev libxt-dev \
    qt4-dev-tools libqt4-dev libqt4-opengl-dev \ 
    freeglut3-dev libqtwebkit-dev \
-#AEG:No scotch because it installs openmpi which later messes up with shifter at pawsey
+#AEG:No scotch because it installs openmpi which later messes up with MPICH
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
 #AEG:NoScotch:   libscotch-dev \
 #AEG:I found the following was needed to install  FlexLexer.h

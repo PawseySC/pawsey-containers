@@ -53,14 +53,14 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 #---------------------------------------------------------------
 # III. INSTALLING OPENFOAM.
 #This section is for installing OpenFOAM
-#Will NOT follow strictly the official installation instructions:
+#Will follow PARTIALLY the official installation instructions:
 #https://www.openfoam.com/documentation/system-requirements.php
 #and
 #https://www.openfoam.com/code/build-guide.php
 #and
 #https://www.openfoam.com/download/install-source.php
 #
-#Will NOT follow strictly the instructions for openfoamplus available in the wiki (latest is for v1806):
+#Will follow PARTIALLY the instructions for openfoamplus available in the wiki (latest is for v1806):
 #https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu
 #
 #Then, Will follow a combination of both
@@ -86,7 +86,7 @@ RUN apt-get update -qq\
    flex bison cmake zlib1g-dev \
 #AEG:No Boost because the third party will be used
 #AEG:NoBoost:   libboost-system-dev libboost-thread-dev \
-#AEG:No OpenMPI because MPICH will be used (installed in the parent FROM container)
+#AEG:No OpenMPI because MPICH will be used (installed in the parent FROM image)
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
    gnuplot libreadline-dev libncurses-dev libxt-dev \
 #AEG:Not installing qt4 (as in the official instructions), but qt5 as in the wiki instructions
@@ -95,7 +95,7 @@ RUN apt-get update -qq\
    freeglut3-dev libqtwebkit-dev \
 #AEG:Wiki additional qt suggestions (from OpenFOAM-7):
    qtbase5-dev \
-#AEG:No scotch because it installs openmpi which later messes up with shifter at pawsey
+#AEG:No scotch because it installs openmpi which later messes up with MPICH
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
 #AEG:NoScotch:   libscotch-dev \
 #AEG:No CGAL because third party will be used
@@ -134,20 +134,24 @@ ARG OFBASHRC=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/bashrc
 #Defining the prefs.sh:
 RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh > $OFPREFS \
  && echo '#------------------------------------------------------------------------------' >> ${OFPREFS} \
-#Using a combination of the variable definition recommended for the use of system mpich here:
-#https://bugs.openfoam.org/view.php?id=1167
+#Using a combination of the variable definition recommended for the use of system mpich in this link:
+#   https://bugs.openfoam.org/view.php?id=1167
 #And in the file .../OpenFOAM-$OFVERSION/wmake/rules/General/mplibMPICH
-#(These MPI_* environmental variables are set in the prefs.sh as suggested in the link above,
-# and this file is sourced automatically by the bashrc when the bashrc is sourced)
-#--As suggested in the link, WM_MPLIB and MPI_ROOT need to be set:
+#(These MPI_* environmental variables are set in the prefs.sh,
+# and this file will be sourced automatically by the bashrc when the bashrc is sourced)
+#
+#--As suggested in the link above, WM_MPLIB and MPI_ROOT need to be set:
  && echo 'export WM_MPLIB=SYSTEMMPI' >> ${OFPREFS} \
  && echo 'export MPI_ROOT="/usr"' >> ${OFPREFS} \
-#--As suggested in the link, MPI_ARCH_FLAGS,MPI_ARCH_INC,MPI_ARCH_LIBS need to be set
-#The suggestions from the link are: (only those that work for this installation are left alive)
+#
+#--As suggested in the link above, MPI_ARCH_FLAGS,MPI_ARCH_INC,MPI_ARCH_LIBS need to be set:
+#--Leaving active only the options that worked from different suggestions (A,B,C)
+#  ~(A)The suggestions from the link above:
 ## && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_INC="-I/usr/include/mpich"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_LIBS="-L/usr/lib/x86_64-linux-gnu -lmpich"' >> ${OFPREFS} \
-#--The suggestions from the file mplibMPICH are: (only those that work are left alive)
+#
+#  ~(B)The suggestions from the file mplibMPICH are:
  && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_INC="-isystem $MPI_ROOT/include"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpi -lrt"' >> ${OFPREFS} \
@@ -185,8 +189,8 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #Install paraview for catalyst module to properly compile (wont work with just VTK)
 #Install paraview for graphical postprocessing to be available in the container 
 
-##@@-@@#:#AEG: So far, I have only succeeded installing VTK
-##@@-@@#:##VTK compilation (Adapted alternative instructions)
+##VTK compilation
+##@@-@@#:##VTK compilation (Adapted alternative instructions)(working)
 ##@@-@@#:ARG exaFile=makeVTK.example
 ##@@-@@#:ARG conFile=makeVTK.container
 ##@@-@@#:RUN . ${OFBASHRC} \
