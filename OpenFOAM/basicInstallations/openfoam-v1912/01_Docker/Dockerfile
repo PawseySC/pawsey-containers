@@ -1,7 +1,7 @@
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# 0. Initial main definintion
+# 0. Initial main definition
 # Defining the base container to build from
 # In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays
 FROM pawsey/mpich-base:3.1.4_ubuntu18.04
@@ -155,7 +155,8 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh >
  && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_INC="-isystem $MPI_ROOT/include"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpi -lrt"' >> ${OFPREFS} \
-#--Even further modifications needed are: (only those that work are left alive)
+#
+#  ~(C)Even further modifications were needed for some other OpenFOAM versions:
 ##AEG:Gcc7 has problems with the -isystem flag. Using -I instead:
  && echo 'export MPI_ARCH_INC="-I ${MPI_ROOT}/include"' >> ${OFPREFS} \
 ##AEG:Only one library path and using -lmpich

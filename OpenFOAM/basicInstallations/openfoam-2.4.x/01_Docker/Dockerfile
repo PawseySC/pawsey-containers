@@ -1,7 +1,7 @@
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# 0. Initial main definintion
+# 0. Initial main definition
 # Defining the base image to build from
 # In this case: mpich 3.1.4 and ubuntu 16.04; MPICH is needed for crays
 FROM pawsey/mpich-base:3.1.4_ubuntu16.04
