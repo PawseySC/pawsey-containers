@@ -1,6 +1,7 @@
-FROM pawsey/mpi-base:3.1.4
+FROM pawsey/mpich-base:3.1.4_ubuntu18.04
 
-LABEL maintainer="brian.skjerven@pawsey.org.au"
+LABEL maintainer="marco.delapierre@pawsey.org.au"
+#Original maintainer="brian.skjerven@pawsey.org.au"
 
 # Install Python, compilers, and other utilities
 RUN apt-get update -qq && apt-get -y --no-install-recommends install \
