@@ -204,7 +204,7 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 ##@@-@@#: && ln -s ParaView-v5.6.3/VTK VTK-8.2.0 \
 ##@@-@@#:#AEG: will use the conFile to run the installation
 ##@@-@@#: && cp $exaFile $conFile \
-##@@-@@#:#AEG: scritps are failing shebang /bin/sh, changing explicitly to bash:
+##@@-@@#:#AEG: scritps are failing due to bash-isms, changing explicitly to bash:
 ##@@-@@#: && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' $conFile \
 ##@@-@@#: && sed -i 's,^#!/bin/sh,###!/bin/sh,' $conFile \
 ##@@-@@#:#AEG: system mesa is 19.2.1, but setting is really for ThirdParty mesa, so it is not needed
@@ -231,7 +231,7 @@ RUN . ${OFBASHRC} \
  && $WM_PROJECT_DIR/wmake/src/Allmake \
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
-#AEG: makeParaView failing with shebang "/bin/sh", changing explicitly to bash:
+#AEG: makeParaView failing due to bash-isms, changing explicitly to bash:
  && cp makeParaView makeParaView.original \
  && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' makeParaView \
  && sed -i 's,^#!/bin/sh,###!/bin/sh,' makeParaView \

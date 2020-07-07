@@ -8,7 +8,7 @@ FROM pawsey/mpich-base:3.1.4_ubuntu18.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
-ARG OFVERSION="v1912"
+ARG OFVERSION="v2006"
 #Using bash from now on
 SHELL ["/bin/bash", "-c"]
 
@@ -60,8 +60,9 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 #and
 #https://www.openfoam.com/download/install-source.php
 #
-#Will follow PARTIALLY the instructions for openfoamplus available in the wiki (latest is for v1806):
+#Will follow PARTIALLY the instructions for openfoamplus available in the wiki (latest for ubuntu is v1806):
 #https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu
+#(There are some other instructions for v1906, but not for ubuntu)
 #
 #Then, Will follow a combination of both
 
@@ -86,8 +87,11 @@ RUN apt-get update -qq\
    flex bison cmake zlib1g-dev \
 #AEG:No Boost because the third party will be used
 #AEG:NoBoost:   libboost-system-dev libboost-thread-dev \
+#AEG:Trying
+   libboost-system-dev libboost-thread-dev \
 #AEG:No OpenMPI because MPICH will be used (installed in the parent FROM image)
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
+   libfftw3-dev \
    gnuplot libreadline-dev libncurses-dev libxt-dev \
 #AEG:Not installing qt4 (as in the official instructions), but qt5 as in the wiki instructions
 #AEG:NoQt4:   qt4-dev-tools libqt4-dev libqt4-opengl-dev \ 
@@ -100,6 +104,8 @@ RUN apt-get update -qq\
 #AEG:NoScotch:   libscotch-dev \
 #AEG:No CGAL because third party will be used
 #AEG:NoCGAL:   libcgal-dev \
+#AEG:Trying:
+   libcgal-dev \
 #AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
    libgmp-dev libmpfr-dev\
 #AEG: Some more suggestions from the wiki instructions:
@@ -109,7 +115,6 @@ RUN apt-get update -qq\
    libfl-dev \
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
-
 
 #...........
 #Step 2. Download
@@ -190,41 +195,6 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #Install paraview for catalyst module to properly compile (wont work with just VTK)
 #Install paraview for graphical postprocessing to be available in the container 
 
-##VTK compilation
-##@@-@@#:##VTK compilation (Adapted alternative instructions)(working)
-##@@-@@#:ARG exaFile=makeVTK.example
-##@@-@@#:ARG conFile=makeVTK.container
-##@@-@@#:RUN . ${OFBASHRC} \
-##@@-@@#:#AEG: recomendation in the ThirdParty-xx/README.md:
-##@@-@@#: && $WM_PROJECT_DIR/wmake/src/Allmake \
-##@@-@@#: && cd $WM_THIRD_PARTY_DIR \
-##@@-@@#:#AEG: wiki instructions recommend to set this variable for paraview, but I'm skipping the setting
-##@@-@@#:# && export QT_SELECT=qt5 \
-##@@-@@#:#AEG: trick to create a VTK "folder", which is indeed a link to the VTK provided in the ThirdParty paraview
-##@@-@@#: && ln -s ParaView-v5.6.3/VTK VTK-8.2.0 \
-##@@-@@#:#AEG: will use the conFile to run the installation
-##@@-@@#: && cp $exaFile $conFile \
-##@@-@@#:#AEG: scritps are failing due to bash-isms, changing explicitly to bash:
-##@@-@@#: && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' $conFile \
-##@@-@@#: && sed -i 's,^#!/bin/sh,###!/bin/sh,' $conFile \
-##@@-@@#:#AEG: system mesa is 19.2.1, but setting is really for ThirdParty mesa, so it is not needed
-##@@-@@#:# && sed -i '/^mesa=.*/amesa=mesa-19.2.1' $conFile \
-##@@-@@#: && sed -i '0,/^mesa/s//# mesa/' $conFile \ 
-##@@-@@#:#AEG: removing the mesa set up and the weird vtk line
-##@@-@@#: && sed -i -e '/-osmesa/d' -e '/-mesa-prefix/d' -e '/$vtk/d' $conFile \
-##@@-@@#:#AEG: makeVTK is still called by $conFile, but  scritps are failing with /bin/sh, change to bash:
-##@@-@@#: && cp makeVTK makeVTK.original \
-##@@-@@#: && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' makeVTK \
-##@@-@@#: && sed -i 's,^#!/bin/sh,###!/bin/sh,' makeVTK \
-##@@-@@#: && ./$conFile 2>&1 | tee log.makeVTK
-
-##Paraview compilation (Official instructions for v1912)(not working for me yet, may need many adaptations as for VTK above)
-##-##:RUN . ${OFBASHRC} \
-##-##:#AEG: recomendation in the ThirdParty-xx/README.md:
-##-##: && $WM_PROJECT_DIR/wmake/src/Allmake \
-##-##: && cd $WM_THIRD_PARTY_DIR \
-##-##: && ./makeParaView | tee log.makePV
-
 ##Paraview compilation (Adapted alternative instructions from OpenFoamWiki)
 RUN . ${OFBASHRC} \
 #AEG: recomendation in the ThirdParty-xx/README.md:
@@ -237,18 +207,17 @@ RUN . ${OFBASHRC} \
  && sed -i 's,^#!/bin/sh,###!/bin/sh,' makeParaView \
  && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
 
-
-#...........
-#Step 5.
-#Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
-#Updating the BOOST version to be used:
-ARG OFCGAL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/CGAL
-RUN cp ${OFCGAL} ${OFCGAL}.original \
- && sed -i '/^boost_version=.*/aboost_version=boost_1_64_0' ${OFCGAL} \
- && sed -i '0,/^boost_version/s//# boost_version/' ${OFCGAL} \
-#" (This comment line is needed to let vi to show the right syntax)
-#--Dummy line:
- && echo ''
+#AEG##...........
+#AEG##Step 5.
+#AEG##Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
+#AEG##Updating the BOOST version to be used:
+#AEG#ARG OFCGAL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/CGAL
+#AEG#RUN cp ${OFCGAL} ${OFCGAL}.original \
+#AEG# && sed -i '/^boost_version=.*/aboost_version=boost_1_64_0' ${OFCGAL} \
+#AEG# && sed -i '0,/^boost_version/s//# boost_version/' ${OFCGAL} \
+#AEG##" (This comment line is needed to let vi to show the right syntax)
+#AEG##--Dummy line:
+#AEG# && echo ''
 
 #Third party compilation
 RUN . ${OFBASHRC} \
@@ -259,29 +228,36 @@ RUN . ${OFBASHRC} \
 
 #...........
 #Step 6.
-#OpenFOAM compilation (From official instructions)
-ENV WM_NCOMPPROCS=4
+#AEG: Compilation of "Additional components/modules" is failing due to bash-isms, changing explicitly to bash:
 RUN . ${OFBASHRC} \
  && cd $WM_PROJECT_DIR \
- && ./Allwmake 2>&1 | tee log.Allwmake
+ && cp Allwmake Allwmake.original \
+ && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' Allwmake \
+ && sed -i 's,^#!/bin/sh,###!/bin/sh,' Allwmake
 
-#Obtaining a summary
-RUN . ${OFBASHRC} \
- && cd $WM_PROJECT_DIR \
- && ./Allwmake 2>&1 | tee log.AllwmakeSummary
-
-##OpenFOAM compilation (Adapted alternative instructions from OpenFoamWiki)
+##-##:#OpenFOAM compilation (From official instructions)
 ##-##:ARG OFNUMPROCOPTION="-j 4"
 ##-##:RUN . ${OFBASHRC} \
 ##-##: && cd $WM_PROJECT_DIR \
-##-##: && export QT_SELECT=qt5 \
 ##-##: && ./Allwmake $OFNUMPROCOPTION 2>&1 | tee log.Allwmake
 
-##Obtaining a  summary 
+##-##:#Obtaining a summary
 ##-##:RUN . ${OFBASHRC} \
 ##-##: && cd $WM_PROJECT_DIR \
-##-##: && export QT_SELECT=qt5 \
-##-##: && ./Allwmake $OFNUMPROCOPTION 2>&1 | tee log.AllwmakeSummary
+##-##: && ./Allwmake 2>&1 | tee log.AllwmakeSummary
+
+#OpenFOAM compilation (Adapted alternative instructions from OpenFoamWiki)
+ARG OFNUMPROCOPTION="-j 4"
+RUN . ${OFBASHRC} \
+ && cd $WM_PROJECT_DIR \
+ && export QT_SELECT=qt5 \
+ && ./Allwmake $OFNUMPROCOPTION 2>&1 | tee log.Allwmake
+
+#Obtaining a  summary 
+RUN . ${OFBASHRC} \
+ && cd $WM_PROJECT_DIR \
+ && export QT_SELECT=qt5 \
+ && ./Allwmake 2>&1 | tee log.AllwmakeSummary
 
 #...........
 #Step 7.
