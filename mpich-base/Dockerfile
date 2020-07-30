@@ -50,7 +50,7 @@ RUN wget http://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks
       && make install
 
 ### Quick Test ###
-RUN mpiexec -n 8 /tmp/mpich-build/mpich-3.1.4/examples/cpi 2>&1 | tee log.cpi
+RUN mpiexec -n 8 /tmp/mpich-build/mpich-${MPICH_VERSION}/examples/cpi 2>&1 | tee log.cpi
 
 
 ### Final settings ###
