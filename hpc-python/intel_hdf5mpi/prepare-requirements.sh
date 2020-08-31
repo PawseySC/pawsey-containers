@@ -36,8 +36,10 @@ sed -i 's/ *- //g' $REQ_FILE
 
 ### OK NOW FOR REAL - in the Dockerfile
 #conda install --no-update-deps -y  --file ${REQ_FILE}
+# HDF5 parallel install
+# 
 # pip for h5py and mpi4py
-#pip --no-cache-dir install --no-deps h5py==2.10.0 mpi4py==3.0.3
+#
 
 
 ## Performance note for scikit-learn
