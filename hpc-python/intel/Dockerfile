@@ -46,7 +46,7 @@ ARG REQ_LABEL="30Aug2020"
 ARG REQ_FILE="requirements-${REQ_LABEL}.yaml"
 
 ADD ${REQ_FILE} /requirements.yaml
-RUN conda install --no-update-deps -y --file /requirements.yaml \
+RUN conda install --no-deps -y --file /requirements.yaml \
       && conda clean -ay
 
 # this is just to fix an intelpython missing dep, hopefully won't be needed in future
