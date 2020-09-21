@@ -217,7 +217,12 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 #Defining defaults of the controlDict
 ARG OFCONTROL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/controlDict
 #(No other defaults to be defined yet)
-RUN cp ${OFCONTROL} ${OFCONTROL}.original
+RUN cp ${OFCONTROL} ${OFCONTROL}.original \
+#Setting collated as default for fileHandler
+ && sed -i '\@fileHandler uncollated;@a    fileHandler collated;' ${OFCONTROL} \
+ && sed -i '0,\@fileHandler uncollated;@s@@// fileHandler uncollated;@' ${OFCONTROL} \
+#--Dummy line:
+ && echo ''
 
 #...........
 #Step 8.

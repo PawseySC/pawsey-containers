@@ -12,3 +12,5 @@ localDisk
 ._*
 slurm*
 borra*
+*.old
+*.sif
