@@ -1,9 +1,9 @@
 ARG OS_VERSION=18.04
 FROM ubuntu:${OS_VERSION}
 
-LABEL maintainer="alexis.espinosa@pawsey.org.au"
-#Previously maintained by:
-#LABEL maintainer="brian.skjerven@pawsey.org.au"
+LABEL maintainer="marco.delapierre@pawsey.org.au"
+
+
 
 
 # Install package dependencies
@@ -18,24 +18,24 @@ RUN apt-get update -qq \
       && rm -r /var/lib/apt/lists/*
 
 
-### Build MPICH ###
+### Build OPENMPI ###
 
-ARG MPICH_VERSION="3.1.4"
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
-ARG MPICH_MAKE_OPTIONS="-j4"
+ARG OPENMPI_VERSION="4.0.2"
+ARG OPENMPI_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
+ARG OPENMPI_MAKE_OPTIONS="-j4"
 
-RUN mkdir -p /tmp/mpich-build \
-      && cd /tmp/mpich-build \
-      && wget http://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz \
-      && tar xvzf mpich-${MPICH_VERSION}.tar.gz \
-      && cd mpich-${MPICH_VERSION}  \
-      && ./configure ${MPICH_CONFIGURE_OPTIONS} \
-      && make ${MPICH_MAKE_OPTIONS} \
+RUN mkdir -p /tmp/openmpi-build \
+      && cd /tmp/openmpi-build \
+      && OPENMPI_VER_MM="${OPENMPI_VERSION%.*}" \
+      && wget http://www.openmpi.org/software/ompi/v${OPENMPI_VER_MM}/downloads/openmpi-${OPENMPI_VERSION}.tar.bz2 \
+      && tar xjf openmpi-${OPENMPI_VERSION}.tar.bz2 \
+      && cd openmpi-${OPENMPI_VERSION}  \
+      && ./configure ${OPENMPI_CONFIGURE_OPTIONS} \
+      && make ${OPENMPI_MAKE_OPTIONS} \
       && make install \
       && ldconfig \
-      && cp -p /tmp/mpich-build/mpich-${MPICH_VERSION}/examples/cpi /usr/bin/ \
       && cd / \
-      && rm -rf /tmp/mpich-build
+      && rm -rf /tmp/openmpi-build
 
 
 ### Build OSU Benchmarks ###
@@ -56,8 +56,8 @@ RUN mkdir -p /tmp/osu-benchmark-build \
       && rm -rf /tmp/osu-benchmark-build
 
 
-### Quick Test ###
-RUN mpiexec -n 8 /usr/bin/cpi 2>&1 | tee log.cpi
+
+
 
 ### Final settings ###
 WORKDIR /
