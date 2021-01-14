@@ -175,6 +175,15 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 ARG BASHRC_OPTIONS="FOAMY_HEX_MESH=yes"
 
 #...........
+#Modifying the "aliases" file to avoid the "declare" error with singularity at Pawsey
+#Idea for modification comes from the same file in openfoam-6
+ARG OFALIASFILE=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/aliases
+RUN cp ${OFALIASFILE} ${OFALIASFILE}.original \
+ && sed -i 's,declare -f wmRefresh > /dev/null, command -V wmRefresh 2> /dev/null | head -1 | grep -q "function",' ${OFALIASFILE} \
+#--Dummy line:
+ && echo ''
+
+#...........
 #Step 4.
 ##Paraview compilation (Using instructions from the wiki)
 RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \

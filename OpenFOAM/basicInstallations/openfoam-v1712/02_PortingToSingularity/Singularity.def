@@ -1,0 +1,7 @@
+Bootstrap: docker
+From: pawsey/openfoam:v1712
+
+%post
+/bin/mv /bin/sh /bin/sh.original
+/bin/ln -s /bin/bash /bin/sh
+echo ". /opt/OpenFOAM/OpenFOAM-v1712/etc/bashrc" >> $SINGULARITY_ENVIRONMENT
