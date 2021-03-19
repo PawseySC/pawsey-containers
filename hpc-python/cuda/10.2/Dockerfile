@@ -1,4 +1,4 @@
-ARG PAWSEY_BASE="3.8_mpich3.1.4"
+ARG PAWSEY_BASE="3.8_mpich3.1.4_2"
 FROM pawsey/hpc-python:${PAWSEY_BASE}
 
 

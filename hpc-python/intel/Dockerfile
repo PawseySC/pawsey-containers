@@ -42,16 +42,16 @@ RUN mkdir -p /tmp/mpich-build \
 
 # Install Python packages - conda
 
-ARG REQ_LABEL="30Aug2020"
+ARG REQ_LABEL="19Mar2021"
 ARG REQ_FILE="requirements-${REQ_LABEL}.yaml"
 
 ADD ${REQ_FILE} /requirements.yaml
 RUN conda install --no-deps -y --file /requirements.yaml \
       && conda clean -ay
 
-# this is just to fix an intelpython missing dep, hopefully won't be needed in future
-RUN conda install --no-deps -y threadpoolctl \
-      && conda clean -ay
+# this is to accelerate scikit-learn with daal4py
+
+ENV USE_DAAL4PY_SKLEARN=YES
 
 
 # Precedence to MPICH
@@ -60,12 +60,13 @@ ENV LD_LIBRARY_PATH=/usr/lib \
        LIBRARY_PATH=/usr/lib
 
 
-# Install Python packages - h5py and mpi4py with pip
+# Install Python packages - h5py and mpi4py with pip, and eventually their dependencies
 
-ARG H5PY_VERSION="2.10.0"
+ARG DEPENDENCIES="cached_property==1.5.2"
+ARG H5PY_VERSION="3.2.1"
 ARG MPI4PY_VERSION="3.0.3"
 
-RUN pip --no-cache-dir install --no-deps h5py==${H5PY_VERSION} mpi4py==${MPI4PY_VERSION}
+RUN pip --no-cache-dir install --no-deps ${DEPENDENCIES} h5py==${H5PY_VERSION} mpi4py==${MPI4PY_VERSION}
 
 
 # Final

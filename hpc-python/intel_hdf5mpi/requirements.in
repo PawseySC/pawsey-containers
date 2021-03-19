@@ -1,6 +1,6 @@
 astropy
 cython
-dask==2.24.0
+dask
 matplotlib
 nose
 numba

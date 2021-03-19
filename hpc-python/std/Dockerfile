@@ -39,7 +39,7 @@ RUN mkdir -p /tmp/mpich-build \
 
 # Install Python packages
 
-ARG REQ_LABEL="27Aug2020"
+ARG REQ_LABEL="19Mar2021"
 ARG REQ_FILE="requirements-${REQ_LABEL}.txt"
 
 ADD requirements.in /

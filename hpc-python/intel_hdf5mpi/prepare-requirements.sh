@@ -17,13 +17,14 @@
 # newer pandas conflicts ..
 #conda install --no-update-deps -d  astropy cython dask==2.24.0 matplotlib nose numba pandas pytest scikit-learn
 
+# as of 19 March 2021, the plain list of packages (no versions) now works
 
 ### PREPARE LIST OF VERSIONED PACKAGES
 # let's install
 #conda install --no-update-deps -y  astropy cython dask==2.24.0 matplotlib nose numba pandas pytest scikit-learn
 conda install --no-update-deps -y  --file requirements.in
 # let's freeze
-REQ_LABEL="30Aug2020"
+REQ_LABEL="19Mar2021"
 ENV_FILE="environment-${REQ_LABEL}.yaml"
 conda env export >${ENV_FILE}
 # let's convert from environment to requirements
