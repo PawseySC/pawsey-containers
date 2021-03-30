@@ -102,9 +102,7 @@ RUN apt-get update -qq\
 #AEG:No scotch because it installs openmpi which later messes up with MPICH
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
 #AEG:NoScotch:   libscotch-dev \
-#AEG:No CGAL because third party will be used
-#AEG:NoCGAL:   libcgal-dev \
-#AEG:Trying:
+#AEG:Yes CGAL (then, third party will not be installed):
    libcgal-dev \
 #AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
    libgmp-dev libmpfr-dev\
