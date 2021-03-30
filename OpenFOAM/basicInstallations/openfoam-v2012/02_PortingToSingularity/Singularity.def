@@ -1,0 +1,8 @@
+Bootstrap: docker
+#Bootstrap: docker-daemon
+From: pawsey/openfoam:v2012
+
+%post
+/bin/mv /bin/sh /bin/sh.original
+/bin/ln -s /bin/bash /bin/sh
+echo ". /opt/OpenFOAM/OpenFOAM-v2012/etc/bashrc" >> $SINGULARITY_ENVIRONMENT
