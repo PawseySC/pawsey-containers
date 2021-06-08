@@ -28,7 +28,7 @@ distributed==2021.3.0
     # via dask
 fsspec==0.8.7
     # via dask
-#h5py==3.2.1
+h5py==3.2.1
     # via -r requirements.in
 heapdict==1.0.1
     # via zict
@@ -79,7 +79,7 @@ pandas==1.2.3
     #   dask
 partd==1.1.0
     # via dask
-pillow==8.1.2
+pillow==8.2.0
     # via
     #   bokeh
     #   matplotlib
