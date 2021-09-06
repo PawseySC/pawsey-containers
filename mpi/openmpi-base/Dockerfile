@@ -1,9 +1,8 @@
-ARG OS_VERSION=18.04
+ARG OS_VERSION="18.04"
 FROM ubuntu:${OS_VERSION}
 
+
 LABEL maintainer="marco.delapierre@pawsey.org.au"
-
-
 
 
 # Install package dependencies
@@ -18,7 +17,7 @@ RUN apt-get update -qq \
       && rm -r /var/lib/apt/lists/*
 
 
-### Build OPENMPI ###
+# Build OPENMPI
 
 ARG OPENMPI_VERSION="4.0.2"
 ARG OPENMPI_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
@@ -38,7 +37,7 @@ RUN mkdir -p /tmp/openmpi-build \
       && rm -rf /tmp/openmpi-build
 
 
-### Build OSU Benchmarks ###
+# Build OSU Benchmarks
 
 ARG OSU_BENCH_VERSION="5.4.2"
 ARG OSU_BENCH_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3"
@@ -59,6 +58,7 @@ RUN mkdir -p /tmp/osu-benchmark-build \
 
 
 
-### Final settings ###
+
+# Final settings
 WORKDIR /
 CMD ["/bin/bash"]

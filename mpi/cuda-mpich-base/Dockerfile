@@ -1,9 +1,8 @@
-ARG CUDA_VERSION=10.1
-ARG OS_VERSION=18.04
+ARG OS_VERSION="18.04"
+ARG CUDA_VERSION="10.1"
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${OS_VERSION}
 
 LABEL maintainer="marco.delapierre@pawsey.org.au"
-
 
 
 # Install package dependencies
@@ -18,7 +17,7 @@ RUN apt-get update -qq \
       && rm -r /var/lib/apt/lists/*
 
 
-### Build MPICH ###
+# Build MPICH
 
 ARG MPICH_VERSION="3.1.4"
 ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
@@ -38,7 +37,7 @@ RUN mkdir -p /tmp/mpich-build \
       && rm -rf /tmp/mpich-build
 
 
-### Build OSU Benchmarks ###
+# Build OSU Benchmarks
 
 ARG OSU_BENCH_VERSION="5.6.3"
 ARG OSU_BENCH_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3 --enable-cuda --with-cuda=/usr/local/cuda"
@@ -56,9 +55,10 @@ RUN mkdir -p /tmp/osu-benchmark-build \
       && rm -rf /tmp/osu-benchmark-build
 
 
-### Quick Test ###
+# Quick Test
 RUN mpiexec -n 8 /usr/bin/cpi 2>&1 | tee log.cpi
 
-### Final settings ###
+
+# Final settings
 WORKDIR /
 CMD ["/bin/bash"]
