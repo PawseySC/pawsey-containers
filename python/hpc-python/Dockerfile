@@ -1,6 +1,5 @@
-ARG PY_VERSION=3.8
+ARG PY_VERSION="3.9"
 FROM python:${PY_VERSION}-slim
-# Note: these python images are based on Debian (as of 27 August 2020, Debian 10 Buster)
 
 LABEL maintainer="marco.delapierre@pawsey.org.au"
 
@@ -20,7 +19,7 @@ RUN apt-get update -qq \
 # Build MPICH for mpi4py
 
 ARG MPICH_VERSION="3.1.4"
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
+ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr FFLAGS=-fallow-argument-mismatch"
 ARG MPICH_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/mpich-build \
@@ -39,12 +38,10 @@ RUN mkdir -p /tmp/mpich-build \
 
 # Install Python packages
 
-ARG REQ_LABEL="19Mar2021"
-ARG REQ_FILE="requirements-${REQ_LABEL}.txt"
+ARG DATE_FILE="06Sep2021"
 
-ADD requirements.in /
-ADD ${REQ_FILE} /requirements.txt
-RUN pip3 --no-cache-dir install -r /requirements.txt --no-deps
+ADD requirements.in requirements-${DATE_FILE}.txt /
+RUN pip3 --no-cache-dir install -r /requirements-${DATE_FILE}.txt --no-deps
 
 
 # Final
