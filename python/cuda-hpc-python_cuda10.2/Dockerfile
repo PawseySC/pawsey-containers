@@ -1,5 +1,5 @@
-ARG PAWSEY_BASE="3.8_mpich3.1.4_2"
-FROM pawsey/hpc-python:${PAWSEY_BASE}
+ARG PAWSEY_BASE="2021.09"
+FROM quay.io/pawsey/hpc-python:${PAWSEY_BASE}
 
 
 ##### START NVIDIA CUDA DOCKERFILES ####
@@ -37,15 +37,16 @@ ENV NVIDIA_VISIBLE_DEVICES all
 ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
 ENV NVIDIA_REQUIRE_CUDA "cuda>=10.2 brand=tesla,driver>=396,driver<397 brand=tesla,driver>=410,driver<411 brand=tesla,driver>=418,driver<419 brand=tesla,driver>=440,driver<441"
 
-ENV NCCL_VERSION 2.7.8
+ENV NCCL_VERSION 2.10.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cuda-libraries-$CUDA_PKG_VERSION \
     cuda-npp-$CUDA_PKG_VERSION \
     cuda-nvtx-$CUDA_PKG_VERSION \
+    cuda-cusparse-$CUDA_PKG_VERSION \
     libcublas10=10.2.2.89-1 \
     libnccl2=$NCCL_VERSION-1+cuda10.2 \
-    && apt-mark hold libnccl2 \
+    && apt-mark hold libcublas10 libnccl2 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -56,8 +57,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cuda-libraries-dev-$CUDA_PKG_VERSION \
     cuda-minimal-build-$CUDA_PKG_VERSION \
     libcublas-dev=10.2.2.89-1 \
-    libnccl-dev=2.7.8-1+cuda10.2 \
-    && apt-mark hold libnccl-dev \
+    libnccl-dev=$NCCL_VERSION-1+cuda10.2 \
+    && apt-mark hold libcublas-dev libnccl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ENV LIBRARY_PATH /usr/local/cuda/lib64/stubs
