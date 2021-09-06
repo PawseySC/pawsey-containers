@@ -19,18 +19,18 @@ RUN apt-get update -qq \
 
 # Build OPENMPI
 
-ARG OPENMPI_VERSION="4.0.2"
-ARG OPENMPI_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr --with-cuda=/usr/local/cuda"
-ARG OPENMPI_MAKE_OPTIONS="-j4"
+ARG MPI_VERSION="4.0.2"
+ARG MPI_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr --with-cuda=/usr/local/cuda"
+ARG MPI_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/openmpi-build \
       && cd /tmp/openmpi-build \
-      && OPENMPI_VER_MM="${OPENMPI_VERSION%.*}" \
-      && wget http://www.openmpi.org/software/ompi/v${OPENMPI_VER_MM}/downloads/openmpi-${OPENMPI_VERSION}.tar.bz2 \
-      && tar xjf openmpi-${OPENMPI_VERSION}.tar.bz2 \
-      && cd openmpi-${OPENMPI_VERSION}  \
-      && ./configure ${OPENMPI_CONFIGURE_OPTIONS} \
-      && make ${OPENMPI_MAKE_OPTIONS} \
+      && MPI_VER_MM="${MPI_VERSION%.*}" \
+      && wget http://www.openmpi.org/software/ompi/v${MPI_VER_MM}/downloads/openmpi-${MPI_VERSION}.tar.bz2 \
+      && tar xjf openmpi-${MPI_VERSION}.tar.bz2 \
+      && cd openmpi-${MPI_VERSION}  \
+      && ./configure ${MPI_CONFIGURE_OPTIONS} \
+      && make ${MPI_MAKE_OPTIONS} \
       && make install \
       && ldconfig \
       && cd / \

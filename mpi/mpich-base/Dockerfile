@@ -19,20 +19,20 @@ RUN apt-get update -qq \
 
 # Build MPICH
 
-ARG MPICH_VERSION="3.1.4"
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
-ARG MPICH_MAKE_OPTIONS="-j4"
+ARG MPI_VERSION="3.1.4"
+ARG MPI_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
+ARG MPI_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/mpich-build \
       && cd /tmp/mpich-build \
-      && wget http://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz \
-      && tar xvzf mpich-${MPICH_VERSION}.tar.gz \
-      && cd mpich-${MPICH_VERSION}  \
-      && ./configure ${MPICH_CONFIGURE_OPTIONS} \
-      && make ${MPICH_MAKE_OPTIONS} \
+      && wget http://www.mpich.org/static/downloads/${MPI_VERSION}/mpich-${MPI_VERSION}.tar.gz \
+      && tar xvzf mpich-${MPI_VERSION}.tar.gz \
+      && cd mpich-${MPI_VERSION}  \
+      && ./configure ${MPI_CONFIGURE_OPTIONS} \
+      && make ${MPI_MAKE_OPTIONS} \
       && make install \
       && ldconfig \
-      && cp -p /tmp/mpich-build/mpich-${MPICH_VERSION}/examples/cpi /usr/bin/ \
+      && cp -p /tmp/mpich-build/mpich-${MPI_VERSION}/examples/cpi /usr/bin/ \
       && cd / \
       && rm -rf /tmp/mpich-build
 
