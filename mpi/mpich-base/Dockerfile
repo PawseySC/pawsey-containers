@@ -39,17 +39,17 @@ RUN mkdir -p /tmp/mpich-build \
 
 # Build OSU Benchmarks
 
-ARG OSU_BENCH_VERSION="5.4.2"
-ARG OSU_BENCH_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3"
-ARG OSU_BENCH_MAKE_OPTIONS="-j4"
+ARG OSU_VERSION="5.4.2"
+ARG OSU_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3"
+ARG OSU_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/osu-benchmark-build \
       && cd /tmp/osu-benchmark-build \
-      && wget http://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_BENCH_VERSION}.tar.gz \
-      && tar xzvf osu-micro-benchmarks-${OSU_BENCH_VERSION}.tar.gz \
-      && cd osu-micro-benchmarks-${OSU_BENCH_VERSION} \
-      && ./configure ${OSU_BENCH_CONFIGURE_OPTIONS} \
-      && make ${OSU_BENCH_MAKE_OPTIONS} \
+      && wget http://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
+      && tar xzvf osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
+      && cd osu-micro-benchmarks-${OSU_VERSION} \
+      && ./configure ${OSU_CONFIGURE_OPTIONS} \
+      && make ${OSU_MAKE_OPTIONS} \
       && make install \
       && cd / \
       && rm -rf /tmp/osu-benchmark-build
