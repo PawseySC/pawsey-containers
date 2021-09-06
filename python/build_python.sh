@@ -18,6 +18,8 @@ py_ver="3.9"
 ipy_ver="2020.2"
 cuda_ver="10.2"
 cuda_ext_ver="10.2.89"
+mpich_ver="3.1.4"
+hdf5_ver="1.12.0"
 
 
 # Get and format date
@@ -44,6 +46,7 @@ docker run --rm \
 rm -r .home_py
 docker build \
   --build-arg PY_VERSION="${py_ver}" \
+  --build-arg MPICH_VERSION="${mpich_ver}" \
   --build-arg DATE_FILE=${date_file} \
   -t quay.io/pawsey/$image .
 docker push quay.io/pawsey/$image
@@ -58,12 +61,38 @@ cd ..
 # Build and push images "hpc-python-hdf5mpi"
 repo="hpc-python-hdf5mpi"
 cd $repo
-image="${repo}:${date_tag}"
+image="${repo%-hdf5mpi}:${date_tag}-hdf5mpi"
 echo " .. Now building $image"
-
-
-
+docker run --rm \
+  -u $(id -u):$(id -g) \
+  -v $(pwd):$(pwd) -w $(pwd) \
+  --env date_file=${date_file} --env HOME=$(pwd)/.home_py \
+  python:${py_ver}-slim bash -c 'pip3 install --user pip-tools && \
+    $HOME/.local/bin/pip-compile requirements.in -o requirements-${date_file}.txt && \
+    sed -i "s/^h5py/#h5py/g" requirements-${date_file}.txt'
+rm -r .home_py
+docker build \
+  --build-arg PY_VERSION="${py_ver}" \
+  --build-arg MPICH_VERSION="${mpich_ver}" \
+  --build-arg HDF5_VERSION=${hdf5_ver} \
+  --build-arg DATE_FILE=${date_file} \
+  -t quay.io/pawsey/$image .
+docker push quay.io/pawsey/$image
+# Begin - Docker Hub - will go away
+docker tag quay.io/pawsey/$image pawsey/$image
+docker push pawsey/$image
+docker rmi pawsey/$image
+# End - Docker Hub
 cd ..
+
+
+# Build and push images "cuda-hpc-python"
+
+
+
+
+
+
 
 
 
