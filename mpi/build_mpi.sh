@@ -1,10 +1,17 @@
 #!/bin/bash
 
+basedir=$(readlink -f $0)
+basedir="${basedir%/*}"
+basedir="${basedir%/*}" # this assumes that the script sits in a subdirectory of $basedir
+cd $basedir/mpi
+
+
 echo " ***** "
 echo " This is an experimental script to automate build of some Pawsey base images."
 echo " Please ensure you are logged in to the container registry, otherwise push command will fail."
 echo " ***** "
 echo ""
+
 
 # Define versions of interest
 os_vers="16.04 18.04 20.04"
@@ -13,6 +20,7 @@ cuda_vers="10.1 10.2"
 mpich_vers="3.1.4"
 openmpi_vers="2.1.2 4.0.2" # when Zeus is gone, can ditch 2.x and unify this and the following variable
 openmpi_cuda_vers="4.0.2"
+
 
 # Update starting images
 for os in $os_vers ; do
