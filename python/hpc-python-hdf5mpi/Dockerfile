@@ -66,7 +66,7 @@ RUN mkdir -p /tmp/hdf5-build \
 
 # Install h5py
 
-RUN H5PY_VERSION=$( grep '#h5py' /requirements.txt ) && H5PY_VERSION=${H5PY_VERSION#*==} && H5PY_VERSION=${H5PY_VERSION%% *} \
+RUN H5PY_VERSION=$( grep '#h5py' /requirements-${DATE_FILE}.txt ) && H5PY_VERSION=${H5PY_VERSION#*==} && H5PY_VERSION=${H5PY_VERSION%% *} \
       && CC="mpicc" HDF5_MPI="ON" HDF5_DIR="/usr/local" pip3 --no-cache-dir install --no-deps --no-binary=h5py h5py==${H5PY_VERSION}
 
 
