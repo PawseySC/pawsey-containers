@@ -16,8 +16,8 @@ echo ""
 # Define versions of interest
 py_ver="3.9"
 ipy_ver="2020.2"
-cuda_ver="10.2" # this is for cuda-hpc-python -- each cuda version needs a dedicated dockerfile
-cuda_ext_ver="10.2.89" # this one is for cuda-intel-hpc-python
+cuda_ver="10.2" # this is for cuda-hpc-python -- BEWARE that EACH cuda version needs a SPECIFIC dockerfile
+cuda_toolkit_ver="10.2.89" # this one is for cuda-intel-hpc-python
 mpich_ver="3.1.4"
 hdf5_ver="1.12.0"
 
@@ -188,8 +188,38 @@ docker rmi pawsey/$image
 cd ..
 
 
+# Build and push images "cuda-intel-hpc-python"
+repo="cuda-intel-hpc-python"
+cd $repo
 
-
+#
+image="${repo}:${date_tag}"
+echo " .. Now building $image"
+docker build \
+  --build-arg PAWSEY_BASE="${date_tag}" \
+  --build-arg CUDATOOLKIT_VERSION="${cuda_toolkit_ver}" \
+  -t quay.io/pawsey/$image .
+docker push quay.io/pawsey/$image
+# Begin - Docker Hub - will go away
+docker tag quay.io/pawsey/$image pawsey/$image
+docker push pawsey/$image
+docker rmi pawsey/$image
+# End - Docker Hub
+#
+image="${repo}:${date_tag}-hdf5mpi"
+echo " .. Now building $image"
+docker build \
+  --build-arg PAWSEY_BASE="${date_tag}-hdf5mpi" \
+  --build-arg CUDATOOLKIT_VERSION="${cuda_toolkit_ver}" \
+  -t quay.io/pawsey/$image .
+docker push quay.io/pawsey/$image
+# Begin - Docker Hub - will go away
+docker tag quay.io/pawsey/$image pawsey/$image
+docker push pawsey/$image
+docker rmi pawsey/$image
+# End - Docker Hub
+#
+cd ..
 
 
 echo ""
