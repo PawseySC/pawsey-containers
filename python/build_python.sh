@@ -191,7 +191,6 @@ cd ..
 # Build and push images "cuda-intel-hpc-python"
 repo="cuda-intel-hpc-python"
 cd $repo
-
 #
 image="${repo}:${date_tag}"
 echo " .. Now building $image"
