@@ -119,6 +119,10 @@ docker rmi pawsey/$image
 cd ..
 
 
+mpi4py_ver="$( grep '^mpi4py' hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
+h5py_ver="$( grep '^h5py' hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
+
+
 # Build and push images "intel-hpc-python"
 repo="intel-hpc-python"
 cd $repo
@@ -135,8 +139,6 @@ cp environment-${date_file}.yaml requirements-${date_file}.yaml
 sed -i -n '/dependencies/,/prefix/p' requirements-${date_file}.yaml
 sed -i -e '/dependencies:/d' -e '/prefix:/d' requirements-${date_file}.yaml
 sed -i 's/ *- //g' requirements-${date_file}.yaml
-mpi4py_ver="$( grep '^mpi4py' ../hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
-h5py_ver="$( grep '^h5py' ../hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
 docker build \
   --build-arg IPY_VERSION="${ipy_ver}" \
   --build-arg MPICH_VERSION="${mpich_ver}" \
@@ -153,6 +155,37 @@ docker rmi pawsey/$image
 cd ..
 
 
+# Build and push images "intel-hpc-python-hdf5mpi"
+repo="intel-hpc-python-hdf5mpi"
+cd $repo
+image="${repo%-hdf5mpi}:${date_tag}-hdf5mpi"
+echo " .. Now building $image"
+docker run --rm \
+  -v $(pwd):$(pwd) -w $(pwd) \
+  --env date_file="${date_file}" --env myuser="$(id -u)" --env mygroup="$(id -g)" \
+  intelpython/intelpython3_core:${ipy_ver} bash -c 'conda install \
+    --no-update-deps -y --file requirements.in && \
+    conda env export -n base >environment-${date_file}.yaml && \
+    chown $myuser:$mygroup environment-${date_file}.yaml'
+cp environment-${date_file}.yaml requirements-${date_file}.yaml
+sed -i -n '/dependencies/,/prefix/p' requirements-${date_file}.yaml
+sed -i -e '/dependencies:/d' -e '/prefix:/d' requirements-${date_file}.yaml
+sed -i 's/ *- //g' requirements-${date_file}.yaml
+docker build \
+  --build-arg IPY_VERSION="${ipy_ver}" \
+  --build-arg MPICH_VERSION="${mpich_ver}" \
+  --build-arg HDF5_VERSION="${hdf5_ver}" \
+  --build-arg DATE_FILE="${date_file}" \
+  --build-arg MPI4PY_VERSION="${mpi4py_ver}" \
+  --build-arg H5PY_VERSION="${h5py_ver}" \
+  -t quay.io/pawsey/$image .
+docker push quay.io/pawsey/$image
+# Begin - Docker Hub - will go away
+docker tag quay.io/pawsey/$image pawsey/$image
+docker push pawsey/$image
+docker rmi pawsey/$image
+# End - Docker Hub
+cd ..
 
 
 

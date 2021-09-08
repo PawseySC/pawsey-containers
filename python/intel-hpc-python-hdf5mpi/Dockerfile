@@ -1,15 +1,15 @@
-ARG IPY_VERSION=2020.2
+ARG IPY_VERSION="2020.2"
 FROM intelpython/intelpython3_core:${IPY_VERSION}
-# Note: these python images are based on Debian (as of 27 August 2020, Debian 10 Buster)
 
 LABEL maintainer="marco.delapierre@pawsey.org.au"
+
 
 # Just one extra conda variable
 ENV CONDA_PREFIX="/opt/conda"
 
 
 # Install package dependencies
-RUN apt-get update -qq \
+RUN apt-get update -qq --allow-releaseinfo-change \
       && apt-get -y --no-install-recommends install \
          build-essential \
          ca-certificates \
@@ -42,27 +42,25 @@ RUN mkdir -p /tmp/mpich-build \
 
 # Install Python packages - conda
 
-ARG REQ_LABEL="19Mar2021"
-ARG REQ_FILE="requirements-${REQ_LABEL}.yaml"
+ARG DATE_FILE="06Sep2021"
 
-ADD ${REQ_FILE} /requirements.yaml
-RUN conda install --no-deps -y --file /requirements.yaml \
+ADD requirements.in requirements-${DATE_FILE}.yaml /
+RUN conda install --no-deps -y --file /requirements-${DATE_FILE}.yaml \
       && conda clean -ay
 
-# this is to accelerate scikit-learn with daal4py
 
-ENV USE_DAAL4PY_SKLEARN=YES
+# This is to accelerate scikit-learn with daal4py
+ENV USE_DAAL4PY_SKLEARN="YES"
 
 
 # Precedence to MPICH
-
-ENV LD_LIBRARY_PATH=/usr/lib \
-       LIBRARY_PATH=/usr/lib
+ENV LD_LIBRARY_PATH="/usr/lib" \
+       LIBRARY_PATH="/usr/lib"
 
 
 # Install HDF5-parallel
 
-ARG HDF5_VERSION="1.10.4"
+ARG HDF5_VERSION="1.12.0"
 ARG HDF5_CONFIGURE_OPTIONS="--prefix=/usr/local --enable-parallel CC=mpicc"
 ARG HDF5_MAKE_OPTIONS="-j4"
 
@@ -82,9 +80,9 @@ RUN mkdir -p /tmp/hdf5-build \
 
 # Install Python packages - h5py and mpi4py with pip, and eventually their dependencies
 
-ARG DEPENDENCIES="cached_property==1.5.2"
-ARG H5PY_VERSION="3.2.1"
-ARG MPI4PY_VERSION="3.0.3"
+ARG DEPENDENCIES="cached_property"
+ARG H5PY_VERSION="3.4.0"
+ARG MPI4PY_VERSION="3.1.1"
 
 RUN pip --no-cache-dir install --no-deps ${DEPENDENCIES} mpi4py==${MPI4PY_VERSION} \
       && CC="mpicc" HDF5_MPI="ON" HDF5_DIR="/usr/local" pip --no-cache-dir install --no-deps --no-binary=h5py h5py==${H5PY_VERSION}
