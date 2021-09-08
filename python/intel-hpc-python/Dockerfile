@@ -1,8 +1,8 @@
-ARG IPY_VERSION=2020.2
+ARG IPY_VERSION="2020.2"
 FROM intelpython/intelpython3_core:${IPY_VERSION}
-# Note: these python images are based on Debian (as of 27 August 2020, Debian 10 Buster)
 
 LABEL maintainer="marco.delapierre@pawsey.org.au"
+
 
 # Just one extra conda variable
 ENV CONDA_PREFIX="/opt/conda"
@@ -23,7 +23,7 @@ RUN apt-get update -qq \
 # Build MPICH for mpi4py
 
 ARG MPICH_VERSION="3.1.4"
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
+ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr FFLAGS=-fallow-argument-mismatch"
 ARG MPICH_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/mpich-build \
@@ -49,13 +49,12 @@ ADD ${REQ_FILE} /requirements.yaml
 RUN conda install --no-deps -y --file /requirements.yaml \
       && conda clean -ay
 
-# this is to accelerate scikit-learn with daal4py
 
+# This is to accelerate scikit-learn with daal4py
 ENV USE_DAAL4PY_SKLEARN=YES
 
 
 # Precedence to MPICH
-
 ENV LD_LIBRARY_PATH=/usr/lib \
        LIBRARY_PATH=/usr/lib
 
