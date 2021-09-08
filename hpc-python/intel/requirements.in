@@ -1,9 +1,0 @@
-astropy
-cython
-dask
-matplotlib
-nose
-numba
-pandas
-pytest
-scikit-learn

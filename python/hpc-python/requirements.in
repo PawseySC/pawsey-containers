@@ -1,0 +1,17 @@
+# Pure requirements (final packages, no version)
+# Requires pip3 install pip-tools in the host building machine
+astropy
+cython
+dask[complete]
+h5py
+ipython
+matplotlib
+mpi4py
+nose
+numba
+numpy
+pandas
+plotly
+pytest
+scikit-learn
+scipy
