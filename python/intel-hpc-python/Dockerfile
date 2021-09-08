@@ -9,7 +9,7 @@ ENV CONDA_PREFIX="/opt/conda"
 
 
 # Install package dependencies
-RUN apt-get update -qq \
+RUN apt-get update -qq --allow-releaseinfo-change \
       && apt-get -y --no-install-recommends install \
          build-essential \
          ca-certificates \
@@ -23,7 +23,7 @@ RUN apt-get update -qq \
 # Build MPICH for mpi4py
 
 ARG MPICH_VERSION="3.1.4"
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr FFLAGS=-fallow-argument-mismatch"
+ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
 ARG MPICH_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/mpich-build \
@@ -42,28 +42,27 @@ RUN mkdir -p /tmp/mpich-build \
 
 # Install Python packages - conda
 
-ARG REQ_LABEL="19Mar2021"
-ARG REQ_FILE="requirements-${REQ_LABEL}.yaml"
+ARG DATE_FILE="06Sep2021"
 
-ADD ${REQ_FILE} /requirements.yaml
-RUN conda install --no-deps -y --file /requirements.yaml \
+ADD requirements.in requirements-${DATE_FILE}.yaml /
+RUN conda install --no-deps -y --file /requirements-${DATE_FILE}.yaml \
       && conda clean -ay
 
 
 # This is to accelerate scikit-learn with daal4py
-ENV USE_DAAL4PY_SKLEARN=YES
+ENV USE_DAAL4PY_SKLEARN="YES"
 
 
 # Precedence to MPICH
-ENV LD_LIBRARY_PATH=/usr/lib \
-       LIBRARY_PATH=/usr/lib
+ENV LD_LIBRARY_PATH="/usr/lib" \
+       LIBRARY_PATH="/usr/lib"
 
 
 # Install Python packages - h5py and mpi4py with pip, and eventually their dependencies
 
-ARG DEPENDENCIES="cached_property==1.5.2"
-ARG H5PY_VERSION="3.2.1"
-ARG MPI4PY_VERSION="3.0.3"
+ARG DEPENDENCIES="cached_property"
+ARG H5PY_VERSION="3.4.0"
+ARG MPI4PY_VERSION="3.1.1"
 
 RUN pip --no-cache-dir install --no-deps ${DEPENDENCIES} h5py==${H5PY_VERSION} mpi4py==${MPI4PY_VERSION}
 

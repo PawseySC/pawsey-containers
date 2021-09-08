@@ -37,17 +37,18 @@ repo="hpc-python"
 cd $repo
 image="${repo}:${date_tag}"
 echo " .. Now building $image"
+mkdir -p .home_py
 docker run --rm \
   -u $(id -u):$(id -g) \
   -v $(pwd):$(pwd) -w $(pwd) \
-  --env date_file=${date_file} --env HOME=$(pwd)/.home_py \
+  --env date_file="${date_file}" --env HOME="$(pwd)/.home_py" \
   python:${py_ver}-slim bash -c 'pip3 install --user pip-tools && \
     $HOME/.local/bin/pip-compile requirements.in -o requirements-${date_file}.txt'
 rm -r .home_py
 docker build \
   --build-arg PY_VERSION="${py_ver}" \
   --build-arg MPICH_VERSION="${mpich_ver}" \
-  --build-arg DATE_FILE=${date_file} \
+  --build-arg DATE_FILE="${date_file}" \
   -t quay.io/pawsey/$image .
 docker push quay.io/pawsey/$image
 # Begin - Docker Hub - will go away
@@ -63,10 +64,11 @@ repo="hpc-python-hdf5mpi"
 cd $repo
 image="${repo%-hdf5mpi}:${date_tag}-hdf5mpi"
 echo " .. Now building $image"
+mkdir -p .home_py
 docker run --rm \
   -u $(id -u):$(id -g) \
   -v $(pwd):$(pwd) -w $(pwd) \
-  --env date_file=${date_file} --env HOME=$(pwd)/.home_py \
+  --env date_file="${date_file}" --env HOME="$(pwd)/.home_py" \
   python:${py_ver}-slim bash -c 'pip3 install --user pip-tools && \
     $HOME/.local/bin/pip-compile requirements.in -o requirements-${date_file}.txt && \
     sed -i "s/^h5py/#h5py/g" requirements-${date_file}.txt'
@@ -74,8 +76,8 @@ rm -r .home_py
 docker build \
   --build-arg PY_VERSION="${py_ver}" \
   --build-arg MPICH_VERSION="${mpich_ver}" \
-  --build-arg HDF5_VERSION=${hdf5_ver} \
-  --build-arg DATE_FILE=${date_file} \
+  --build-arg HDF5_VERSION="${hdf5_ver}" \
+  --build-arg DATE_FILE="${date_file}" \
   -t quay.io/pawsey/$image .
 docker push quay.io/pawsey/$image
 # Begin - Docker Hub - will go away
@@ -118,7 +120,37 @@ cd ..
 
 
 # Build and push images "intel-hpc-python"
-
+repo="intel-hpc-python"
+cd $repo
+image="${repo}:${date_tag}"
+echo " .. Now building $image"
+docker run --rm \
+  -v $(pwd):$(pwd) -w $(pwd) \
+  --env date_file="${date_file}" --env myuser="$(id -u)" --env mygroup="$(id -g)" \
+  intelpython/intelpython3_core:${ipy_ver} bash -c 'conda install \
+    --no-update-deps -y --file requirements.in && \
+    conda env export -n base >environment-${date_file}.yaml && \
+    chown $myuser:$mygroup environment-${date_file}.yaml'
+cp environment-${date_file}.yaml requirements-${date_file}.yaml
+sed -i -n '/dependencies/,/prefix/p' requirements-${date_file}.yaml
+sed -i -e '/dependencies:/d' -e '/prefix:/d' requirements-${date_file}.yaml
+sed -i 's/ *- //g' requirements-${date_file}.yaml
+mpi4py_ver="$( grep '^mpi4py' ../hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
+h5py_ver="$( grep '^h5py' ../hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
+docker build \
+  --build-arg IPY_VERSION="${ipy_ver}" \
+  --build-arg MPICH_VERSION="${mpich_ver}" \
+  --build-arg DATE_FILE="${date_file}" \
+  --build-arg MPI4PY_VERSION="${mpi4py_ver}" \
+  --build-arg H5PY_VERSION="${h5py_ver}" \
+  -t quay.io/pawsey/$image .
+docker push quay.io/pawsey/$image
+# Begin - Docker Hub - will go away
+docker tag quay.io/pawsey/$image pawsey/$image
+docker push pawsey/$image
+docker rmi pawsey/$image
+# End - Docker Hub
+cd ..
 
 
 
