@@ -1,9 +1,18 @@
 #!/bin/bash
 
-basedir=$(readlink -f $0)
-basedir="${basedir%/*}"
-basedir="${basedir%/*}" # this assumes that the script sits in a subdirectory of $basedir
-cd $basedir/mpi
+
+### BEGIN OF EDITABLE: edit these variables to change which images are being built
+# Define versions of interest
+os_vers="16.04 18.04 20.04"
+os_cuda_vers="18.04" # os versions for cuda images
+cuda_vers="10.1 10.2"
+mpich_vers="3.1.4"
+openmpi_zeus_vers="2.1.2 4.0.2" # when Zeus is gone, can ditch 2.x and unify this and the following variable
+openmpi_vers="4.0.2"
+### END OF EDITABLE
+
+
+# SHOULD NOT modify past this point
 
 
 echo " ***** "
@@ -13,16 +22,15 @@ echo " ***** "
 echo ""
 
 
-# Define versions of interest
-os_vers="16.04 18.04 20.04"
-os_cuda_vers="18.04"
-cuda_vers="10.1 10.2"
-mpich_vers="3.1.4"
-openmpi_vers="2.1.2 4.0.2" # when Zeus is gone, can ditch 2.x and unify this and the following variable
-openmpi_cuda_vers="4.0.2"
+# Define work directory for this script
+basedir=$(readlink -f $0)
+basedir="${basedir%/*}"
+basedir="${basedir%/*}" # this assumes that the script sits in a subdirectory of $basedir
+# Move to work directory
+cd $basedir/mpi
 
 
-# Update starting images
+# Force update starting images
 for os in $os_vers ; do
   docker pull ubuntu:${os}
 done
@@ -40,12 +48,14 @@ for os in $os_vers ; do
   for mpi in $mpich_vers ; do
     image="${repo}:${mpi}_ubuntu${os}"
     echo " .. Now building $image"
+    # Build
     docker build \
       --build-arg OS_VERSION="${os}" \
       --build-arg MPI_VERSION="${mpi}" \
       -t quay.io/pawsey/$image .
+    # Push
     docker push quay.io/pawsey/$image
-    # Begin - Docker Hub - will go away
+    # Begin - Docker Hub - deprecated - will go away
     docker tag quay.io/pawsey/$image pawsey/$image
     docker push pawsey/$image
     docker rmi pawsey/$image
@@ -59,15 +69,17 @@ cd ..
 repo="openmpi-base"
 cd $repo
 for os in $os_vers ; do
-  for mpi in $openmpi_vers ; do
+  for mpi in $openmpi_zeus_vers ; do
     image="${repo}:${mpi}_ubuntu${os}"
     echo " .. Now building $image"
+    # Build
     docker build \
       --build-arg OS_VERSION="${os}" \
       --build-arg MPI_VERSION="${mpi}" \
       -t quay.io/pawsey/$image .
+    # Push
     docker push quay.io/pawsey/$image
-    # Begin - Docker Hub - will go away
+    # Begin - Docker Hub - deprecated - will go away
     docker tag quay.io/pawsey/$image pawsey/$image
     docker push pawsey/$image
     docker rmi pawsey/$image
@@ -85,13 +97,15 @@ for os in $os_cuda_vers ; do
     for mpi in $mpich_vers ; do
       image="${repo}:${mpi}_cuda${cuda}-devel_ubuntu${os}"
       echo " .. Now building $image"
+      # Build
       docker build \
         --build-arg OS_VERSION="${os}" \
         --build-arg CUDA_VERSION="${cuda}" \
         --build-arg MPI_VERSION="${mpi}" \
         -t quay.io/pawsey/$image .
+      # Push
       docker push quay.io/pawsey/$image
-      # Begin - Docker Hub - will go away
+      # Begin - Docker Hub - deprecated - will go away
       docker tag quay.io/pawsey/$image pawsey/$image
       docker push pawsey/$image
       docker rmi pawsey/$image
@@ -107,16 +121,18 @@ repo="cuda-openmpi-base"
 cd $repo
 for os in $os_cuda_vers ; do
   for cuda in $cuda_vers ; do
-    for mpi in $openmpi_cuda_vers ; do
+    for mpi in $openmpi_vers ; do
       image="${repo}:${mpi}_cuda${cuda}-devel_ubuntu${os}"
       echo " .. Now building $image"
+      # Build
       docker build \
         --build-arg OS_VERSION="${os}" \
         --build-arg CUDA_VERSION="${cuda}" \
         --build-arg MPI_VERSION="${mpi}" \
         -t quay.io/pawsey/$image .
+      # Push
       docker push quay.io/pawsey/$image
-      # Begin - Docker Hub - will go away
+      # Begin - Docker Hub - deprecated - will go away
       docker tag quay.io/pawsey/$image pawsey/$image
       docker push pawsey/$image
       docker rmi pawsey/$image
@@ -130,4 +146,3 @@ cd ..
 echo ""
 echo " Gone through all builds and pushes. Done!"
 exit
-
