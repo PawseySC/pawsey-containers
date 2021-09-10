@@ -2,7 +2,7 @@
 
 echo " ***** "
 echo " This is a script to sync DockerHub OpenFOAM images onto Quay.io."
-echo " Please ensure you are logged in to the container registry, otherwise push command will fail."
+echo " Please ensure you are logged in to the container registry, otherwise push commands will fail."
 echo " ***** "
 echo ""
 
@@ -37,4 +37,3 @@ done
 echo ""
 echo " Gone through all syncs. Done!"
 exit
-
