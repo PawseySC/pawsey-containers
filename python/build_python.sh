@@ -9,6 +9,8 @@ cuda_ver="10.2" # this is for cuda-hpc-python -- BEWARE that for EACH cuda versi
 cuda_toolkit_ver="10.2.89" # this is for cuda-intel-hpc-python
 mpich_ver="3.1.4"
 hdf5_ver="1.12.0"
+# Git remote to push updated versioned requirements files
+git_remote="origin"
 ### END OF EDITABLE
 
 
@@ -17,7 +19,8 @@ hdf5_ver="1.12.0"
 
 echo " ***** "
 echo " This is an experimental script to automate build of some Pawsey base images."
-echo " Please ensure you are logged in to the container registry, otherwise push command will fail."
+echo " Please ensure you are logged in to the container registry, otherwise push commands will fail."
+echo " Please also ensure you have the GitHub credentials to commit and push changes to this remote project."
 echo " ***** "
 echo ""
 
@@ -33,6 +36,12 @@ cd $basedir/python
 # Define formatted date variables
 date_tag="$( date +%Y.%m )"
 date_file="$( date +%d%b%Y )"
+
+
+# Create Git branch for updated versioned requirements files
+git_branch_original="$( git branch --show-current )"
+git_branch_new="update/requirements-${date_file}"
+git checkout -b $git_branch_new
 
 
 # Force update starting images
@@ -54,6 +63,8 @@ docker run --rm \
   python:${py_ver}-slim bash -c 'pip3 install --user pip-tools && \
     $HOME/.local/bin/pip-compile requirements.in -o requirements-${date_file}.txt'
 rm -rf .home_py
+# Git add versioned requirements file
+git add requirements-${date_file}.txt
 # Build
 docker build \
   --build-arg PY_VERSION="${py_ver}" \
@@ -85,6 +96,8 @@ docker run --rm \
     $HOME/.local/bin/pip-compile requirements.in -o requirements-${date_file}.txt && \
     sed -i "s/^h5py/#h5py/g" requirements-${date_file}.txt'
 rm -rf .home_py
+# Git add versioned requirements file
+git add requirements-${date_file}.txt
 # Build
 docker build \
   --build-arg PY_VERSION="${py_ver}" \
@@ -160,6 +173,8 @@ cp environment-${date_file}.yaml requirements-${date_file}.yaml
 sed -i -n '/dependencies/,/prefix/p' requirements-${date_file}.yaml
 sed -i -e '/dependencies:/d' -e '/prefix:/d' requirements-${date_file}.yaml
 sed -i 's/ *- //g' requirements-${date_file}.yaml
+# Git add versioned requirements files
+git add environment-${date_file}.yaml requirements-${date_file}.yaml
 # Build
 docker build \
   --build-arg IPY_VERSION="${ipy_ver}" \
@@ -195,6 +210,8 @@ cp environment-${date_file}.yaml requirements-${date_file}.yaml
 sed -i -n '/dependencies/,/prefix/p' requirements-${date_file}.yaml
 sed -i -e '/dependencies:/d' -e '/prefix:/d' requirements-${date_file}.yaml
 sed -i 's/ *- //g' requirements-${date_file}.yaml
+# Git add versioned requirements files
+git add environment-${date_file}.yaml requirements-${date_file}.yaml
 # Build
 docker build \
   --build-arg IPY_VERSION="${ipy_ver}" \
@@ -249,6 +266,12 @@ docker rmi pawsey/$image
 # End - Docker Hub
 #
 cd ..
+
+
+# Commit Git changes, and push new branch to remote
+git commit -m "New versioned requirements files on ${date_file}"
+git push $git_remote $git_branch_new
+git checkout $git_branch_original
 
 
 echo ""
