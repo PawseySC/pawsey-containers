@@ -38,10 +38,13 @@ date_tag="$( date +%Y.%m )"
 date_file="$( date +%d%b%Y )"
 
 
-# Create Git branch for updated versioned requirements files
+# Checkout/create Git branch for updated versioned requirements files
 git_branch_original="$( git branch --show-current )"
 git_branch_new="update/requirements-${date_file}"
-git checkout -b $git_branch_new
+git checkout $git_branch_new
+if [ "$?" != "0" ] ; then
+  git checkout -b $git_branch_new
+fi
 
 
 # Force update starting images
@@ -269,9 +272,10 @@ cd ..
 
 
 # Commit Git changes, and push new branch to remote
-git commit -m "New versioned requirements files on ${date_file}"
-git push $git_remote $git_branch_new
-git checkout $git_branch_original
+git commit -m "New versioned requirements files on ${date_file}" && \
+  git push $git_remote $git_branch_new && \
+  git checkout $git_branch_original && \
+  git branch -d $git_branch_new
 
 
 echo ""
