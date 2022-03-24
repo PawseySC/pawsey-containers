@@ -54,11 +54,6 @@ for os in $os_vers ; do
       -t quay.io/pawsey/$image .
     # Push
     docker push quay.io/pawsey/$image
-    # Begin - Docker Hub - deprecated - will go away
-    docker tag quay.io/pawsey/$image pawsey/$image
-    docker push pawsey/$image
-    docker rmi pawsey/$image
-    # End - Docker Hub
   done
 done
 cd ..
@@ -78,11 +73,6 @@ for os in $os_vers ; do
       -t quay.io/pawsey/$image .
     # Push
     docker push quay.io/pawsey/$image
-    # Begin - Docker Hub - deprecated - will go away
-    docker tag quay.io/pawsey/$image pawsey/$image
-    docker push pawsey/$image
-    docker rmi pawsey/$image
-    # End - Docker Hub
   done
 done
 cd ..
@@ -104,11 +94,6 @@ for os in $os_cuda_vers ; do
         -t quay.io/pawsey/$image .
       # Push
       docker push quay.io/pawsey/$image
-      # Begin - Docker Hub - deprecated - will go away
-      docker tag quay.io/pawsey/$image pawsey/$image
-      docker push pawsey/$image
-      docker rmi pawsey/$image
-      # End - Docker Hub
     done
   done
 done
@@ -131,11 +116,6 @@ for os in $os_cuda_vers ; do
         -t quay.io/pawsey/$image .
       # Push
       docker push quay.io/pawsey/$image
-      # Begin - Docker Hub - deprecated - will go away
-      docker tag quay.io/pawsey/$image pawsey/$image
-      docker push pawsey/$image
-      docker rmi pawsey/$image
-      # End - Docker Hub
     done
   done
 done
