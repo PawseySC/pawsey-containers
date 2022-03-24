@@ -53,6 +53,7 @@ RUN mkdir -p /tmp/osu-benchmark-build \
       && make install \
       && cd / \
       && rm -rf /tmp/osu-benchmark-build
+ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:$PATH"
 
 
 # Some uesful Linux utilities
