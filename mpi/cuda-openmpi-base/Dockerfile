@@ -55,8 +55,11 @@ RUN mkdir -p /tmp/osu-benchmark-build \
       && rm -rf /tmp/osu-benchmark-build
 
 
-
-
+# Some uesful Linux utilities
+RUN apt-get update -qq \
+      && apt-get -y --no-install-recommends install patchelf strace ltrace \
+      && apt-get clean all \
+      && rm -r /var/lib/apt/lists/*
 
 
 # Final settings

@@ -1,4 +1,4 @@
-ARG OS_VERSION="18.04"
+ARG OS_VERSION="20.04"
 FROM ubuntu:${OS_VERSION}
 
 
@@ -19,8 +19,9 @@ RUN apt-get update -qq \
 
 # Build MPICH
 
-ARG MPI_VERSION="3.1.4"
-ARG MPI_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
+ARG MPI_VERSION="3.4.3"
+#ARG MPI_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr" works with 3.1.4, and 4.0.x
+ARG MPI_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr --with-device=ch4:ofi"
 ARG MPI_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/mpich-build \
@@ -53,6 +54,13 @@ RUN mkdir -p /tmp/osu-benchmark-build \
       && make install \
       && cd / \
       && rm -rf /tmp/osu-benchmark-build
+
+
+# Some uesful Linux utilities
+RUN apt-get update -qq \
+      && apt-get -y --no-install-recommends install patchelf strace ltrace \
+      && apt-get clean all \
+      && rm -r /var/lib/apt/lists/*
 
 
 # Quick Test

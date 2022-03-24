@@ -3,11 +3,10 @@
 
 ### BEGIN OF EDITABLE: edit these variables to change which images are being built
 # Define versions of interest
-os_vers="16.04 18.04 20.04"
+os_vers="18.04 20.04"
 os_cuda_vers="18.04" # os versions for cuda images
 cuda_vers="10.1 10.2"
-mpich_vers="3.1.4"
-openmpi_zeus_vers="2.1.2 4.0.2" # when Zeus is gone, can ditch 2.x and unify this and the following variable
+mpich_vers="3.4.3"
 openmpi_vers="4.0.2"
 ### END OF EDITABLE
 
@@ -69,7 +68,7 @@ cd ..
 repo="openmpi-base"
 cd $repo
 for os in $os_vers ; do
-  for mpi in $openmpi_zeus_vers ; do
+  for mpi in $openmpi_vers ; do
     image="${repo}:${mpi}_ubuntu${os}"
     echo " .. Now building $image"
     # Build
