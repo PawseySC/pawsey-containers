@@ -18,8 +18,9 @@ RUN apt-get update -qq \
 
 # Build MPICH for mpi4py
 
-ARG MPICH_VERSION="3.1.4"
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr FFLAGS=-fallow-argument-mismatch"
+ARG MPICH_VERSION="3.4.3"
+#ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr FFLAGS=-fallow-argument-mismatch"
+ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr FFLAGS=-fallow-argument-mismatch --with-device=ch4:ofi"
 ARG MPICH_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/mpich-build \
@@ -38,7 +39,7 @@ RUN mkdir -p /tmp/mpich-build \
 
 # Install Python packages
 
-ARG DATE_FILE="06Sep2021"
+ARG DATE_FILE="24Mar2022"
 
 ADD requirements.in requirements-${DATE_FILE}.txt /
 RUN pip3 --no-cache-dir install -r /requirements-${DATE_FILE}.txt --no-deps

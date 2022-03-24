@@ -4,11 +4,11 @@
 ### BEGIN OF EDITABLE: edit these variables to change which images are being built
 # Define versions of interest
 py_ver="3.9"
-ipy_ver="2020.2"
+ipy_ver="2021.4.0-0"
 cuda_ver="10.2" # this is for cuda-hpc-python -- BEWARE that for EACH cuda version you need to write a SPECIFIC Dockerfile
 cuda_toolkit_ver="10.2.89" # this is for cuda-intel-hpc-python
-mpich_ver="3.1.4"
-hdf5_ver="1.12.0"
+mpich_ver="3.4.3"
+hdf5_ver="1.12.1"
 # Decide whether you want to enable interaction with Git remote ("0" is disabled)
 git_enabled="1"
 # Git remote to push updated versioned requirements files
@@ -80,11 +80,6 @@ docker build \
   -t quay.io/pawsey/$image .
 # Push
 docker push quay.io/pawsey/$image
-# Begin - Docker Hub - deprecated - will go away
-docker tag quay.io/pawsey/$image pawsey/$image
-docker push pawsey/$image
-docker rmi pawsey/$image
-# End - Docker Hub
 cd ..
 
 
@@ -101,7 +96,7 @@ docker run --rm \
   --env date_file="${date_file}" --env HOME="$(pwd)/.home_py" \
   python:${py_ver}-slim bash -c 'pip3 install --user pip-tools && \
     $HOME/.local/bin/pip-compile requirements.in -o requirements-${date_file}.txt && \
-    sed -i "s/^h5py/#h5py/g" requirements-${date_file}.txt'
+    sed -i -e "s/^h5py/#h5py/g" -e "s/^h5netcdf/#h5netcdf/g" requirements-${date_file}.txt'
 rm -rf .home_py
 # Git add versioned requirements file
 if [ "$git_enabled" != 0 ] ; then git add requirements-${date_file}.txt ; fi
@@ -114,11 +109,6 @@ docker build \
   -t quay.io/pawsey/$image .
 # Push
 docker push quay.io/pawsey/$image
-# Begin - Docker Hub - deprecated - will go away
-docker tag quay.io/pawsey/$image pawsey/$image
-docker push pawsey/$image
-docker rmi pawsey/$image
-# End - Docker Hub
 cd ..
 
 
@@ -135,11 +125,6 @@ docker build \
   -t quay.io/pawsey/$image .
 # Push with serial h5py
 docker push quay.io/pawsey/$image
-# Begin - Docker Hub - deprecated  - will go away
-docker tag quay.io/pawsey/$image pawsey/$image
-docker push pawsey/$image
-docker rmi pawsey/$image
-# End - Docker Hub
 #
 image="${repo%_cuda*}:${date_tag}-hdf5mpi"
 echo " .. Now building $image"
@@ -149,11 +134,6 @@ docker build \
   -t quay.io/pawsey/$image .
 # Push with parallel h5py
 docker push quay.io/pawsey/$image
-# Begin - Docker Hub - deprecated  - will go away
-docker tag quay.io/pawsey/$image pawsey/$image
-docker push pawsey/$image
-docker rmi pawsey/$image
-# End - Docker Hub
 #
 cd ..
 
@@ -192,11 +172,6 @@ docker build \
   -t quay.io/pawsey/$image .
 # Push
 docker push quay.io/pawsey/$image
-# Begin - Docker Hub - deprecated  - will go away
-docker tag quay.io/pawsey/$image pawsey/$image
-docker push pawsey/$image
-docker rmi pawsey/$image
-# End - Docker Hub
 cd ..
 
 
@@ -230,11 +205,6 @@ docker build \
   -t quay.io/pawsey/$image .
 # Push
 docker push quay.io/pawsey/$image
-# Begin - Docker Hub - deprecated  - will go away
-docker tag quay.io/pawsey/$image pawsey/$image
-docker push pawsey/$image
-docker rmi pawsey/$image
-# End - Docker Hub
 cd ..
 
 
@@ -251,11 +221,6 @@ docker build \
   -t quay.io/pawsey/$image .
 # Push with serial h5py
 docker push quay.io/pawsey/$image
-# Begin - Docker Hub - deprecated  - will go away
-docker tag quay.io/pawsey/$image pawsey/$image
-docker push pawsey/$image
-docker rmi pawsey/$image
-# End - Docker Hub
 #
 image="${repo}:${date_tag}-hdf5mpi"
 echo " .. Now building $image"
@@ -266,11 +231,6 @@ docker build \
   -t quay.io/pawsey/$image .
 # Push with parallel h5py
 docker push quay.io/pawsey/$image
-# Begin - Docker Hub - deprecated  - will go away
-docker tag quay.io/pawsey/$image pawsey/$image
-docker push pawsey/$image
-docker rmi pawsey/$image
-# End - Docker Hub
 #
 cd ..
 

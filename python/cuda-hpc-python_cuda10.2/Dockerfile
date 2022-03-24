@@ -1,4 +1,4 @@
-ARG PAWSEY_BASE="2021.09"
+ARG PAWSEY_BASE="2022.03"
 FROM quay.io/pawsey/hpc-python:${PAWSEY_BASE}
 
 

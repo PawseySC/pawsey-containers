@@ -3,10 +3,12 @@
 astropy
 cython
 dask[complete]
+h5netcdf
 h5py
 ipython
 matplotlib
 mpi4py
+netcdf4
 nose
 numba
 numpy

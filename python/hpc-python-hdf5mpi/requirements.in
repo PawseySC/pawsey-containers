@@ -3,6 +3,7 @@
 astropy
 cython
 dask[complete]
+h5netcdf
 h5py
 ipython
 matplotlib
