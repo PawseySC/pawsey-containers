@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: pawsey/openfoam:2.4.x
+From: quay.io/pawsey/openfoam:2.4.x
 
 %post
 /bin/mv /bin/sh /bin/sh.original

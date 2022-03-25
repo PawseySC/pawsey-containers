@@ -3,7 +3,7 @@
 #---------------------------------------------------------------
 #The creation of this image that contains VTK, LIGGGHTS && CFDEM starts
 #from the already existing and working image of openfoam:5.x
-FROM pawsey/openfoam:5.x
+FROM quay.io/pawsey/openfoam:5.x
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
 ARG OFVERSION="5.x"
