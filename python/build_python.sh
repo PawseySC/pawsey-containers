@@ -4,7 +4,7 @@
 ### BEGIN OF EDITABLE: edit these variables to change which images are being built
 # Define versions of interest
 py_ver="3.9"
-ipy_ver="2021.4.0-0"
+ipy_ver="2020.2"
 cuda_ver="10.2" # this is for cuda-hpc-python -- BEWARE that for EACH cuda version you need to write a SPECIFIC Dockerfile
 cuda_toolkit_ver="10.2.89" # this is for cuda-intel-hpc-python
 mpich_ver="3.4.3"
@@ -141,6 +141,7 @@ cd ..
 # Self-define versions for mpi4py and h5py for intel images, using versions from standard images
 mpi4py_ver="$( grep '^mpi4py' hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
 h5py_ver="$( grep '^h5py' hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
+h5netcdf_ver="$( grep '^h5netcdf' hpc-python/requirements-${date_file}.txt |cut -d '=' -f 3 )"
 
 
 # Build and push image "intel-hpc-python"
@@ -169,6 +170,7 @@ docker build \
   --build-arg DATE_FILE="${date_file}" \
   --build-arg MPI4PY_VERSION="${mpi4py_ver}" \
   --build-arg H5PY_VERSION="${h5py_ver}" \
+  --build-arg H5NETCDF_VERSION="${h5netcdf_ver}" \
   -t quay.io/pawsey/$image .
 # Push
 docker push quay.io/pawsey/$image
@@ -202,6 +204,7 @@ docker build \
   --build-arg DATE_FILE="${date_file}" \
   --build-arg MPI4PY_VERSION="${mpi4py_ver}" \
   --build-arg H5PY_VERSION="${h5py_ver}" \
+  --build-arg H5NETCDF_VERSION="${h5netcdf_ver}" \
   -t quay.io/pawsey/$image .
 # Push
 docker push quay.io/pawsey/$image

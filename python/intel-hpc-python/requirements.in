@@ -3,6 +3,7 @@ cython
 dask
 ipython
 matplotlib
+netcdf4
 nose
 numba
 pandas

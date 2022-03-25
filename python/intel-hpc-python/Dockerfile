@@ -22,8 +22,9 @@ RUN apt-get update -qq --allow-releaseinfo-change \
 
 # Build MPICH for mpi4py
 
-ARG MPICH_VERSION="3.1.4"
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
+ARG MPICH_VERSION="3.4.3"
+#ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr"
+ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --prefix=/usr --with-device=ch4:ofi"
 ARG MPICH_MAKE_OPTIONS="-j4"
 
 RUN mkdir -p /tmp/mpich-build \
@@ -42,7 +43,7 @@ RUN mkdir -p /tmp/mpich-build \
 
 # Install Python packages - conda
 
-ARG DATE_FILE="06Sep2021"
+ARG DATE_FILE="24Mar2022"
 
 ADD requirements.in requirements-${DATE_FILE}.yaml /
 RUN conda install --no-deps -y --file /requirements-${DATE_FILE}.yaml \
@@ -58,13 +59,14 @@ ENV LD_LIBRARY_PATH="/usr/lib" \
        LIBRARY_PATH="/usr/lib"
 
 
-# Install Python packages - h5py and mpi4py with pip, and eventually their dependencies
+# Install Python packages - h5netcdf, h5py and mpi4py with pip, and eventually their dependencies
 
 ARG DEPENDENCIES="cached_property"
-ARG H5PY_VERSION="3.4.0"
-ARG MPI4PY_VERSION="3.1.1"
+ARG H5NETCDF_VERSION="0.15.0"
+ARG H5PY_VERSION="3.6.0"
+ARG MPI4PY_VERSION="3.1.3"
 
-RUN pip --no-cache-dir install --no-deps ${DEPENDENCIES} h5py==${H5PY_VERSION} mpi4py==${MPI4PY_VERSION}
+RUN pip --no-cache-dir install --no-deps ${DEPENDENCIES} h5netcdf==${H5NETCDF_VERSION} h5py==${H5PY_VERSION} mpi4py==${MPI4PY_VERSION}
 
 
 
