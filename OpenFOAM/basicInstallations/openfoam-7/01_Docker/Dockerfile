@@ -4,7 +4,7 @@
 # 0. Initial main definition
 # Defining the base container to build from
 # In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays
-FROM quay.io/pawsey/mpich-base:3.1.4_ubuntu18.04
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
