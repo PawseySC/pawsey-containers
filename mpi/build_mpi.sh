@@ -3,7 +3,7 @@
 
 ### BEGIN OF EDITABLE: edit these variables to change which images are being built
 # Define versions of interest
-os_vers="18.04 20.04"
+os_vers="16.04 18.04 20.04"
 os_cuda_vers="18.04" # os versions for cuda images
 cuda_vers="10.1 10.2"
 mpich_vers="3.4.3"
