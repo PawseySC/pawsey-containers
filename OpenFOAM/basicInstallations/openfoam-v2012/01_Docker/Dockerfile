@@ -344,7 +344,7 @@ RUN mkdir -p /.singularity.d/env/ && \
 # OpenFoam OFBASHRC needs bash shell, not sh
 RUN /bin/mv /bin/sh /bin/sh.original && /bin/ln -s /bin/bash /bin/sh
 # To enable sourcing of OFBASHRC with Docker at startup, need to have a login shell with `-l`
-ENTRYPOINT [ "/bin/bash", "-l", "-c" ]
+ENTRYPOINT [ "/bin/bash", "-l", "-c", "$*", "--" ]
 CMD [ "/bin/bash" ]
 
 #...........
