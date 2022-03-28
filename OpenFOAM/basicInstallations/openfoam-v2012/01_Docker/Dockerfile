@@ -340,10 +340,7 @@ RUN echo 'if [ -z ${DEFINE_ME_ONCE+x} ] ; then' >/etc/profile.d/zz_openfoam.sh &
     echo 'fi' >>/etc/profile.d/zz_openfoam.sh
 # Singularity: use /.singularity.d/env/91-environment.sh
 RUN mkdir -p /.singularity.d/env/ && \
-    echo 'if [ -z ${DEFINE_ME_ONCE+x} ] ; then' >/.singularity.d/env/91-environment.sh && \
-    echo " . ${OFBASHRC}" >>/.singularity.d/env/91-environment.sh && \
-    echo ' export DEFINE_ME_ONCE="1"' >>/.singularity.d/env/91-environment.sh && \
-    echo 'fi' >>/.singularity.d/env/91-environment.sh
+    cp -p /etc/profile.d/zz_openfoam.sh /.singularity.d/env/91-environment.sh
 # OpenFoam OFBASHRC needs bash shell, not sh
 RUN /bin/mv /bin/sh /bin/sh.original && /bin/ln -s /bin/bash /bin/sh
 # To enable sourcing of OFBASHRC with Docker at startup, need to have a login shell with `-l`
