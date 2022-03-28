@@ -1,6 +1,6 @@
 Bootstrap: docker
 #Bootstrap: docker-daemon
-From: pawsey/openfoam:v2012
+From: quay.io/pawsey/openfoam:v2012
 
 %post
 /bin/mv /bin/sh /bin/sh.original
