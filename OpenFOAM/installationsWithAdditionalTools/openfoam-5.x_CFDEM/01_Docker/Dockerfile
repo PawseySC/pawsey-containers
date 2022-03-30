@@ -226,6 +226,24 @@ RUN chmod -R 777 $VTKBASEDIR \
  && chmod -R 777 $LIGGGHTSINSTDIR \
  && chmod -R 777 $CFDEMINSTDIR
 
+#...........
+## Setup to source OpenFoam OFBASHRC at container startup
+# Docker: use file in /etc/profile
+RUN echo 'if [ -z ${DEFINE_ME_ONCE+x} ] ; then' >/etc/profile.d/zz_openfoam.sh && \
+    echo " . ${OFBASHRC}" >>/etc/profile.d/zz_openfoam.sh && \
+    echo " . ${CFDEM_bashrc}" >>/etc/profile.d/zz_openfoam.sh && \
+    echo ' export DEFINE_ME_ONCE="1"' >>/etc/profile.d/zz_openfoam.sh && \
+    echo 'fi' >>/etc/profile.d/zz_openfoam.sh
+# Singularity: use /.singularity.d/env/91-environment.sh
+RUN mkdir -p /.singularity.d/env/ && \
+    cp -p /etc/profile.d/zz_openfoam.sh /.singularity.d/env/91-environment.sh
+# OpenFoam OFBASHRC needs bash shell, not sh
+# This is already done in the starting base image
+#RUN /bin/mv /bin/sh /bin/sh.original && /bin/ln -s /bin/bash /bin/sh
+# To enable sourcing of OFBASHRC with Docker at startup, need to have a login shell with `-l`
+ENTRYPOINT [ "/bin/bash", "-l", "-c", "$*", "--" ]
+CMD [ "/bin/bash" ]
+
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
