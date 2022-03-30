@@ -22,4 +22,3 @@ The requirements to use the automation scripts can be summarised as follows:
 
 
 Quay.io image repository: https://quay.io/pawsey  
-Docker Hub image repository (**to be deprecated soon**): https://hub.docker.com/u/pawsey  
