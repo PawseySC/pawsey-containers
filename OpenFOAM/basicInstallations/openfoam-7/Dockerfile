@@ -112,11 +112,11 @@ RUN apt-get update -qq\
 ARG OFVERSIONGIT=$OFVERSION
 WORKDIR $OFINSTDIR
 #Try git or https protocol:
-##RUN git clone https://github.com/OpenFOAM/OpenFOAM-${OFVERSIONGIT}.git \
-## && git clone https://github.com/OpenFOAM/ThirdParty-${OFVERSIONGIT}.git
+RUN git clone https://github.com/OpenFOAM/OpenFOAM-${OFVERSIONGIT}.git \
+ && git clone https://github.com/OpenFOAM/ThirdParty-${OFVERSIONGIT}.git
 
-RUN git clone git://github.com/OpenFOAM/OpenFOAM-${OFVERSIONGIT}.git \
- && git clone git://github.com/OpenFOAM/ThirdParty-${OFVERSIONGIT}.git
+##RUN git clone git://github.com/OpenFOAM/OpenFOAM-${OFVERSIONGIT}.git \
+## && git clone git://github.com/OpenFOAM/ThirdParty-${OFVERSIONGIT}.git
 
 #...........
 #Step 3. Definitions for the prefs and bashrc files.
