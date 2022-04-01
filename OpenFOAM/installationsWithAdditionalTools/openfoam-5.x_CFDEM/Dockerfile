@@ -125,14 +125,14 @@ RUN apt-get update -qq\
 ARG CFDEMINSTDIR=/opt/CFDEM
 ARG CFDEMUSERDIR=/home/ofuser/CFDEM
 WORKDIR $CFDEMINSTDIR
-RUN git clone git://github.com/CFDEMproject/CFDEMcoupling-PUBLIC.git \ 
+RUN git clone https://github.com/CFDEMproject/CFDEMcoupling-PUBLIC.git \ 
  && mv CFDEMcoupling-PUBLIC CFDEMcoupling-PUBLIC-$OFWMPROJECTVERSION 
 
 WORKDIR /opt/LIGGGHTS
 ARG LIGGGHTSINSTDIR=/opt/LIGGGHTS
 WORKDIR $LIGGGHTSINSTDIR
-RUN git clone git://github.com/CFDEMproject/LIGGGHTS-PUBLIC.git \ 
- && git clone git://github.com/CFDEMproject/LPP.git lpp
+RUN git clone https://github.com/CFDEMproject/LIGGGHTS-PUBLIC.git \ 
+ && git clone https://github.com/CFDEMproject/LPP.git lpp
 
 
 #...........
