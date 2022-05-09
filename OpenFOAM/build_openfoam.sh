@@ -11,14 +11,14 @@
 base="quay.io/pawsey/mpich-base"
 base_os_vers="16.04 18.04"
 base_mpich_vers="3.4.3"
-# Target repo
-repo="quay.io/pawsey/openfoam"
+# Target registry/organisation
+reg_org="quay.io/pawsey"
 # Using chunks, to avoid filling up the disk of small machines
-of_tags_1="2.2.0 2.4.x 5.x 5.x_CFDEM"
-of_tags_2="7 8"
-of_tags_3="v1712 v1812 v1912"
-of_tags_4="v2006 v2012"
-chunks="of_tags_1 of_tags_2 of_tags_3 of_tags_4"
+of_tool_tags_1="openfoam-org/2.2.0 openfoam-org/2.4.x openfoam-org/5.x"
+of_tool_tags_2="openfoam-org/7 openfoam-org/8"
+of_tool_tags_3="openfoam/v1712 openfoam/v1812 openfoam/v1912"
+of_tool_tags_4="openfoam/v2006 openfoam/v2012"
+chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_4"
 # 
 # Enable removal (in chunks) of local images, to save disk space
 enable_remove_local_image="0"
@@ -56,30 +56,26 @@ done
 
 # Build and push images "openfoam"
 # using chunks, to avoid filling up the disk of small machines
-for of_tags in $chunks ; do
-  echo ""
+for of_tool_tags in $chunks ; do
 
-  for tag in ${!of_tags} ; do
-    image="$repo:$tag"
-    if [ "$tag" == "5.x_CFDEM" ] ; then
-      cd installationsWithAdditionalTools/openfoam-$tag
-    else
-      cd basicInstallations/openfoam-$tag
-    fi
+  for tool_tag in ${!of_tool_tags} ; do
+    echo ""
+    image="${reg_org}/${tool_tag/\//:}"
+    cd $tool_tag
     echo " .. In directory $(pwd)"
     echo " .. Now building $image"
-    docker build -t $image . &>../../out_build_$tag
+    docker build -t $image . &>../../out_build_${tool_tag/\//_}
     echo " .. Now pushing $image"
-    docker push $image &>../../out_push_$tag
+    docker push $image &>../../out_push_${tool_tag/\//_}
     cd ../..
   done
 
 # Remove local images to save disk space
   if [ "$enable_remove_local_image" != 0 ] ; then
-    for tag in ${!of_tags} ; do
-      image="$repo:$tag"
+    for tool_tag in ${!of_tool_tags} ; do
+      image="${reg_org}/${tool_tag/\//:}"
       echo " .. Now removing local $image"
-      docker rmi $image &>out_rmi_$tag
+      docker rmi $image &>out_rmi_${tool_tag/\//_}
     done
   fi
 done

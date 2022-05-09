@@ -12,7 +12,7 @@ module load singularity
 
 #------------------------
 #Choosing the container image to use
-export containerImage=$MYGROUP/../singularity/groupRepository/OpenFOAM/openfoam-5.x_CFDEM-pawsey.sif
+export containerImage=$MYGROUP/../singularity/groupRepository/OpenFOAM/openfoam-org-5.x_CFDEM-pawsey.sif
 
 #------------------------
 #Properly delete the existing working directories
