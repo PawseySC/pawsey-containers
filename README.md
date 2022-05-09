@@ -4,7 +4,7 @@ This is a collection of Dockerfiles (and Singularity deffiles) for container ima
 
 Currently, the following categories of images are maintained:
 * `mpi/`: plain and GPU-enabled MPI base images
-* `hpc-python/`: Python base images featuring a collection of HPC packages
+* `python/`: Python base images featuring a collection of HPC packages
 * `OpenFOAM/`: OpenFOAM software for Computational Fluid Dynamics
 
 Some experimental scripts are provided, to automate image build and push:
