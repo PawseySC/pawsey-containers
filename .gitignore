@@ -1,2 +1,4 @@
 .overcommit.yml
 .vscode
+out_*
+nohup.out

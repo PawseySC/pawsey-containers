@@ -10,6 +10,7 @@ Currently, the following categories of images are maintained:
 Some experimental scripts are provided, to automate image build and push:
 * `mpi/build_mpi.sh`
 * `python/build_python.sh`
+* `OpenFOAM/build_openfoam.sh`
 
 The first lines of these scripts contain editable variables, to determine which images are built.  Note that, only in the case of the CUDA-enabled standard Python images, `cuda-hpc-python` images, specific Dockerfile have to be written for each CUDA version.  
 The scripts also assume that the user has logged in to the relevant container registry to push images and, for `python` only, has GitHub credentials to commit and push changes to this remote project.  Interaction with GitHub can be disabled.  
@@ -22,4 +23,3 @@ The requirements to use the automation scripts can be summarised as follows:
 
 
 Quay.io image repository: https://quay.io/pawsey  
-Docker Hub image repository (**to be deprecated soon**): https://hub.docker.com/u/pawsey  

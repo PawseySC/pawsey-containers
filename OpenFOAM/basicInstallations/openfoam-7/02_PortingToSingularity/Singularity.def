@@ -1,7 +1,0 @@
-Bootstrap: docker
-From: quay.io/pawsey/openfoam:7
-
-%post
-/bin/mv /bin/sh /bin/sh.original
-/bin/ln -s /bin/bash /bin/sh
-echo ". /opt/OpenFOAM/OpenFOAM-7/etc/bashrc" >> $SINGULARITY_ENVIRONMENT
