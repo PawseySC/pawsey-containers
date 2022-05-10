@@ -40,7 +40,10 @@ cd $basedir
 # using chunks, to avoid filling up the disk of small machines
 for of_tool_tags in $chunks ; do
   for tool_tag in ${!of_tool_tags} ; do
+    echo ""
     image="${reg_org}/${tool_tag/\//:}"
+    echo " .. Now pulling $image"
+    docker pull $image &>out_pull_${tool_tag/\//_}
     echo " .. Now converting $image"
     singularity pull docker-daemon:$image &>out_sif_${tool_tag/\//_}
   done
