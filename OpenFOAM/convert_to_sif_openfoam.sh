@@ -2,8 +2,8 @@
 
 
 # Disk space requirements:
-# All images (no intermediate removal): about 110 GB (Docker), about XX GB (Singularity)
-# Images in chunks (intermediate removal): about 40 GB (Docker), about XX GB (Singularity)
+# All images (no intermediate removal): about 110 GB (Docker), about 50  GB (Singularity, incl cache)
+# Images in chunks (intermediate removal): about 40 GB (Docker), about 16 GB (Singularity, incl cache)
 
 
 ### BEGIN OF EDITABLE: edit these variables to change which images are being built
@@ -40,12 +40,9 @@ cd $basedir
 # using chunks, to avoid filling up the disk of small machines
 for of_tool_tags in $chunks ; do
   for tool_tag in ${!of_tool_tags} ; do
-    echo ""
     image="${reg_org}/${tool_tag/\//:}"
-    echo " .. Now pulling $image"
-    docker pull $image &>out_pull_${tool_tag/\//_}
-    echo " .. Now converting $image"
-    singularity pull docker-daemon:$image &>out_sif_${tool_tag/\//_}
+    echo " .. Now pulling and converting $image"
+    singularity pull docker://$image &>out_sif_${tool_tag/\//_}
   done
 done
 
