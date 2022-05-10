@@ -57,7 +57,6 @@ done
 # Build and push images "openfoam"
 # using chunks, to avoid filling up the disk of small machines
 for of_tool_tags in $chunks ; do
-
   for tool_tag in ${!of_tool_tags} ; do
     echo ""
     image="${reg_org}/${tool_tag/\//:}"
