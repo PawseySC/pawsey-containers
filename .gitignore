@@ -3,3 +3,4 @@
 *.sif
 out_*
 nohup.out
+*.tgz
