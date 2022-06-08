@@ -23,7 +23,6 @@ chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_4"
 
 echo " ***** "
 echo " This is an experimental script to automate conversion to SIF of Pawsey OpenFoam images."
-echo " Please ensure you are logged in to the container registry, otherwise push command will fail."
 echo " ***** "
 echo ""
 
@@ -36,7 +35,7 @@ basedir="${basedir%/*}"
 cd $basedir
 
 
-# Build and push images "openfoam"
+# Convert Docker openfoam images into SIF
 # using chunks, to avoid filling up the disk of small machines
 for of_tool_tags in $chunks ; do
   for tool_tag in ${!of_tool_tags} ; do
@@ -48,5 +47,5 @@ done
 
 
 echo ""
-echo " Gone through all builds and pushes. Done!"
+echo " Gone through all conversions. Done!"
 exit
