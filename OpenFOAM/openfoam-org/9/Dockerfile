@@ -3,8 +3,8 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base container to build from
-# In this case: mpich 3.1.4 and ubuntu 20.04; MPICH is needed for crays
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+# In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -278,8 +278,9 @@ RUN apt-get clean \
  && apt-get update
 
 #...........
-## Setup to instructions to source OpenFoam OFBASHRC at container startup with Docker
-# Docker: will execute scripts in /etc/profile.d/ at startup when using "bash -l" (see below).
+## Setup to source OpenFoam OFBASHRC at container startup with Docker
+# Note: OFBASHRC has several bash-isms and need to be interpreted with a bash shell
+# Docker: will execute scripts in /etc/profile.d/ at startup when using "bash -l" at the ENTRYPOINT (see below).
 #         Instructions to source OFBASHRC are included in zz_openfoam.sh script:
 RUN echo 'if [ -z ${DEFINE_ME_ONCE+x} ] ; then' >/etc/profile.d/zz_openfoam.sh && \
     echo " . ${OFBASHRC}" >>/etc/profile.d/zz_openfoam.sh && \
@@ -290,11 +291,12 @@ ENTRYPOINT [ "/bin/bash", "-l", "-c", "$*", "--" ]
 CMD [ "/bin/bash" ]
 
 #...........
-## Setup to instructions to source OpenFoam OFBASHRC at container startup when using Singularity
+## Setup to source OpenFoam OFBASHRC at container startup when using Singularity
+# Note: OFBASHRC has several bash-isms and need to be interpreted with a bash shell
 # Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
 #              Standard naming of "environment" scripts is 9X-environment.sh
 #              Here we copy the zz_openfoam.sh script into 91-environment.sh
-#              (copy is preferred over sourcing original file from a 9X-environment.sh script):
+#              (copy is preferred over sourcing files in /etc/profile.d/ from a 9X-environment.sh script):
 RUN mkdir -p /.singularity.d/env/ && \
     cp -p /etc/profile.d/zz_openfoam.sh /.singularity.d/env/91-environment.sh
 # Singularity: trick to source startup scripts using bash shell
