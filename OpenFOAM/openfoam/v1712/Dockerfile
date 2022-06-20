@@ -342,20 +342,30 @@ RUN apt-get clean \
  && apt-get update
 
 #...........
-## Setup to source OpenFoam OFBASHRC at container startup
-# Docker: use file in /etc/profile
+## Setup to source OpenFoam OFBASHRC at container startup with Docker
+# Note: OFBASHRC has several bash-isms and need to be interpreted with a bash shell
+# Docker: will execute scripts in /etc/profile.d/ at startup when using "bash -l" at the ENTRYPOINT (see below).
+#         Instructions to source OFBASHRC are included in zz_openfoam.sh script:
 RUN echo 'if [ -z ${DEFINE_ME_ONCE+x} ] ; then' >/etc/profile.d/zz_openfoam.sh && \
     echo " . ${OFBASHRC}" >>/etc/profile.d/zz_openfoam.sh && \
     echo ' export DEFINE_ME_ONCE="1"' >>/etc/profile.d/zz_openfoam.sh && \
     echo 'fi' >>/etc/profile.d/zz_openfoam.sh
-# Singularity: use /.singularity.d/env/91-environment.sh
-RUN mkdir -p /.singularity.d/env/ && \
-    cp -p /etc/profile.d/zz_openfoam.sh /.singularity.d/env/91-environment.sh
-# OpenFoam OFBASHRC needs bash shell, not sh
-RUN /bin/mv /bin/sh /bin/sh.original && /bin/ln -s /bin/bash /bin/sh
-# To enable sourcing of OFBASHRC with Docker at startup, need to have a login shell with `-l`
+# Docker: to enable sourcing of OFBASHRC at startup, need to have a login shell with `-l`:
 ENTRYPOINT [ "/bin/bash", "-l", "-c", "$*", "--" ]
 CMD [ "/bin/bash" ]
+
+#...........
+## Setup to source OpenFoam OFBASHRC at container startup when using Singularity
+# Note: OFBASHRC has several bash-isms and need to be interpreted with a bash shell
+# Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
+#              Standard naming of "environment" scripts is 9X-environment.sh
+#              Here we copy the zz_openfoam.sh script into 91-environment.sh
+#              (copy is preferred over sourcing files in /etc/profile.d/ from a 9X-environment.sh script):
+RUN mkdir -p /.singularity.d/env/ && \
+    cp -p /etc/profile.d/zz_openfoam.sh /.singularity.d/env/91-environment.sh
+# Singularity: trick to source startup scripts using bash shell
+#              (OpenFoam OFBASHRC needs bash shell, not sh):
+RUN /bin/mv /bin/sh /bin/sh.original && /bin/ln -s /bin/bash /bin/sh
 
 #...........
 ## Starting as ofuser by default
