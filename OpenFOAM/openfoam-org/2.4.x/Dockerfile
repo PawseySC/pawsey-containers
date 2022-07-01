@@ -3,8 +3,9 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base image to build from
-# In this case: mpich 3.1.4 and ubuntu 16.04; MPICH is needed for crays
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu16.04
+# In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays, 18.04 is needed for Setonix
+# Note that in 18.04 we'll need to install and force compilation with gcc-5,g++-5.
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -57,7 +58,7 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 #https://openfoam.org/download/2-4-0-source/
 #
 #Will follow PARTIALLY the instructions for OpenFOAM-2.4.x  available in the wiki:
-#https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-2.4.x/Ubuntu#Ubuntu_16.04
+#https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-2.4.x/Ubuntu#Ubuntu_18.04
 #
 #Then, Will follow a combination of both
 #(Also checking wiki for OpenFOAM-2.4.0)
@@ -101,6 +102,8 @@ RUN apt-get update -qq\
    libglu1-mesa-dev \
 #AEG:I found the following was needed to install  FlexLexer.h
    libfl-dev \
+#AEG: Version 5 of gcc is needed:
+   gcc-5 g++-5 \
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
@@ -117,14 +120,16 @@ RUN git clone https://github.com/OpenFOAM/OpenFOAM-${OFVERSIONGIT}.git \
 ## && git clone git://github.com/OpenFOAM/ThirdParty-${OFVERSIONGIT}.git
 
 #...........
-#Step 3. Definitions for the prefs and bashrc files.
+#Step 3. Definitions for the prefs.sh, settings.sh and bashrc files.
 ARG OFPREFS=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/prefs.sh
 ARG OFBASHRC=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/bashrc
+ARG OFSETTINGS=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/settings.sh
 
 #...........
 #Defining the prefs.sh:
 RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/example/prefs.sh > $OFPREFS \
  && echo '#------------------------------------------------------------------------------' >> ${OFPREFS} \
+#          ====
 #Using a combination of the variable definition recommended for the use of system mpich in this link:
 #   https://bugs.openfoam.org/view.php?id=1167
 #And in the file .../OpenFOAM-$OFVERSION/wmake/rules/General/mplibMPICH
@@ -158,6 +163,18 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config/example/prefs.sh > $O
  && echo ''
 
 #...........
+#Modifying the settings.sh file to use gcc-5 and g++-5
+#This as an adaptation from instructions in: 
+# https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-2.4.0/Ubuntu#Ubuntu_18.04
+RUN cp ${OFSETTINGS} ${OFSETTINGS}.original \
+#Changing to use gcc-5
+ && sed -i "s/export WM_CC='gcc'/export WM_CC='gcc-5'/g" ${OFSETTINGS} \
+#Changing to use g++-5
+ && sed -i "s/export WM_CXX='g++'/export WM_CXX='g++-5'/g" ${OFSETTINGS} \
+#--Dummy line:
+ && echo ''
+
+#...........
 #Modifying the bashrc file
 RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #Changing the installation directory within the bashrc file (This is not in the openfoamwiki instructions)
@@ -173,6 +190,16 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #" (This comment line is needed to let vi to show the right syntax)
 #--Dummy line:
  && echo ''
+
+#...........
+#Modifying the wmake files for using gcc-5 and g++-5
+RUN cd ${OFINSTDIR}/OpenFOAM-${OFVERSION}/wmake/rules \
+ && for iDir in $(ls -d linux*Gcc); do       \
+        cp $iDir/c $iDir/c.original;         \
+        cp $iDir/c++ $iDir/c++.original;     \
+        sed -i 's/gcc/\$(WM_CC)/' $iDir/c;   \
+        sed -i 's/g++/\$(WM_CXX)/' $iDir/c++;\
+    done                                     
 
 #...........
 #Step 4.
@@ -202,6 +229,7 @@ RUN . ${OFBASHRC} \
 RUN . ${OFBASHRC} \
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt4 \
+ && sed -i -e 's=MPI_ARCH_PATH/include=MPI_ARCH_PATH/include;$MPI_INCLUDE=' etc/tools/ParaView4Functions \
  && sed -i -e 's=//#define GLX_GLXEXT_LEGACY=#define GLX_GLXEXT_LEGACY=' ParaView-4.1.0/VTK/Rendering/OpenGL/vtkXOpenGLRenderWindow.cxx \
  && cd ParaView-4.1.0 \
  && wget --no-check-certificate http://www.paraview.org/pipermail/paraview/attachments/20140210/464496cc/attachment.bin -O Fix.patch \
@@ -237,6 +265,13 @@ RUN . ${OFBASHRC} \
  && sed -i 's,export BOOST_ARCH_PATH,# export BOOST_ARCH_PATH,' ${OFCGAL} \
  && sed -i 's,export CGAL_ARCH_PATH,# export CGAL_ARCH_PATH,' ${OFCGAL} \
 #" (This comment line is needed to let vi to show the right syntax)
+#--Dummy line:
+ && echo ''
+#    =====
+ARG WMCGAL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/wmake/rules/General/CGAL
+RUN . ${OFBASHRC} \
+ && cp ${WMCGAL} ${WMCGAL}.original \
+ && sed -i 's=\-lmpfr=-lmpfr -lboost_thread=' ${WMCGAL} \
 #--Dummy line:
  && echo ''
 
