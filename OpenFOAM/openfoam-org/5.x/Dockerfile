@@ -3,8 +3,9 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base image to build from
-# In this case: mpich 3.1.4 and ubuntu 16.04; MPICH is needed for crays
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu16.04
+# In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays, 18.04 is needed for Setonix
+#Note that in 18.04 we'll need to install and force compilation with gcc-5,g++-5
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -99,6 +100,8 @@ RUN apt-get update -qq\
    libglu1-mesa-dev libqt4-opengl-dev \
 #AEG:I found the following was needed to install  FlexLexer.h
    libfl-dev \
+#AEG: Version 5 of gcc is needed:
+   gcc-5 g++-5 \
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
@@ -118,6 +121,7 @@ RUN git clone https://github.com/OpenFOAM/OpenFOAM-${OFVERSIONGIT}.git \
 #Step 3. Definitions for the prefs and bashrc files.
 ARG OFPREFS=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/prefs.sh
 ARG OFBASHRC=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/bashrc
+ARG OFSETTINGS=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/settings
 
 #...........
 #Defining the prefs.sh:
@@ -154,6 +158,18 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh >
  && echo ''
 
 #...........
+#Modifying the settings.sh file to use gcc-5 and g++-5
+#This as an adaptation from instructions in: 
+# https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-2.4.0/Ubuntu#Ubuntu_18.04
+RUN cp ${OFSETTINGS} ${OFSETTINGS}.original \
+#Changing to use gcc-5
+ && sed -i "s/export WM_CC='gcc'/export WM_CC='gcc-5'/g" ${OFSETTINGS} \
+#Changing to use g++-5
+ && sed -i "s/export WM_CXX='g++'/export WM_CXX='g++-5'/g" ${OFSETTINGS} \
+#--Dummy line:
+ && echo ''
+
+#...........
 #Modifying the bashrc file
 RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #Changing the installation directory within the bashrc file (This is not in the openfoamwiki instructions)
@@ -182,6 +198,16 @@ RUN cp ${OFALIASFILE} ${OFALIASFILE}.original \
  && sed -i 's,declare -f wmRefresh > /dev/null, command -V wmRefresh 2> /dev/null | head -1 | grep -q "function",' ${OFALIASFILE} \
 #--Dummy line:
  && echo ''
+
+#...........
+#Modifying the wmake files for using gcc-5 and g++-5
+RUN cd ${OFINSTDIR}/OpenFOAM-${OFVERSION}/wmake/rules \
+ && for iDir in $(ls -d linux*Gcc); do       \
+        cp $iDir/c $iDir/c.original;         \
+        cp $iDir/c++ $iDir/c++.original;     \
+        sed -i 's/gcc/\$(WM_CC)/' $iDir/c;   \
+        sed -i 's/g++/\$(WM_CXX)/' $iDir/c++;\
+    done
 
 #...........
 #Step 4.
@@ -224,14 +250,17 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 #...........
 #Step 7.
 #Defining defaults of the controlDict
-ARG OFCONTROL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/controlDict
-#(No other defaults to be defined yet)
-RUN cp ${OFCONTROL} ${OFCONTROL}.original \
-#Setting collated as default for fileHandler
- && sed -i '\@fileHandler uncollated;@a    fileHandler collated;' ${OFCONTROL} \
- && sed -i '0,\@fileHandler uncollated;@s@@// fileHandler uncollated;@' ${OFCONTROL} \
-#--Dummy line:
- && echo ''
+#AEG: Not using collated default for version 5.x anymore as it was not mature yet
+#    (Therefore, commenting settings with ##@##)
+#
+##@##ARG OFCONTROL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/controlDict
+##@###(No other defaults to be defined yet)
+##@##RUN cp ${OFCONTROL} ${OFCONTROL}.original \
+##@###Setting collated as default for fileHandler
+##@## && sed -i '\@fileHandler uncollated;@a    fileHandler collated;' ${OFCONTROL} \
+##@## && sed -i '0,\@fileHandler uncollated;@s@@// fileHandler uncollated;@' ${OFCONTROL} \
+##@###--Dummy line:
+##@## && echo ''
 
 #...........
 #Step 8.
