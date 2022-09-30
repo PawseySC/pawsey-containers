@@ -38,9 +38,9 @@ fonttools==4.31.2
     # via matplotlib
 fsspec==2022.2.0
     # via dask
-#h5netcdf==0.15.0
+h5netcdf==1.0.2
     # via -r requirements.in
-#h5py==3.6.0
+h5py==3.7.0
     # via
     #   -r requirements.in
     #   h5netcdf
@@ -57,7 +57,7 @@ jinja2==3.0.3
     #   bokeh
     #   dask
     #   distributed
-joblib==1.1.0
+joblib==1.2.0
     # via scikit-learn
 kiwisolver==1.4.0
     # via matplotlib
