@@ -95,7 +95,7 @@ RUN apt-get update -qq\
 #AEG:   cmake \
 #AEG:No Boost because the third party will be used
 #AEG:NoBoost:   libboost-system-dev libboost-thread-dev \
-#AEG:   libboost-system-dev libboost-thread-dev \
+   libboost-system-dev libboost-thread-dev \
 #AEG:No OpenMPI because MPICH will be used (installed in the parent FROM image)
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
 #AEG:No fftw3 because the third party will be used

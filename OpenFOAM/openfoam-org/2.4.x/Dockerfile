@@ -193,6 +193,8 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 
 #...........
 #Modifying the wmake files for using gcc-5 and g++-5
+#This as an adaptation from instructions in: 
+# https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-2.4.0/Ubuntu#Ubuntu_18.04
 RUN cd ${OFINSTDIR}/OpenFOAM-${OFVERSION}/wmake/rules \
  && for iDir in $(ls -d linux*Gcc); do       \
         cp $iDir/c $iDir/c.original;         \
