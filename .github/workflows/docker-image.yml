@@ -1,0 +1,69 @@
+# yaml file to run automate docker builds. 
+# currently this is in testing so will only build docker images with test-${VERSION] as the tag
+name: Automate Docker Image Build & Push to Quay.io Registry CI
+
+on:
+  pull_request:
+    branches:
+      - master
+      - main
+    types:
+      - closed
+      #ideally would only have builds on closed PRs that have been accepted. 
+      #- open 
+
+jobs:   
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Login to Quay.io
+        uses: docker/login-action@v2
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_ID }}
+          password: ${{ secrets.QUAY_PW }}
+      - 
+        name: Find Changed/Added Files
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # OR "2" -> To retrieve the preceding commit.
+
+      - 
+        name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v24
+        with:
+          files:
+            containers/**/Dockerfile
+      - 
+        name: List all changed files
+        id: list-files
+        run: |
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            TAG_NAME=`cut -d / -f 2 <<< $file`
+            echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+          done
+          REPO_NAME=`echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]'`
+          NORMALIZED=`echo ${REPO_NAME//[%&*<>~-=+]/_}`
+          echo "NORMALIZED=$NORMALIZED" >> $GITHUB_ENV
+      -
+        name: Get current date # get the date of the build
+        id: date
+        run: echo "::set-output name=date::$(date +'%Y-%m-%d--%M-%S')"
+      - 
+        name: Building & Pushing Docker Image
+        run: |
+          cd containers/$TAG_NAME || exit
+          VERSION=$(cat VERSION)
+          CONTAINER_VERSION=${VERSION}_${{ steps.date.outputs.date }}
+          docker build . --tag quay.io/pawsey/${NORMALIZED}_${TAG_NAME}:${CONTAINER_VERSION}
+          docker push quay.io/pawsey/${NORMALIZED}_${TAG_NAME}:${CONTAINER_VERSION}
+      -
+        name: Setting Repository Public
+        run: |
+          curl -s -X POST -H "Authorization: Bearer ${{ secrets.ROBOT_ACCESS_TOKEN }}"  -H "Content-Type: application/json" -d '{"visibility":"public"}' "https://quay.io//api/v1/repository/<your organization>/${NORMALIZED}_${TAG_NAME}/changevisibility"
+
+          #for repository in $(curl -s -X GET -H "Authorization: Bearer ${{ secrets.ROBOT_ACCESS_TOKEN }}" "https://quay.io/api/v1/repository?namespace=<your organization>" | jq -r '.repositories[].name' | sort); do
+          #    curl -s -X POST -H "Authorization: Bearer ${{ secrets.ROBOT_ACCESS_TOKEN }}"  -H "Content-Type: application/json" -d '{"visibility":"public"}' "https://quay.io//api/v1/repository/<your organization>/$repository/changevisibility"
+          #done
