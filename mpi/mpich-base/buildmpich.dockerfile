@@ -12,9 +12,9 @@ ARG MPICH_VERSION="3.4.3"
 
 #define some metadata 
 LABEL org.opencontainers.image.created="2023-02"
-LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascaljelahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>"
+LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>"
 LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey-containers/"
-LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/mpi/mpich-base/Dockerfile"
+LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/mpi/mpich-base/buildmpich.dockerfile"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
 LABEL org.opencontainers.image.title="Setonix compatible MPICH base"
