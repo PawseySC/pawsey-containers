@@ -11,6 +11,10 @@ on:
       - closed
       #ideally would only have builds on closed PRs that have been accepted. 
       #- open 
+  push: 
+    branches:
+      - master
+      - main
 
 jobs:   
   build:
