@@ -149,9 +149,10 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh >
 #Modifying the bashrc file
 RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #Changing the installation directory within the bashrc file (This is not in the openfoamwiki instructions)
- && sed -i '/^export FOAM_INST_DIR=$HOME.*/aexport FOAM_INST_DIR='"${OFINSTDIR}" ${OFBASHRC} \
- && sed -i '0,/^export FOAM_INST_DIR=$HOME/s//# export FOAM_INST_DIR=$HOME/' ${OFBASHRC} \
-#" (This comment line is needed to let vi to show the right syntax)
+ && sed -i 's/^export FOAM_INST_DIR=/# export FOAM_INST_DIR=/g' ${OFBASHRC} \
+ && sed -i '0,/\[ "$BASH"/s//# \[ "$BASH"/' ${OFBASHRC} \
+ && sed -i '0,/^# export FOAM_INST_DIR=.*/!b;//a\export FOAM_INST_DIR='"${OFINSTDIR}" ${OFBASHRC} \
+#" (This comment line is needed to let vi to show the right syntax when editing this Dockerfile)
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file 
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
 #   1. You can mount a directory of your local-host into this directory
