@@ -62,7 +62,6 @@ RUN apt-get update -qq \
         wget \
         xsltproc \
         zlib1g-dev \
-        patchelf strace ltrace \
     && apt-get clean all \
     && rm -r /var/lib/apt/lists/* \
     && echo "Finished apt-get installs"

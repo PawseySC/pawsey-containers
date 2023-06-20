@@ -18,7 +18,7 @@ LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-contai
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
 LABEL org.opencontainers.image.title="Setonix compatible MPICH base with Spack added"
-LABEL org.opencontainers.image.description="Common base image providing mpi compatible with cray-mpich used on Setonix with spack added and aware of mpich external"
+LABEL org.opencontainers.image.description="Common base image providing mpi compatible with cray-mpich used on Setonix"
 LABEL org.opencontainers.image.base.name="pawsey/spack-${SPACK_VERSION}:mpibase:ubuntu-mpich-setonix"
 LABEL org.opencontainers.image.spack.version="${SPACK_VERSION}"
 

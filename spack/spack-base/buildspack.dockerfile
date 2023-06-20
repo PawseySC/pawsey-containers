@@ -1,15 +1,12 @@
 # This recipe uses ubuntu as a base and 
 # adds minimal packages with apt-get
-# adds spack and the default base image is 
-# set to build on top of the pawsey provided mpich image
+# adds spack
 
-ARG BASE_IMAGE="pawsey:mpich-setonix"
-FROM ${BASE_IMAGE}
+ARG OS_VERSION="20.04"
+FROM ubuntu:${OS_VERSION}
+# redefine after FROM to ensure it is defined
+ARG OS_VERSION="20.04"
 ARG SPACK_VERSION=v0.19
-# currently this is a build time argument in the 
-# recipe but eventually will migrate so that 
-# this is extracted from the base image 
-ARG MPICH_VERSION=3.4.3
 
 LABEL org.opencontainers.image.created="2023-02"
 LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au.com>"
@@ -17,11 +14,52 @@ LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/spack/buildspack.dockerfile"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
-LABEL org.opencontainers.image.title="Setonix compatible MPICH base with Spack added"
-LABEL org.opencontainers.image.description="Common base image providing mpi compatible with cray-mpich used on Setonix with spack added and aware of mpich external"
-LABEL org.opencontainers.image.base.name="pawsey/spack-${SPACK_VERSION}:mpibase:ubuntu-mpich-setonix"
+LABEL org.opencontainers.image.title="Setonix compatible base image with Spack added"
+LABEL org.opencontainers.image.description="Common base image with spack added "
+LABEL org.opencontainers.image.base.name="pawsey/spack-${SPACK_VERSION}:ubuntu-${OS_VERSION}-setonix"
 LABEL org.opencontainers.image.spack.version="${SPACK_VERSION}"
 
+
+# run apt-get install on a few packages
+ENV DEBIAN_FRONTEND="noninteractive"
+RUN apt-get update -qq \
+    && apt-get -y --no-install-recommends install \
+        build-essential \
+        ca-certificates \
+        gdb \
+        gcc g++ gfortran \
+        wget \
+        git \
+        python3-six python3-setuptools \
+        patchelf strace ltrace \
+        libcrypt-dev \ 
+        libcurl4-openssl-dev \
+        libpython3-dev \
+        libreadline-dev \
+        libssl-dev \
+        sudo \
+        autoconf \
+        automake \
+        bison \
+        curl \
+        flex \
+        gcovr \
+        gdb \
+        libtool \
+        m4 \
+        make \
+        openssh-server \
+        patch \
+        subversion \
+        tzdata \
+        valgrind \
+        vim \
+        wget \
+        xsltproc \
+        zlib1g-dev \
+    && apt-get clean all \
+    && rm -r /var/lib/apt/lists/* \
+    && echo "Finished apt-get installs"
 
 # build packages with spack
 # note that the externals here are set based on 
@@ -37,23 +75,11 @@ RUN echo "Setting up spack" \
     # and also add python to externals 
     && pyver=$(python3 --version | awk '{print $2}') \
     && pipver=$(pip --version | awk '{print $2}') \
-    && numpyver=$(pip freeze | grep numpy | sed "s:==: :g" | awk '{print $2}') \
-    && scipyver=$(pip freeze | grep scipy | sed "s:==: :g" | awk '{print $2}') \
     && sixver=$(pip freeze | grep six | sed "s:==: :g" | awk '{print $2}') \
     # set the config 
     && echo "\n  python: \n\
     externals:\n\
     - spec: python@${pyver}\n\
-      prefix: /usr\n\
-    buildable: false\n\
-  py-numpy:\n\
-    externals:\n\
-    - spec: py-numpy@${numpyver}\n\
-      prefix: /usr\n\
-    buildable: false\n\
-  py-scipy:\n\
-    externals:\n\
-    - spec: py-scipy@${scipyver}\n\
       prefix: /usr\n\
     buildable: false\n\
   py-pip:\n\
@@ -64,11 +90,6 @@ RUN echo "Setting up spack" \
   py-six:\n\
     externals:\n\
     - spec: py-six@${sixver}\n\
-      prefix: /usr\n\
-    buildable: false\n\
-  mpich:\n\
-    externals:\n\
-    - spec: mpich@${MPICH_VERSION}\n\
       prefix: /usr\n\
     buildable: false\n\
       " >> ~/.spack/packages.yaml \
