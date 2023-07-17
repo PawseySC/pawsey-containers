@@ -7,9 +7,9 @@ FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
-ARG OFVERSION="7"
+ARG OFVERSION="v2212"
 #Using bash from now on
-SHELL ["/bin/bash","-c"]
+SHELL ["/bin/bash", "-c"]
 
 
 #---------------------------------------------------------------
@@ -53,10 +53,19 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 # III. INSTALLING OPENFOAM.
 #This section is for installing OpenFOAM
 #Will follow PARTIALLY the official installation instructions:
-#https://openfoam.org/download/7-source/
+#https://www.openfoam.com/documentation/system-requirements.php
+#and
+#https://www.openfoam.com/code/build-guide.php
+#and
+#https://www.openfoam.com/download/install-source.php
+#and
+#https://develop.openfoam.com/Development/openfoam/blob/develop/doc/Requirements.md
+#and
+#https://develop.openfoam.com/Development/ThirdParty-common/blob/develop/Requirements.md
 #
-#Will follow PARTIALLY the instructions for openfoam-7 available in the wiki:
-#https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-7/Ubuntu/18.04
+#Will follow PARTIALLY the instructions for openfoamplus available in the wiki (latest for ubuntu is v1806):
+#https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu
+#(There are some other instructions for v1906, but not for ubuntu)
 #
 #Then, Will follow a combination of both
 
@@ -77,47 +86,48 @@ WORKDIR $OFINSTDIR
 #But harmless.
 RUN apt-get update -qq\
  &&  apt-get -y --no-install-recommends --no-install-suggests install \
-   build-essential\
-   flex bison git-core cmake zlib1g-dev \
-#AEG:(No third party boost is provided (although can be downloaded) but will use the system installation):
+   wget build-essential\
+   flex bison cmake zlib1g-dev \
    libboost-system-dev libboost-thread-dev \
 #AEG:No OpenMPI because MPICH will be used (installed in the parent FROM image)
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
-   gnuplot libreadline-dev libncurses-dev \
-#AEG:NoQt4: libqtwebkit-dev \ 
-   libqt5x11extras5-dev libxt-dev qt5-default qttools5-dev curl \
+   libfftw3-dev \
+   gnuplot libreadline-dev libncurses-dev libxt-dev \
+#AEG:NoQt4:   qt4-dev-tools libqt4-dev libqt4-opengl-dev libqtwebkit-dev\ 
+#AEG:Not installing qt4 (as in the official instructions), but qt5 as in the 3rd party requirements list
+   qtbase5-dev qttools5-dev qttools5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
+#AEG:And these other suggested in the wiki:
+   qt5-default libqt5help5 qtdeclarative5-dev \
 #--continue
-   freeglut3-dev \
+   freeglut3-dev  \
 #AEG:No scotch because it installs openmpi which later messes up with MPICH
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
 #AEG:NoScotch:   libscotch-dev \
-#AEG:(No third party CGAL is provided (although can be downloaded) but will use the system installation):
+#AEG:Yes CGAL (then, third party will not be installed):
    libcgal-dev \
 #AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
-   libgmp-dev libmpfr-dev\
-#AEG:Wiki additional qt suggestions:
-   qtbase5-dev \
+   libgmp-dev libmpfr-dev libmpc-dev\
 #AEG: Some more suggestions from the wiki instructions:
    python python-dev \
    libglu1-mesa-dev \
-#AEG:I found the following was needed to install  FlexLexer.hi (now included in the wiki instructions too):
+#AEG:I found the following was needed to install  FlexLexer.h
    libfl-dev \
-#AEG:I need wget to download ParaView (because automatic download with curl is failing)
-   wget \
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
 #...........
 #Step 2. Download
-#Change to the installation dir, clone OpenFOAM directories
-ARG OFVERSIONGIT=$OFVERSION
+#Change to the installation dir, download OpenFOAM and untar
+ARG OFVERSIONFORGE=$OFVERSION
 WORKDIR $OFINSTDIR
-#Try git or https protocol:
-RUN git clone https://github.com/OpenFOAM/OpenFOAM-${OFVERSIONGIT}.git \
- && git clone https://github.com/OpenFOAM/ThirdParty-${OFVERSIONGIT}.git
-
-##RUN git clone git://github.com/OpenFOAM/OpenFOAM-${OFVERSIONGIT}.git \
-## && git clone git://github.com/OpenFOAM/ThirdParty-${OFVERSIONGIT}.git
+RUN wget --no-check-certificate -O OpenFOAM-${OFVERSION}.tgz \
+    "https://sourceforge.net/projects/openfoam/files/OpenFOAM-${OFVERSIONFORGE}.tgz?use_mirror=mesh" \
+ && wget --no-check-certificate -O ThirdParty-${OFVERSION}.tgz \
+    "https://sourceforge.net/projects/openfoam/files/ThirdParty-${OFVERSIONFORGE}.tgz?use_mirror=mesh" \
+ && tar -xvzf OpenFOAM-${OFVERSION}.tgz \
+ && tar -xvzf ThirdParty-${OFVERSION}.tgz \
+ && rm -f OpenFOAM-${OFVERSION}.tgz \
+ && rm -f ThirdParty-${OFVERSION}.tgz
 
 #...........
 #Step 3. Definitions for the prefs and bashrc files.
@@ -146,7 +156,7 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh >
 ## && echo 'export MPI_ARCH_LIBS="-L/usr/lib/x86_64-linux-gnu -lmpich"' >> ${OFPREFS} \
 #
 #  ~(B)The suggestions from the file mplibMPICH are:
- && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OFPREFS} \
+ && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_INC="-isystem $MPI_ROOT/include"' >> ${OFPREFS} \
 ## && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpi -lrt"' >> ${OFPREFS} \
 #
@@ -154,7 +164,7 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh >
 ##AEG:Gcc7 has problems with the -isystem flag. Using -I instead:
  && echo 'export MPI_ARCH_INC="-I ${MPI_ROOT}/include"' >> ${OFPREFS} \
 ##AEG:Only one library path and using -lmpich
-## && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OFPREFS} \
+## && echo 'export MPI_ARCH_LIBS="-L$MPI_ROOT/lib -lmpich"' >> ${OFPREFS} \
 ##AEG:The two library paths and using -lmpich
  && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OFPREFS} \
 #--Dummy line:
@@ -164,14 +174,14 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh >
 #Modifying the bashrc file
 RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #Changing the installation directory within the bashrc file (This is not in the openfoamwiki instructions)
- && sed -i 's/^export FOAM_INST_DIR=/# export FOAM_INST_DIR=/g' ${OFBASHRC} \
- && sed -i '0,/\[ "$BASH"/s//# \[ "$BASH"/' ${OFBASHRC} \
- && sed -i '0,/^# export FOAM_INST_DIR=.*/!b;//a\export FOAM_INST_DIR='"${OFINSTDIR}" ${OFBASHRC} \
-#" (This comment line is needed to let vi to show the right syntax when editing this Dockerfile)
+ && sed -i 's/^projectDir=/# projectDir=/g' ${OFBASHRC} \
+ && sed -i '0,/\[ -n "$projectDir"/s//# \[ -n "$projectDir"/' ${OFBASHRC} \
+ && sed -i '0,/^# projectDir="$HOME.*/!b;//a\projectDir="'"${OFINSTDIR}"'/OpenFOAM-$WM_PROJECT_VERSION"' ${OFBASHRC} \
+#" (This comment line is needed to let vi to show the right syntax)
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file 
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
-#   1. You can mount a directory of your local-host into this directory
-#   2. Or you can include and build stuff inside the image and save it as your own image for later use.
+#   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
+#   2. Or you can include and build stuff inside the container and save it as your own image for later use.
  && sed -i '/^export WM_PROJECT_USER_DIR=.*/aexport WM_PROJECT_USER_DIR="'"${OFUSERDIR}/ofuser"'-$WM_PROJECT_VERSION"' ${OFBASHRC} \
  && sed -i '0,/^export WM_PROJECT_USER_DIR/s//# export WM_PROJECT_USER_DIR/' ${OFBASHRC} \
 #" (This comment line is needed to let vi to show the right syntax)
@@ -179,67 +189,79 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
  && echo ''
 
 #...........
-#Bashrc options to be used
-ARG BASHRC_OPTIONS="FOAMY_HEX_MESH=yes"
-
-#...........
 #Step 4.
 #Install one or the other: paraview or VTK
 #Install paraview or VTK for runTimePostprocessing of OpenFOAM to properly compile
-#Install paraview for graphical postprocessing to be available in the container
-#Catalyst tools are not available for the foundation version
+#Install paraview for catalyst module to properly compile (wont work with just VTK)
+#Install paraview for graphical postprocessing to be available in the container 
 
-#AEG: foundation source files do not count with makeVTK script, so will not attempt to install VTK
-
-##Paraview compilation (Using instructions from the wiki)
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+##Paraview compilation (Adapted alternative instructions from OpenFoamWiki)
+RUN . ${OFBASHRC} \
+#AEG: recomendation in the ThirdParty-xx/README.md:
+ && $WM_PROJECT_DIR/wmake/src/Allmake \
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
-#downloading ParaView with wget because the supposedly automatic download with curl is failing
-#(Paraview download address pasted from ThirdParty-<Version>/README.org)
- && wget --no-check-certificate http://www.paraview.org/files/v5.6/ParaView-v5.6.0.tar.gz \
- && tar xvf ParaView-v5.6.0.tar.gz \
- && rm ParaView-v5.6.0.tar.gz \
- && mv ParaView-v5.6.0 ParaView-5.6.0 \
+#AEG: makeParaView failing due to bash-isms, changing explicitly to bash:
+ && cp makeParaView makeParaView.original \
+ && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' makeParaView \
+ && sed -i 's,^#!/bin/sh,###!/bin/sh,' makeParaView \
  && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
 
-#...........
-#Step 5.
-#Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
-#AEG:NoThirdPartyCGAL&Boost, will use ubuntu packages installed above with apt-get:
-#@@-@@#:#CGAL and boost first need to be downloaded from the sites given in ThirdParty/README.org
-#@@-@@#:#Updating the BOOST version to be used:
-#@@-@@#:ARG OFCGAL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/CGAL
-#@@-@@#:RUN cp ${OFCGAL} ${OFCGAL}.original \
-#@@-@@#: && sed -i '/^boost_version=.*/aboost_version=boost_1_64_0' ${OFCGAL} \
-#@@-@@#: && sed -i '0,/^boost_version/s//# boost_version/' ${OFCGAL} \
-#@@-@@#:#" (This comment line is needed to let vi to show the right syntax)
-#@@-@@#:#--Dummy line:
-#@@-@@#: && echo ''
+#AEG##...........
+#AEG##Step 5.
+#AEG##Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
+#AEG##Updating the BOOST version to be used:
+#AEG#ARG OFCGAL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/CGAL
+#AEG#RUN cp ${OFCGAL} ${OFCGAL}.original \
+#AEG# && sed -i '/^boost_version=.*/aboost_version=boost_1_64_0' ${OFCGAL} \
+#AEG# && sed -i '0,/^boost_version/s//# boost_version/' ${OFCGAL} \
+#AEG##" (This comment line is needed to let vi to show the right syntax)
+#AEG##--Dummy line:
+#AEG# && echo ''
 
 #Third party compilation
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+RUN . ${OFBASHRC} \
+#AEG: recomendation in the ThirdParty-xx/README.md:
+ && $WM_PROJECT_DIR/wmake/src/Allmake \
  && cd $WM_THIRD_PARTY_DIR \
  && ./Allwmake 2>&1 | tee log.Allwmake
 
 #...........
 #Step 6.
-#OpenFOAM compilation
+#AEG: Compilation of "Additional components/modules" is failing due to bash-isms, changing explicitly to bash:
+RUN . ${OFBASHRC} \
+ && cd $WM_PROJECT_DIR \
+ && cp Allwmake Allwmake.original \
+ && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' Allwmake \
+ && sed -i 's,^#!/bin/sh,###!/bin/sh,' Allwmake
+
+##-##:#OpenFOAM compilation (From official instructions)
+##-##:ARG OFNUMPROCOPTION="-j 4"
+##-##:RUN . ${OFBASHRC} \
+##-##: && cd $WM_PROJECT_DIR \
+##-##: && ./Allwmake $OFNUMPROCOPTION 2>&1 | tee log.Allwmake
+
+##-##:#Obtaining a summary
+##-##:RUN . ${OFBASHRC} \
+##-##: && cd $WM_PROJECT_DIR \
+##-##: && ./Allwmake 2>&1 | tee log.AllwmakeSummary
+
+#OpenFOAM compilation (Adapted alternative instructions from OpenFoamWiki)
 ARG OFNUMPROCOPTION="-j 4"
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+RUN . ${OFBASHRC} \
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
  && ./Allwmake $OFNUMPROCOPTION 2>&1 | tee log.Allwmake
 
-#Obtaining the summary of the OpenFOAM compilation as suggested in the openfoamwiki instructions
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#Obtaining a  summary 
+RUN . ${OFBASHRC} \
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
- && ./Allwmake $OFNUMPROCOPTION 2>&1 | tee log.SummaryAllwmake
+ && ./Allwmake 2>&1 | tee log.AllwmakeSummary
 
 #...........
 #Step 7.
-#Defining Best Practices as defaults of the controlDict
+#Defining defaults of the controlDict
 ARG OFCONTROL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/controlDict
 #...........
 #Modifying the default controlDict file
@@ -253,13 +275,12 @@ RUN cp ${OFCONTROL} ${OFCONTROL}.original \
 #...........
 #Step 8.
 ##Checking if openfoam is working
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+RUN . ${OFBASHRC} \
  && cd $WM_PROJECT_DIR \
  && icoFoam -help 2>&1 | tee log.icoFoam
 
-#...........
 #Writing the environment variables for the installation so far:
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+RUN . ${OFBASHRC} \
  && cd $WM_PROJECT_DIR \
  && printenv > environment_vars_raw.env
 

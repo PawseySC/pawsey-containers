@@ -4,3 +4,4 @@
 out_*
 nohup.out
 *.tgz
+log.*
