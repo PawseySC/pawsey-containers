@@ -10,11 +10,15 @@
 # Target registry/organisation
 reg_org="quay.io/pawsey"
 # Using chunks, to avoid filling up the disk of small machines
-of_tool_tags_1="openfoam-org/2.2.0 openfoam-org/2.4.x openfoam-org/5.x"
-of_tool_tags_2="openfoam-org/7 openfoam-org/8 openfoam-org/9"
-of_tool_tags_3="openfoam/v1712 openfoam/v1812 openfoam/v1912"
-of_tool_tags_4="openfoam/v2006 openfoam/v2012"
-chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_4"
+of_tool_tags_1="openfoam/v2212 openfoam/v2206 openfoam/v2012"
+#of_tool_tags_2="openfoam/v2006 openfoam/v1912"
+#of_tool_tags_3="openfoam/v1812 openfoam/v1712"
+of_tool_tags_4="openfoam-org/10 openfoam-org/9 openfoam-org/8"
+of_tool_tags_5="openfoam-org/7"
+#of_tool_tags_6="openfoam-org/5.x openfoam-org/2.4.x openfoam-org/2.2.0"
+#chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_4 of_tool_tags_5 of_tool_tags_6"
+chunks="of_tool_tags_1 of_tool_tags_4 of_tool_tags_5"
+
 ### END OF EDITABLE
 
 
@@ -53,19 +57,19 @@ for of_tool_tags in $chunks ; do
     list_file="list_cmd_${tool}_${ver}"
     bin_list="$( singularity exec $sif ls $bindir >${list_file} )"
     for bin in $( cat $list_file  ) ; do
-      echo "  ${bin}: ${bin}" >>$alias_file
+      echo "  ${bin}: ${bindir}/${bin}" >>$alias_file
     done 
     rm -f $list_file
   done
 done
 
 # Create tarball with all command aliases
-alias_tgz="command_aliases_openfoam.tgz"
-echo ""
-echo " .. Creating tarball containing all command aliases"
-rm -f $alias_tgz
-tar czf $alias_tgz aliases_*/
-rm -r aliases_*/
+#alias_tgz="command_aliases_openfoam.tgz"
+#echo ""
+#echo " .. Creating tarball containing all command aliases"
+#rm -f $alias_tgz
+#tar czf $alias_tgz aliases_*/
+#rm -r aliases_*/
 
 echo ""
 echo " Gone through all alias generations. Done!"

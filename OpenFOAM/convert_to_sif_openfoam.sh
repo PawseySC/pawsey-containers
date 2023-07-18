@@ -10,11 +10,15 @@
 # Target registry/organisation
 reg_org="quay.io/pawsey"
 # Using chunks, to avoid filling up the disk of small machines
-of_tool_tags_1="openfoam-org/2.2.0 openfoam-org/2.4.x openfoam-org/5.x"
-of_tool_tags_2="openfoam-org/7 openfoam-org/8 openfoam-org/9"
-of_tool_tags_3="openfoam/v1712 openfoam/v1812 openfoam/v1912"
-of_tool_tags_4="openfoam/v2006 openfoam/v2012"
-chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_4"
+of_tool_tags_1="openfoam/v2212 openfoam/v2206 openfoam/v2012"
+#of_tool_tags_2="openfoam/v2006 openfoam/v1912"
+#of_tool_tags_3="openfoam/v1812 openfoam/v1712"
+of_tool_tags_4="openfoam-org/10 openfoam-org/9 openfoam-org/8"
+of_tool_tags_5="openfoam-org/7"
+#of_tool_tags_6="openfoam-org/5.x openfoam-org/2.4.x openfoam-org/2.2.0"
+#chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_4 of_tool_tags_5 of_tool_tags_6"
+chunks="of_tool_tags_1 of_tool_tags_4 of_tool_tags_5"
+
 ### END OF EDITABLE
 
 
