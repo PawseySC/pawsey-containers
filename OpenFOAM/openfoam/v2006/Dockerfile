@@ -3,6 +3,8 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base container to build from
+# IMPORTANT: 
+# Setonix needs at least ubuntu20.04 (From August 2023)
 FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
