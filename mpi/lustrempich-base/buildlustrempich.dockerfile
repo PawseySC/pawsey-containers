@@ -79,7 +79,7 @@ RUN echo "Building lustre" \
     && git clone git://git.whamcloud.com/fs/lustre-release.git \
     && cd lustre-release \
     && git fetch --tags && git checkout ${LUSTRE_VERSION} \
-    && ./autogen.sh \
+    && chmod +x ./autogen.sh && ./autogen.sh \
     && ./configure --disable-server --enable-client \
     && make -j8 && make install \
     && cd / \
