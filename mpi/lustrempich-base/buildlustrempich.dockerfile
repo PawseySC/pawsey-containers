@@ -9,6 +9,10 @@ FROM ubuntu:${OS_VERSION}
 ARG OS_VERSION="20.04"
 # mpich version
 ARG MPICH_VERSION="3.4.3"
+# lustre version
+ARG LUSTRE_VERSION="2.15.0-RC4"
+# mpi4py version
+ARG MPI4PY_VERSION="3.1.4"
 
 #define some metadata 
 LABEL org.opencontainers.image.created="2023-02"
@@ -74,6 +78,7 @@ RUN echo "Building lustre" \
     && cd /tmp/lustre-build \
     && git clone git://git.whamcloud.com/fs/lustre-release.git \
     && cd lustre-release \
+    && git fetch --tags && git checkout ${LUSTRE_VERSION} \
     && ./autogen.sh \
     && ./configure --disable-server --enable-client \
     && make -j8 && make install \
@@ -82,7 +87,6 @@ RUN echo "Building lustre" \
     && echo "Finished installing lustre"
 
 # Build MPICH
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FC=gfortran"
 ARG MPICH_CONFIGURE_OPTIONS="--without-mpe --enable-fortran=all --enable-shared --enable-sharedlibs=gcc --enable-debuginfo --enable-yield=sched_yield \
 --enable-g=mem --with-device=ch4:ofi --with-namepublisher=file \
 --with-shared-memory=sysv \
@@ -143,7 +147,7 @@ RUN mkdir -p /opt/ \
       && make CXX=g++ bin/openmpvec_cpp
 
 # add mpi4py in the container 
-RUN pip install mpi4py
+RUN pip install mpi4py==${MPI4PY_VERSION}
 
 RUN mkdir -p /container-scratch/
 
