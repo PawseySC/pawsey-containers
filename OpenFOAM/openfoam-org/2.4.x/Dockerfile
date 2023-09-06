@@ -5,13 +5,19 @@
 # Defining the base image to build from
 # In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays, 18.04 is needed for Setonix
 # Note that in 18.04 we'll need to install and force compilation with gcc-5,g++-5.
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
 
-LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
+LABEL maintainer="Alexis.Espinosa@pawsey.org.au, mebasha@pawsey.org.au"
 #OpenFOAM version to install
 ARG OFVERSION="2.4.x"
 #Using bash from now on
 SHELL ["/bin/bash", "-c"]
+
+
+#sed xenial repo to apt source list to install gcc-5 g++-5
+RUN echo 'deb http://dk.archive.ubuntu.com/ubuntu/ xenial main' >> /etc/apt/sources.list \
+    && echo 'deb http://dk.archive.ubuntu.com/ubuntu/ xenial universe' >> /etc/apt/sources.list
+
 
 
 #---------------------------------------------------------------
@@ -70,6 +76,13 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 ARG OFINSTDIR=/opt/OpenFOAM
 ARG OFUSERDIR=/home/ofuser/OpenFOAM
 WORKDIR $OFINSTDIR
+
+
+# to install qt4, ubutu 20.04 will install qt5 which not compatible with OF24 requirements
+RUN apt-get update -qq \
+   && apt-get -y --no-install-recommends --no-install-suggests install software-properties-common \
+        && add-apt-repository ppa:rock-core/qt4
+
 
 #...........
 #Step 1.
