@@ -5,13 +5,19 @@
 # Defining the base image to build from
 # In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays, 18.04 is needed for Setonix
 #Note that in 18.04 we'll need to install and force compilation with gcc-5,g++-5
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
 
-LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
+LABEL maintainer="Alexis.Espinosa@pawsey.org.au, mebasha@pawsey.org.au"
 #OpenFOAM version to install
 ARG OFVERSION="5.x"
 #Using bash from now on
 SHELL ["/bin/bash", "-c"]
+
+
+#sed xenial repo to apt source list
+RUN echo 'deb http://dk.archive.ubuntu.com/ubuntu/ xenial main' >> /etc/apt/sources.list \
+    && echo 'deb http://dk.archive.ubuntu.com/ubuntu/ xenial universe' >> /etc/apt/sources.list \
+    && echo 'deb http://archive.ubuntu.com/ubuntu xenial main' >> /etc/apt/sources.list
 
 
 #---------------------------------------------------------------
@@ -71,6 +77,12 @@ ARG OFINSTDIR=/opt/OpenFOAM
 ARG OFUSERDIR=/home/ofuser/OpenFOAM
 WORKDIR $OFINSTDIR
 
+# to install qt4
+RUN apt-get update -qq \
+   && apt-get -y --no-install-recommends --no-install-suggests install software-properties-common \
+        && add-apt-repository ppa:rock-core/qt4
+
+
 #...........
 #Step 1.
 #Install necessary packages
@@ -93,7 +105,7 @@ RUN apt-get update -qq\
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
    libboost-system-dev libboost-thread-dev \
 #AEG:(No third party CGAL is provided (although can be downloaded) but will use the system installation):
-   libcgal-dev \
+  # libcgal-dev \
 #AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
    libgmp-dev libmpfr-dev\
    python python-dev curl\
@@ -221,6 +233,7 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
  && tar xvf ParaView-v5.4.0.tar.gz \
  && rm ParaView-v5.4.0.tar.gz \
  && mv ParaView-v5.4.0 ParaView-5.4.0 \
+ && sed -i 's/DOCUMENTATION_DIR/#DOCUMENTATION_DIR/' ParaView-5.4.0/Plugins/StreamLinesRepresentation/CMakeLists.txt \
  && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
 
 #...........
@@ -231,6 +244,21 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt4 \
  && ./Allwmake 2>&1 | tee log.Allwmake
+
+
+# to install cgal 4.11 which is compatible with OF5X
+RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+ && cd $WM_THIRD_PARTY_DIR \
+ && wget https://github.com/CGAL/cgal/archive/refs/tags/releases/CGAL-4.11.tar.gz \
+ && tar -xvf CGAL-4.11.tar.gz \
+ && rm CGAL-4.11.tar.gz \
+ && cd cgal-releases-CGAL-4.11 \
+ && mkdir build && cd build \
+ && cmake .. \
+ && make install 2>&1 | tee log.cgal
+
+
+
 
 #...........
 #Step 6.
