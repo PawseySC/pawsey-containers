@@ -1,8 +1,8 @@
 Bootstrap: localimage 
-# Build on top of our ubuntu22-rocm-mpich image.
 From: ubuntu-rocm.sif
 %post
-	python3 -m pip install --force-reinstall --upgrade --no-cache-dir tensorflow-rocm
+	apt install -y python3-venv
+	python3 -m pip install --prefix=/usr --force-reinstall --upgrade --no-cache-dir tensorflow-rocm
 	
 	export HOROVOD_WITHOUT_MXNET=1
 	export HOROVOD_WITHOUT_PYTORCH=1
@@ -15,7 +15,7 @@ From: ubuntu-rocm.sif
 	export RCCL_INCLUDE_DIRS=/opt/rocm/rccl/include
 	export HOROVOD_RCCL_LIB=/opt/rocm/rccl/lib
 	export HCC_AMDGPU_TARGET=gfx90a
-	python3 -m pip install --force-reinstall --upgrade --no-cache-dir "horovod==0.28.1"
+	python3 -m pip install --prefix=/usr --force-reinstall --upgrade --no-cache-dir "horovod==0.28.1"
 
 %environment
 	export NCCL_DEBUG=INFO
