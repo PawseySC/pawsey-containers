@@ -78,7 +78,9 @@ RUN echo "Building lustre" \
     && cd /tmp/lustre-build \
     && git clone git://git.whamcloud.com/fs/lustre-release.git \
     && cd lustre-release \
-    && git fetch --tags && git checkout ${LUSTRE_VERSION} \
+    # there appears to be an odd error with some release not being able to configure. 
+    # for the moment, just use the main branch rather than a particular version.
+    # && git fetch --tags && git checkout ${LUSTRE_VERSION} \
     && chmod +x ./autogen.sh && ./autogen.sh \
     && ./configure --disable-server --enable-client \
     && make -j8 && make install \
