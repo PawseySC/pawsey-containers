@@ -3,9 +3,31 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base image to build from
-# In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays, 18.04 is needed for Setonix
-#Note that in 18.04 we'll need to install and force compilation with gcc-5,g++-5
+# IMPORTANT: 
+# Setonix needs at least ubuntu20.04 (From August 2023)
+# FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+# IMPORTANT:
+# Unfortunately current recipe does not compile correctly on ubuntu20.04,
+# So, this recipe is left to use ubuntu18.04 as a starting point for further development.
+# This recipe compiles and may run properly elsewhere, but will not run properly on Setonix anymore.
+# For this reason, the docker image has been moved to the openfoam-legacy-2022 repository in quay.io .
 FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
+# IMPORTANT:
+# Therefore, this recipe needs to be modified to be able to compile with ubuntu20.04
+# in order to be used on Setonix. This furher effort is left to users, and Pawsey will not put
+# additional effort on this, as the OpenFOAM version is rather old.
+# Problems that have been identified are:
+# -Ubuntu20.04 does not have apt-get install for QT4 related libraries
+#      + Possible solutions: = find another way for installing old QT4 libraries,
+#                            or
+#                            = switch to use equivalent QT5 libraries
+# -Ubuntu20.04 does not have apt-get install for the old compiler gcc-5
+#      + Possible solutions: = find another way for installing old gcc-5 compiler,
+#                            or
+#                            = swicth to the use the oldest possible compiler (like gcc-7)
+#                              and perform changes in compiler configuration/code in order
+#                              to allow proper compilation
+#
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
