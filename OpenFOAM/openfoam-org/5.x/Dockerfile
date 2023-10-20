@@ -2,38 +2,23 @@
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # 0. Initial main definition
-# Defining the base image to build from
-# IMPORTANT: 
-# Setonix needs at least ubuntu20.04 (From August 2023)
-# FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
-# IMPORTANT:
-# Unfortunately current recipe does not compile correctly on ubuntu20.04,
-# So, this recipe is left to use ubuntu18.04 as a starting point for further development.
-# This recipe compiles and may run properly elsewhere, but will not run properly on Setonix anymore.
-# For this reason, the docker image has been moved to the openfoam-legacy-2022 repository in quay.io .
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
-# IMPORTANT:
-# Therefore, this recipe needs to be modified to be able to compile with ubuntu20.04
-# in order to be used on Setonix. This furher effort is left to users, and Pawsey will not put
-# additional effort on this, as the OpenFOAM version is rather old.
-# Problems that have been identified are:
-# -Ubuntu20.04 does not have apt-get install for QT4 related libraries
-#      + Possible solutions: = find another way for installing old QT4 libraries,
-#                            or
-#                            = switch to use equivalent QT5 libraries
-# -Ubuntu20.04 does not have apt-get install for the old compiler gcc-5
-#      + Possible solutions: = find another way for installing old gcc-5 compiler,
-#                            or
-#                            = swicth to the use the oldest possible compiler (like gcc-7)
-#                              and perform changes in compiler configuration/code in order
-#                              to allow proper compilation
-#
 
-LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
+# Setonix needs at least ubuntu20.04 (From August 2023)
+# This recipe follows other recipes for older openfoam, installing older compilers to 
+# compile openfoam
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+
+LABEL maintainer="Alexis.Espinosa@pawsey.org.au, mebasha@pawsey.org.au"
 #OpenFOAM version to install
 ARG OFVERSION="5.x"
 #Using bash from now on
 SHELL ["/bin/bash", "-c"]
+
+
+#sed xenial repo to apt source list
+RUN echo 'deb http://dk.archive.ubuntu.com/ubuntu/ xenial main' >> /etc/apt/sources.list \
+    && echo 'deb http://dk.archive.ubuntu.com/ubuntu/ xenial universe' >> /etc/apt/sources.list \
+    && echo 'deb http://archive.ubuntu.com/ubuntu xenial main' >> /etc/apt/sources.list
 
 
 #---------------------------------------------------------------
@@ -93,6 +78,12 @@ ARG OFINSTDIR=/opt/OpenFOAM
 ARG OFUSERDIR=/home/ofuser/OpenFOAM
 WORKDIR $OFINSTDIR
 
+# to install qt4
+RUN apt-get update -qq \
+   && apt-get -y --no-install-recommends --no-install-suggests install software-properties-common \
+        && add-apt-repository ppa:rock-core/qt4
+
+
 #...........
 #Step 1.
 #Install necessary packages
@@ -115,7 +106,7 @@ RUN apt-get update -qq\
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
    libboost-system-dev libboost-thread-dev \
 #AEG:(No third party CGAL is provided (although can be downloaded) but will use the system installation):
-   libcgal-dev \
+  # libcgal-dev \
 #AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
    libgmp-dev libmpfr-dev\
    python python-dev curl\
@@ -243,6 +234,7 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
  && tar xvf ParaView-v5.4.0.tar.gz \
  && rm ParaView-v5.4.0.tar.gz \
  && mv ParaView-v5.4.0 ParaView-5.4.0 \
+ && sed -i 's/DOCUMENTATION_DIR/#DOCUMENTATION_DIR/' ParaView-5.4.0/Plugins/StreamLinesRepresentation/CMakeLists.txt \
  && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
 
 #...........
@@ -253,6 +245,21 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt4 \
  && ./Allwmake 2>&1 | tee log.Allwmake
+
+
+# to install cgal 4.11 which is compatible with OF5X
+RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+ && cd $WM_THIRD_PARTY_DIR \
+ && wget https://github.com/CGAL/cgal/archive/refs/tags/releases/CGAL-4.11.tar.gz \
+ && tar -xvf CGAL-4.11.tar.gz \
+ && rm CGAL-4.11.tar.gz \
+ && cd cgal-releases-CGAL-4.11 \
+ && mkdir build && cd build \
+ && cmake .. \
+ && make install 2>&1 | tee log.cgal
+
+
+
 
 #...........
 #Step 6.
