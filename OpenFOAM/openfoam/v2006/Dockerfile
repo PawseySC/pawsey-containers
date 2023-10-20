@@ -3,8 +3,9 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base container to build from
-# In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
+# IMPORTANT: 
+# Setonix needs at least ubuntu20.04 (From August 2023)
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -65,6 +66,12 @@ RUN echo "ofuser:${OFVERSION}" | chpasswd
 #(There are some other instructions for v1906, but not for ubuntu)
 #
 #Then, Will follow a combination of both
+#There are other official instructions (but will not follow them now):
+#https://develop.openfoam.com/Development/openfoam/-/wikis/building
+#and
+#https://develop.openfoam.com/Development/openfoam/blob/develop/doc/Build.md
+#and
+#https://develop.openfoam.com/Development/openfoam/blob/develop/doc/Requirements.md
 
 #...........
 #Definition of the installation directory within the container
@@ -90,12 +97,13 @@ RUN apt-get update -qq\
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
    libfftw3-dev \
    gnuplot libreadline-dev libncurses-dev libxt-dev \
-#AEG:Not installing qt4 (as in the official instructions), but qt5 as in the wiki instructions
-#AEG:NoQt4:   qt4-dev-tools libqt4-dev libqt4-opengl-dev \ 
-   qt5-default libqt5x11extras5-dev libqt5help5 qtdeclarative5-dev qttools5-dev libqt5opengl5-dev \
-   freeglut3-dev libqtwebkit-dev \
-#AEG:Wiki additional qt suggestions (from OpenFOAM-7):
-   qtbase5-dev \
+#AEG:NoQt4:   qt4-dev-tools libqt4-dev libqt4-opengl-dev libqtwebkit-dev\ 
+#AEG:Not installing qt4 (as in the official instructions), but qt5 as in the 3rd party requirements list
+   qtbase5-dev qttools5-dev qttools5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
+#AEG:And these other suggested in the wiki:
+   qt5-default libqt5help5 qtdeclarative5-dev \
+#--continue
+   freeglut3-dev  \
 #AEG:No scotch because it installs openmpi which later messes up with MPICH
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
 #AEG:NoScotch:   libscotch-dev \
@@ -170,8 +178,9 @@ RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh >
 #Modifying the bashrc file
 RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #Changing the installation directory within the bashrc file (This is not in the openfoamwiki instructions)
- && sed -i '/^projectDir="$HOME.*/aprojectDir="'"${OFINSTDIR}"'/OpenFOAM-$WM_PROJECT_VERSION"' ${OFBASHRC} \
- && sed -i '0,/^projectDir="$HOME/s//# projectDir="$HOME/' ${OFBASHRC} \
+ && sed -i 's/^projectDir=/# projectDir=/g' ${OFBASHRC} \
+ && sed -i '0,/\[ -n "$projectDir"/s//# \[ -n "$projectDir"/' ${OFBASHRC} \
+ && sed -i '0,/^# projectDir="$HOME.*/!b;//a\projectDir="'"${OFINSTDIR}"'/OpenFOAM-$WM_PROJECT_VERSION"' ${OFBASHRC} \
 #" (This comment line is needed to let vi to show the right syntax)
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file 
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:

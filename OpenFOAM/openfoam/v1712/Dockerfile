@@ -3,7 +3,17 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base container to build from
-# In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays
+# IMPORTANT: 
+# Setonix needs at least ubuntu20.04 (From August 2023)
+# FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+# IMPORTANT:
+# Because this version of OpenFOAM is too old, Pawsey has decided to not
+# keep maintaining updates for it. So, update to ubuntu20.04 has not been tested yet.
+# For this reason the image has been removed from main repository in quay.io and moved to
+# the openfoam-legacy-2022 repository.
+# IMPORTANT:
+# Current recipe compiles fine, and may run elsewhere, but will not run properly on Setonix.
+# Update, rebuild and testing is left to users in need for this version of OpenFOAM to run on Setonix.
 FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu18.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"

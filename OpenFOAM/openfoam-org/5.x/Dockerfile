@@ -2,9 +2,10 @@
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # 0. Initial main definition
-# Defining the base image to build from
-# In this case: mpich 3.1.4 and ubuntu 18.04; MPICH is needed for crays, 18.04 is needed for Setonix
-#Note that in 18.04 we'll need to install and force compilation with gcc-5,g++-5
+
+# Setonix needs at least ubuntu20.04 (From August 2023)
+# This recipe follows other recipes for older openfoam, installing older compilers to 
+# compile openfoam
 FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au, mebasha@pawsey.org.au"
