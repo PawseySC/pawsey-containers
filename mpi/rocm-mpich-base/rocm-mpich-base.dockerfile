@@ -2,9 +2,9 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND="noninteractive"
 
-ARG	MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FFLAGS=-fallow-argument-mismatch FC=gfortran"
-ARG	MPICH_MAKE_OPTIONS="-j12"
-ARG	MPICH_VERSION=3.4.3
+ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FFLAGS=-fallow-argument-mismatch FC=gfortran"
+ARG MPICH_MAKE_OPTIONS="-j12"
+ARG MPICH_VERSION=3.4.3
 ARG LIBFABRIC_VERSION=1.18.1
 ARG ROCM_VERSION=5.6
 ARG ROCM_INSTALLER_VERION=5.6.50600-1
