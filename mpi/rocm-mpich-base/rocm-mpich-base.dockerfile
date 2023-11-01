@@ -6,8 +6,9 @@ ARG	MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romi
 ARG	MPICH_MAKE_OPTIONS="-j12"
 ARG	MPICH_VERSION=3.4.3
 ARG LIBFABRIC_VERSION=1.18.1
-ARG ROCM_VERSION=5.7
-ARG ROCM_INSTALLER_VERION=5.7.50700-1
+ARG ROCM_VERSION=5.6
+ARG ROCM_INSTALLER_VERION=5.6.50600-1
+
 
 # Install required packages and dependencies
 RUN	ln -s /usr/share/zoneinfo/Australia/Perth /etc/localtime \
@@ -69,8 +70,8 @@ RUN git clone https://github.com/ROCmSoftwarePlatform/aws-ofi-rccl.git \
 # Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
 #              Standard naming of "environment" scripts is 9X-environment.sh
 RUN mkdir -p /.singularity.d/env/
-RUN echo "export NCCL_DEBUG=INFO" >> /.singularity.d/env/91-environment.sh && \
-	echo "export NCCL_SOCKET_IFNAME=hsn"  >> /.singularity.d/env/91-environment.sh && \
+RUN echo "export NCCL_SOCKET_IFNAME=hsn"  >> /.singularity.d/env/91-environment.sh && \
 	echo "export CXI_FORK_SAFE=1"  >> /.singularity.d/env/91-environment.sh && \
 	echo "export CXI_FORK_SAFE_HP=1" >> /.singularity.d/env/91-environment.sh && \
+	echo "export HSA_FORCE_FINE_GRAIN_PCIE=1" >> /.singularity.d/env/91-environment.sh && \
 	echo "export FI_CXI_DISABLE_CQ_HUGETLB=1" >> /.singularity.d/env/91-environment.sh
