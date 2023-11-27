@@ -22,8 +22,8 @@ LABEL org.opencontainers.image.base.name="pawsey/pennylane:${PENNYLANE_VERSION}}
 # note that the externals here are set based on 
 # building from the pawsey mpich base image 
 WORKDIR /opt/
-ADD REQ_FILE /opt/container_python_requirements.txt
+COPY ${REQ_FILE} /opt/container_python_requirements.txt
 RUN echo "Adding python packages" \
-    && pip install --requirements /opt/container_python_requirements.txt \
-    echo "Finished adding python requirements"
+    && pip install -r /opt/container_python_requirements.txt \
+    && echo "Finished adding python requirements"
     
