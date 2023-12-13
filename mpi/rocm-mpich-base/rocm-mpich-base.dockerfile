@@ -2,9 +2,9 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND="noninteractive"
 
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FFLAGS=-fallow-argument-mismatch FC=gfortran"
-ARG MPICH_MAKE_OPTIONS="-j12"
-ARG MPICH_VERSION=3.4.3
+ARG	MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FFLAGS=-fallow-argument-mismatch FC=gfortran"
+ARG	MPICH_MAKE_OPTIONS="-j12"
+ARG	MPICH_VERSION=3.4.3
 ARG LIBFABRIC_VERSION=1.18.1
 ARG ROCM_VERSION=5.6
 ARG ROCM_INSTALLER_VERION=5.6.50600-1
@@ -66,6 +66,31 @@ RUN git clone https://github.com/ROCmSoftwarePlatform/aws-ofi-rccl.git \
 	&& make install \
     && cd /tmp \
 	&& rm -rf /tmp/build
+
+# Build OSU Benchmarks
+
+ARG OSU_VERSION="7.3"
+ARG OSU_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3 --enable-rocm --with-rocm=/opt/rocm"
+ARG OSU_MAKE_OPTIONS="-j16"
+
+RUN mkdir -p /tmp/osu-benchmark-build \
+      && cd /tmp/osu-benchmark-build \
+      && wget http://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
+      && tar xzvf osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
+      && cd osu-micro-benchmarks-${OSU_VERSION} \
+      && ./configure ${OSU_CONFIGURE_OPTIONS} \
+      && make ${OSU_MAKE_OPTIONS} \
+      && make install \
+      && cd / \
+      && rm -rf /tmp/osu-benchmark-build
+ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:$PATH"
+
+
+ENV NCCL_SOCKET_IFNAME=hsn
+ENV CXI_FORK_SAFE=1
+ENV CXI_FORK_SAFE_HP=1
+ENV HSA_FORCE_FINE_GRAIN_PCIE=1
+ENV FI_CXI_DISABLE_CQ_HUGETLB=1
 
 # Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
 #              Standard naming of "environment" scripts is 9X-environment.sh
