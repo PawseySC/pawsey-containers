@@ -1,6 +1,6 @@
 FROM quay.io/pawsey/rocm-mpich-base:rocm5.6.0-mpich3.4.3-ubuntu22
 
-RUN python3 -m pip install --prefix=/usr --force-reinstall --upgrade --no-cache-dir "tensorflow-rocm==2.12.1.570" # "tensorflow-rocm==2.13.0.570
+RUN python3 -m pip install --prefix=/usr --force-reinstall --upgrade --no-cache-dir "tensorflow-rocm==2.12.1.570"
 
 ENV HOROVOD_WITHOUT_MXNET=1
 ENV HOROVOD_WITHOUT_PYTORCH=1
