@@ -34,7 +34,7 @@ ARG DATE_FILE="12-2023"
 RUN echo "Install h5py " \
     && H5PY_VERSION=$(grep 'h5py' /requirements-${DATE_FILE}.txt | sed 's/==/ /g' | sed 's/ # / /'g | awk '{print $2}') \
     && H5NETCDF_VERSION=$(grep 'h5netcdf' /requirements-${DATE_FILE}.txt | sed 's/==/ /g' | sed 's/ # / /'g | awk '{print $2}') \
-    && CC="mpicc" CXX="mpic++" HDF5_MPI="ON" HDF5_DIR="/usr/local" pip3 --no-cache-dir install --no-deps --no-binary=h5py h5py==${H5PY_VERSION} h5netcdf==${H5NETCDF_VERSION}
+    && CC="mpicc" CXX="mpic++" HDF5_MPI="ON" HDF5_DIR="/usr/local" pip3 --no-cache-dir install --break-system-packages --no-deps --no-binary=h5py h5py==${H5PY_VERSION} h5netcdf==${H5NETCDF_VERSION}
 
 # and copy the recipe into the docker recipes directory
 RUN mkdir -p /opt/docker-recipes/
