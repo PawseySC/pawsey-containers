@@ -26,13 +26,13 @@ cycler==0.11.0
     # via matplotlib
 cython==0.29.28
     # via -r requirements.in
-dask[complete]==2022.03.0
+dask[complete]==2022.3.0
     # via
     #   -r requirements.in
     #   distributed
 decorator==5.1.1
     # via ipython
-distributed==2022.03.0
+distributed==2022.3.0
     # via dask
 executing==0.8.3
     # via stack-data
@@ -139,7 +139,7 @@ py==1.11.0
     # via pytest
 pyerfa==2.0.0.1
     # via astropy
-pygments==2.11.2
+pygments==2.15.0
     # via ipython
 pyparsing==3.0.7
     # via
