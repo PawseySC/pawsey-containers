@@ -8,7 +8,7 @@ ENV CC=gcc
 ENV CXXFLAGS=-std=c++17
 ENV PYTORCH_ROCM_ARCH=gfx90a	
 
-RUN	apt -y install libopenblas-dev \
+RUN	apt -y install libopenblas-dev "libpng*" "libjpeg-turbo*" libjpeg-dev libpng-dev \
 	&& (! [ -e /tmp/build ] || rm -rf /tmp/build) \
 	&& mkdir /tmp/build && cd /tmp/build \
 	# install eigen
@@ -22,7 +22,7 @@ RUN	apt -y install libopenblas-dev \
 	&& make install
 
 RUN	cd /tmp/build \
-	&& git clone --branch v2.1.0 --recursive https://github.com/pytorch/pytorch \
+	&& git clone --branch v2.1.2 --recursive https://github.com/pytorch/pytorch \
 	&& cd pytorch \
 	&& grep -R . -e "MPI_CXX" | cut -f1 -d: | xargs -n1 sed -i -e "s/MPI_CXX/MPI_C/g" \
 	# if you are updating an existing checkout \
@@ -35,5 +35,13 @@ RUN	cd /tmp/build \
 	&& make triton\
 	&& python3 tools/amd_build/build_amd.py\
 	&& python3 setup.py install 
-	
+
+# Install torch vision
+RUN     cd /tmp/build \
+        && git clone --branch v0.16.2 https://github.com/pytorch/vision.git \
+        && cd vision \
+        && python3 setup.py install
+
+RUN     pip3 install mpmath urllib3 typing-extensions sympy pillow numpy networkx MarkupSafe idna fsspec filelock charset-normalizer certifi requests pytorch-triton-rocm jinja2 torchaudio  --index-url https://download.pytorch.org/whl/rocm5.6 --no-dependencies
+
 RUN	[ -e /tmp/build ] && rm -rf /tmp/build
