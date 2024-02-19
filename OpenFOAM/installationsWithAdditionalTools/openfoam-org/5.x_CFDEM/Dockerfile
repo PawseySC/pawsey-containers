@@ -128,11 +128,11 @@ WORKDIR $CFDEMINSTDIR
 RUN git clone https://github.com/CFDEMproject/CFDEMcoupling-PUBLIC.git \ 
  && mv CFDEMcoupling-PUBLIC CFDEMcoupling-PUBLIC-$OFWMPROJECTVERSION 
 
-WORKDIR /opt/LIGGGHTS
 ARG LIGGGHTSINSTDIR=/opt/LIGGGHTS
 WORKDIR $LIGGGHTSINSTDIR
-RUN git clone https://github.com/CFDEMproject/LIGGGHTS-PUBLIC.git \ 
- && git clone https://github.com/CFDEMproject/LPP.git lpp
+#RUN git clone https://github.com/CFDEMproject/LIGGGHTS-PUBLIC.git \ 
+# && git clone https://github.com/CFDEMproject/LPP.git lpp
+RUN git clone https://github.com/CFDEMproject/LIGGGHTS-PUBLIC.git
 
 
 #...........
