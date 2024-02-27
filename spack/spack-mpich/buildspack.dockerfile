@@ -3,7 +3,7 @@
 # adds spack and the default base image is 
 # set to build on top of the pawsey provided mpich image
 
-ARG BASE_IMAGE="pawsey:mpich-setonix"
+ARG BASE_IMAGE="quay.io/pawsey/mpich-lustre-base:3.4.3_ubuntu20.04_lustrerelease"
 FROM ${BASE_IMAGE}
 ARG SPACK_VERSION=v0.19
 # currently this is a build time argument in the 
@@ -19,7 +19,7 @@ LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
 LABEL org.opencontainers.image.title="Setonix compatible MPICH base with Spack added"
 LABEL org.opencontainers.image.description="Common base image providing mpi compatible with cray-mpich used on Setonix with spack added and aware of mpich external"
-LABEL org.opencontainers.image.base.name="pawsey/spack-${SPACK_VERSION}:mpibase:ubuntu-mpich-setonix"
+LABEL org.opencontainers.image.base.name="pawsey/spack-${SPACK_VERSION}:mpich-lustre"
 LABEL org.opencontainers.image.spack.version="${SPACK_VERSION}"
 
 
@@ -27,11 +27,15 @@ LABEL org.opencontainers.image.spack.version="${SPACK_VERSION}"
 # note that the externals here are set based on 
 # building from the pawsey mpich base image 
 WORKDIR /root/spack
-RUN echo "Setting up spack" \
+RUN echo "Downloading spack" \
     && git clone https://github.com/spack/spack \
     && cd spack \
     && git checkout releases/${SPACK_VERSION} \
     && rm -rf .git \
+    && echo "Done "
+
+WORKDIR /root/spack/spack
+RUN echo "Configuring spack" \
     # config spack \
     && ./bin/spack external find && ./bin/spack compiler find \
     # and also add python to externals 
@@ -41,7 +45,12 @@ RUN echo "Setting up spack" \
     && scipyver=$(pip freeze | grep scipy | sed "s:==: :g" | awk '{print $2}') \
     && sixver=$(pip freeze | grep six | sed "s:==: :g" | awk '{print $2}') \
     # set the config 
-    && echo "\n  python: \n\
+    && echo "  all: \n\
+    providers: \n\
+      mpi: [ mpich ] \n\
+  mpi: \n\
+    buildable: false \n\
+  python: \n\
     externals:\n\
     - spec: python@${pyver}\n\
       prefix: /usr\n\
