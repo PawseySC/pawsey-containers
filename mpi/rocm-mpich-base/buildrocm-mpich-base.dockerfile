@@ -200,7 +200,8 @@ RUN echo "Build aws-ofi-rccl" \
     && if [ "${rocm_major}" = "6" ]; then RCCL_CONFIGURE_OPTIONS=${RCCL_CONFIGURE_OPTIONS}" CFLAGS=-D__HIP_PLATFORM_AMD__ CXXFLAGS=-D__HIP_PLATFORM_AMD__"; fi \
     && git clone ${gitrepo} \
     && cd aws-ofi-rccl \
-    && if [ "${rocm_major}" = "6" ]; then git checkout rocm60_memorytype_fix; fi \
+    # this is only valid when was grabbing a fork for a fix. 
+    # && if [ "${rocm_major}" = "6" ]; then git checkout rocm60_memorytype_fix; fi \
     && ./autogen.sh \
     && ./configure ${RCCL_CONFIGURE_OPTIONS}} \
     && make -j 16 \
