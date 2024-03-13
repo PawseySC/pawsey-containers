@@ -1,12 +1,10 @@
-ARG IPY_VERSION="2020.2"
+ARG IPY_VERSION="2023.1.0-0"
 FROM intelpython/intelpython3_core:${IPY_VERSION}
 
-LABEL maintainer="marco.delapierre@pawsey.org.au"
-
+LABEL maintainer="pascal.elahi@pawsey.org.au"
 
 # Just one extra conda variable
 ENV CONDA_PREFIX="/opt/conda"
-
 
 # Install package dependencies
 RUN apt-get update -qq --allow-releaseinfo-change \
@@ -68,6 +66,9 @@ ARG MPI4PY_VERSION="3.1.3"
 
 RUN pip --no-cache-dir install --no-deps ${DEPENDENCIES} h5netcdf==${H5NETCDF_VERSION} h5py==${H5PY_VERSION} mpi4py==${MPI4PY_VERSION}
 
+# and copy the recipe into the docker recipes directory
+RUN mkdir -p /opt/docker-recipes/
+COPY buildhpcpythonintel.dockerfile /opt/docker-recipes/
 
 
 # Final
