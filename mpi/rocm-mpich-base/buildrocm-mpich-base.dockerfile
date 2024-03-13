@@ -25,7 +25,8 @@ LABEL org.opencontainers.image.description="Common base image providing mpi + ro
 LABEL org.opencontainers.image.base.name="pawsey/mpibase:ubuntu${OS_VERSION}-mpich-${MPICH_VERSION}.setonix"
 
 # Install required packages and dependencies
-ARG LINUX_KERNEL=6.2.0-39
+ARG LINUX_KERNEL=5.15.0-91
+# for newer ubuntu might want to use newer kernels like 6.2.0-39
 ENV DEBIAN_FRONTEND="noninteractive"
 RUN echo "Install apt packages" \
     && apt-get update -qq \
@@ -168,7 +169,7 @@ RUN echo "Building MPICH ... " \
 RUN pip install mpi4py==${MPI4PY_VERSION}
 
 # Install ROCm (note that version to installer version incomplete)
-ARG ROCM_VERSION=5.7.3
+ARG ROCM_VERSION=6.0.2
 RUN echo "Building rocm ${ROCM_VERSION}" \
     && rocm_major=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $1}') \
     && rocm_minor=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $2}') \
