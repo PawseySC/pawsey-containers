@@ -57,6 +57,7 @@ RUN mkdir -p /.singularity.d/env/
 RUN echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:\${PETSC_DIR}/lib/" >> /opt/nektar/set_spack_env.sh \
     && echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:\${BOOST_ROOT}/lib/" >> /opt/nektar/set_spack_env.sh \
     && echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:/usr/lib64/:/usr/lib64/netkar++/" >> /opt/nektar/set_spack_env.sh \
+    && echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:/usr/bin/spack/linux-ubuntu20.04-zen2/gcc-9.4.0/arpack-ng-3.9.0-scetpg3kqalbbrlqvjcud3gsxjm4omio/lib/" >> /opt/nektar/set_spack_env.sh \
     && cat /opt/nektar/set_spack_env.sh >> /.singularity.d/env/91-environment.sh 
 
 # and copy the recipe into the docker recipes directory
