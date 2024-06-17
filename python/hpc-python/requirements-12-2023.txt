@@ -206,7 +206,7 @@ traitlets==5.14.0
     #   matplotlib-inline
 tzdata==2023.3
     # via pandas
-urllib3==2.1.0
+urllib3==2.2.2
     # via distributed
 wcwidth==0.2.12
     # via prompt-toolkit
