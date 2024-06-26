@@ -1,21 +1,23 @@
 # This recipe supports multi-stage builds
-# This recepe includes different backend for qiskit
+# This recepe includes MPICH backend for qiskit
 
 ARG OS_VERSION=22.04
 ARG DATE_TAG=2024-06
-ARG PY_VERSION="3.11"
-ARG BACKEND=MPI
+ARG PY_VERSION=3.11
 
+#----------------------------------------------------------------
+#------------------------builder stage------------------------
+#----------------------------------------------------------------
 #define some metadata 
 FROM ubuntu:${OS_VERSION} as builder
 LABEL org.opencontainers.image.created="2024-06"
 LABEL org.opencontainers.image.authors="Shusen Liu <shusen.liu@pawsey.org.au>"
 LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey-containers/"
-LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/cuda/cuda-lustre-mpich/buildlustrempich.dockerfile"
+LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/applications/qiskit/buildqiskit-mpi.dockerfile"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
-LABEL org.opencontainers.image.title="Setonix compatible Lustre-aware MPICH with CUDA 12.5"
-LABEL org.opencontainers.image.description="Common base image providing lustre-aware mpi compatible with cray-mpich, lustre and CUDA used on Setonix"
+LABEL org.opencontainers.image.title="Qiskit on Setonix compatible Lustre-aware MPICH with CUDA 12.5"
+LABEL org.opencontainers.image.description="Qiskit on the image providing lustre-aware mpi compatible with cray-mpich, lustre used on Setonix"
 LABEL org.opencontainers.image.base.name="pawsey/qiskit.setonix"
 
 # redefine after FROM to ensure it is defined
@@ -30,10 +32,10 @@ ARG OSU_VERSION="6.2"
 # lustre version
 ARG LUSTRE_VERSION="2.15.63"
 
-# Set frontend to noninteractive to avoid user interaction during build
+# set frontend to noninteractive to avoid user interaction during build
 ENV DEBIAN_FRONTEND="noninteractive"
 
-# Update and install initial dependencies
+# update and install initial dependencies
 RUN apt-get update -qq \
     && apt-get install -y --no-install-recommends \
     software-properties-common \
@@ -43,13 +45,13 @@ RUN apt-get update -qq \
     sudo \
     wget
 
-# Add deadsnakes PPA for Python versions if not on Ubuntu 22.04
+# add deadsnakes PPA for Python versions if not on Ubuntu 22.04
 RUN if [ ${OS_VERSION} != "ubuntu22.04" ]; then \
         add-apt-repository ppa:deadsnakes/ppa \
         && apt-get update -qq; \
     fi
 
-# Install Python and set the default Python version
+# install Python and set the default Python version
 RUN apt-get install -y --no-install-recommends \
         python${PY_VERSION}-dev \
         python${PY_VERSION}-distutils \
@@ -59,12 +61,12 @@ RUN apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pip using get-pip.py script
+# install pip using get-pip.py script
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3 \
     && python -m pip install --upgrade --break-system-packages pip \
     && pip install --break-system-packages pip-tools
 
-# Install additional system packages
+# install additional system packages
 RUN apt-get update -qq \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -104,12 +106,10 @@ RUN apt-get update -qq \
     && rm -rf /var/lib/apt/lists/* \
     && echo "Environment setup complete."
 
-
-
-#Copy scr to image
+# copy scr to image
 ADD downloaded_files.tar.gz /tmp/
 
-# Build lustre
+# build lustre
 RUN echo "Building lustre" \
     && cd /tmp/lustre-build/lustre-release \
     && chmod +x ./autogen.sh && ./autogen.sh \
@@ -119,7 +119,7 @@ RUN echo "Building lustre" \
     && make install \
     && echo "Finished building lustre"
 
-# Build MPICH
+# build MPICH
 ARG MPICH_CONFIGURE_OPTIONS="--without-mpe --enable-fortran=all --enable-shared --enable-sharedlibs=gcc --enable-debuginfo --enable-yield=sched_yield \
 --enable-g=mem --with-device=ch4:ofi --with-namepublisher=file \
 --with-shared-memory=sysv \
@@ -144,7 +144,6 @@ RUN cd /tmp/mpich-build/mpich-${MPICH_VERSION} \
     && cp -p /tmp/mpich-build/mpich-${MPICH_VERSION}/examples/cpi /usr/bin/ \
     && echo "Finished installing MPICH"
 
-
 RUN echo "Building Qiskit ... " \
     && pip --no-cache-dir install --break-system-packages -r /tmp/qiskit-aer-build/requirements-dev.txt \
     && pip install pybind11 
@@ -166,9 +165,12 @@ RUN cp /dist/qiskit_aer*.whl /tmp/qiskit-aer-build/dist/
 #----------------------------------------------------------------
 #------------------------production stage------------------------
 #----------------------------------------------------------------
-
-FROM ubuntu:22.04 as prod
+FROM ubuntu:${OS_VERSION} as prod
+# os version
 ARG OS_VERSION
+# py version
+ARG PY_VERSION
+
 # redefine after FROM to ensure it is defined
 ARG MPICH_VERSION="3.4.3"
 # mpi4py version
@@ -177,13 +179,11 @@ ARG MPI4PY_VERSION="3.1.6"
 ARG OSU_VERSION="6.2"
 # lustre version
 ARG LUSTRE_VERSION="2.15.63"
-# OSU version
-ARG PY_VERSION
 
-# Set frontend to noninteractive to avoid user interaction during build
+# set frontend to noninteractive to avoid user interaction during build
 ENV DEBIAN_FRONTEND="noninteractive"
 
-# Update and install initial dependencies
+# update and install initial dependencies
 RUN apt-get update -qq \
     && apt-get install -y --no-install-recommends \
     software-properties-common \
@@ -194,13 +194,13 @@ RUN apt-get update -qq \
     wget \
     make
 
-# Add deadsnakes PPA for Python versions if not on Ubuntu 22.04
+# add deadsnakes PPA for Python versions if not on Ubuntu 22.04
 RUN if [ ${OS_VERSION} != "ubuntu22.04" ]; then \
         add-apt-repository ppa:deadsnakes/ppa \
         && apt-get update -qq; \
     fi
 
-# Install Python and set the default Python version
+# install Python and set the default Python version
 RUN apt-get install -y --no-install-recommends \
         python${PY_VERSION}-dev \
         python${PY_VERSION}-distutils \
@@ -210,11 +210,10 @@ RUN apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pip using get-pip.py script
+# install pip using get-pip.py script
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3 \
     && python -m pip install --upgrade --break-system-packages pip \
     && pip install --break-system-packages pip-tools
-
 
 RUN apt-get update -qq \
     && apt-get -y --no-install-recommends install \
@@ -249,7 +248,7 @@ RUN cd /tmp/mpich-build/mpich-${MPICH_VERSION} \
     && cp -p /tmp/mpich-build/mpich-${MPICH_VERSION}/examples/cpi /usr/bin/ \
     && echo "Finished installing MPICH"
 
-# Build and install OSU Benchmarks
+# build and install OSU Benchmarks
 ARG OSU_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3"
 ARG OSU_MAKE_OPTIONS="-j8"
 RUN echo "Building and installing OSU..." \
@@ -261,22 +260,20 @@ RUN echo "Building and installing OSU..." \
 
 ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:$PATH"
 
-
 # add mpi4py in the container 
 RUN pip install mpi4py==${MPI4PY_VERSION}
 
+# install qiskit by the wheel from the builder
 RUN pip install /tmp/qiskit-aer-build/dist/qiskit_aer*.whl
 
-
-#clean /tmp
+# clean /tmp
 RUN rm -rf /tmp/*
-
 
 RUN mkdir -p /container-scratch/
 
 # and copy the recipe into the docker recipes directory
 RUN mkdir -p /opt/docker-recipes/
-#COPY buildcudalustrempich.dockerfile /opt/docker-recipes/
+COPY buildqiskit-mpi.dockerfile /opt/docker-recipes/
 
-# Final
+# final
 CMD ["/bin/bash"]   

@@ -10,7 +10,9 @@ ARG CUDA_VERSION="12.5.0"
 # date tag is allowed to be passed in as a build argument
 ARG DATE_TAG=2024-06
 
-# --------------------start build stage --------------------
+#----------------------------------------------------------------
+#------------------------start stage------------------------
+#----------------------------------------------------------------
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${OS_VERSION} AS builder
 # Predefined, redefine after FROM to ensure it is defined
 ARG OS_VERSION
@@ -27,8 +29,8 @@ ARG MPI4PY_VERSION="3.1.4"
 # OSU version
 ARG OSU_VERSION="6.2"
 
-#define some metadata 
-LABEL org.opencontainers.image.created=${DATE_TAG}
+# define some metadata 
+LABEL org.opencontainers.image.created="2024-06"
 LABEL org.opencontainers.image.authors="Shusen Liu <shusen.liu@pawsey.org.au>"
 LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey-containers/"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/applications/qiskit/buildqiskit-cuda.dockerfile"
@@ -36,9 +38,7 @@ LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
 LABEL org.opencontainers.image.title="Qiskit - Setonix compatible Lustre-aware MPICH with CUDA${CUDA_VERSION}"
 LABEL org.opencontainers.image.description="Image providing lustre-aware mpi compatible with cray-mpich, lustre and CUDA used on Setonix"
-LABEL org.opencontainers.image.base.name="pawsey/cuda${CUDA_VERSION}-lustre-mpich:${DATE_TAG}.qiskit.setonix"
-
-# syntax=docker/dockerfile:1 
+LABEL org.opencontainers.image.base.name="pawsey/qiskit.setonix"
 
 # run apt-get install on a few packages
 ENV DEBIAN_FRONTEND="noninteractive"
@@ -88,7 +88,7 @@ RUN apt-get update -qq \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# For the system which it NOT Ubuntu 22.04, adding deadsnakes PPA for more Python versions
+# for the system which it NOT Ubuntu 22.04, adding deadsnakes PPA for more Python versions
 RUN if [ ${OS_VERSION} != "22.04" ]; then \
         add-apt-repository ppa:deadsnakes/ppa \
         && apt-get update -qq \
@@ -99,10 +99,10 @@ RUN if [ ${OS_VERSION} != "22.04" ]; then \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
-#Copy lustre, mpich and OSU to image
+# copy lustre, mpich and OSU to image
 ADD downloaded_files.tar.gz /tmp/
 
-# Build lustre
+# build lustre
 RUN echo "Building lustre" \
     && cd /tmp/lustre-build/lustre-release \
     && chmod +x ./autogen.sh && ./autogen.sh \
@@ -112,7 +112,7 @@ RUN echo "Building lustre" \
     && make install \
     && echo "Finished building lustre"
 
-# Build MPICH
+# build MPICH
 ARG MPICH_CONFIGURE_OPTIONS="--without-mpe --enable-fortran=all --enable-shared --enable-sharedlibs=gcc --enable-debuginfo --enable-yield=sched_yield \
 --enable-g=mem --with-device=ch4:ofi --with-namepublisher=file \
 --with-shared-memory=sysv \
@@ -135,7 +135,7 @@ RUN echo "Building Qiskit ... " \
     && pip --no-cache-dir install  -r /tmp/qiskit-aer-build/requirements-dev.txt \
     && pip install pybind11 
 
-# Set the default Python version
+# set the default Python version
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 RUN python /tmp/qiskit-aer-build/setup.py bdist_wheel -- \
@@ -147,12 +147,14 @@ RUN python /tmp/qiskit-aer-build/setup.py bdist_wheel -- \
     -DPYBIND11_INCLUDE_DIR=$(python -c "import pybind11; print(pybind11.get_include())") \
     --
         
-# Copy the wheel to /tmp/qiskit-aer-build
+# copy the wheel to /tmp/qiskit-aer-build
 RUN mkdir -p /tmp/qiskit-aer-build/dist
 RUN cp /dist/qiskit_aer*.whl /tmp/qiskit-aer-build/dist/
   
 
-# --------------------start build stage --------------------
+#----------------------------------------------------------------
+#------------------------production stage------------------------
+#----------------------------------------------------------------
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${OS_VERSION} AS prod
 # redefine after FROM to ensure it is defined
 ARG OS_VERSION
@@ -206,7 +208,7 @@ RUN cd /tmp/mpich-build/mpich-${MPICH_VERSION} \
     && cp -p /tmp/mpich-build/mpich-${MPICH_VERSION}/examples/cpi /usr/bin/ \
     && echo "Finished installing MPICH"
 
-# Build and install OSU Benchmarks
+# build and install OSU Benchmarks
 ARG OSU_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3"
 ARG OSU_MAKE_OPTIONS="-j8"
 RUN echo "Building and installing OSU..." \
@@ -218,13 +220,13 @@ RUN echo "Building and installing OSU..." \
 
 ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:$PATH"
 
-# Add deadsnakes PPA for Python versions if not on Ubuntu 22.04
+# add deadsnakes PPA for Python versions if not on Ubuntu 22.04
 RUN if [ ${OS_VERSION} != "ubuntu22.04" ]; then \
         add-apt-repository ppa:deadsnakes/ppa \
         && apt-get update -qq; \
     fi
 
-# Install Python and set the default Python version
+# install Python and set the default Python version
 RUN apt-get install -y --no-install-recommends \
         python${PY_VERSION}-dev \
         python${PY_VERSION}-distutils \
@@ -234,18 +236,18 @@ RUN apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pip using get-pip.py script
+# install pip using get-pip.py script
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3 \
     && python -m pip install --upgrade --break-system-packages pip \
     && pip install --break-system-packages pip-tools
 
-# Add mpi4py in the container 
+# add mpi4py in the container 
 RUN pip install mpi4py==${MPI4PY_VERSION}
 
-# Install qiskit-aer
+# install qiskit-aer
 RUN pip install /tmp/qiskit-aer-build/dist/qiskit_aer*.whl
 
-# Clean /tmp
+# clean /tmp
 RUN rm -rf /tmp/*
 
 RUN mkdir -p /container-scratch/
@@ -254,5 +256,5 @@ RUN mkdir -p /container-scratch/
 RUN mkdir -p /opt/docker-recipes/
 COPY buildqiskit-cuda.dockerfile /opt/docker-recipes/
 
-# Final
+# final
 CMD ["/bin/bash"]   

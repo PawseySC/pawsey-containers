@@ -1,6 +1,12 @@
 #!/bin/bash
 
 script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+# Get today's date in yyyy/mm format
+DATE_TAG=$(date +%Y/%m)
+
+# Replace slashes with dashes for Docker tag compatibility
+DATE_TAG=$(echo $DATE_TAG | tr '/' '-')
+# qiskit-aer version
 AER_VERSION="0.14.2"
 
 # Function to convert input to lowercase
@@ -48,7 +54,7 @@ cd $script_dir/qiskit-aer-build
 git checkout $AER_VERSION
 
 # download the required dependencies, lustre, mpich, osu-benchmarks
-# DEBUG: Comment the following line to download the dependencies
+# DEBUG: Comment the following line to stop download the dependencies
 bash "$script_dir/download.sh"
 
 # 1)OMP
@@ -56,21 +62,36 @@ bash "$script_dir/download.sh"
 # 3)CUDA-12.5
 # 4)ROCM 
 # 5)cuQuantum
-# 6)CUDAQ-CUDA 11.8
+# 6)DEBUG: all backends
 
 cd $script_dir
 if [ "$backend" == "mpi" ]; then
   #docker buildx build --file ${script_dir}/buildqiskit-mpi.dockerfile --platform linux/amd64 -t qiskit-mpi:latest --load .
-  docker build --pull --rm -f "buildqiskit-mpi.dockerfile" -t qiskit-mpi:latest . 
+  docker build --pull --rm -f "buildqiskit-mpi.dockerfile" -t qiskit-mpi:${DATE_TAG} --build-arg DATE_TAG=${DATE_TAG} . 
 fi
 
 if [ "$backend" == "rocm" ]; then
-  docker build --pull --rm -f "buildqiskit-rocm.dockerfile" -t qiskit-rocm-mpi:latest . 
+  docker build --pull --rm -f "buildqiskit-rocm.dockerfile" -t qiskit-rocm-mpi:${DATE_TAG} --build-arg DATE_TAG=${DATE_TAG} . 
 fi
 
 if [ "$backend" == "cuda" ]; then
-  docker buildx build --file buildqiskit-cuda.dockerfile --platform linux/amd64,linux/arm64 -t qiskit-cuda12-mpi:latest  .
+  docker buildx build --file buildqiskit-cuda.dockerfile --platform linux/amd64,linux/arm64 -t qiskit-cuda12-mpi:${DATE_TAG} --build-arg DATE_TAG=${DATE_TAG}  .
 fi
 
-# DEBUG: Comment the following line to del the downloaded files
+if [ "$backend" == "cuQuantum" ]; then
+  echo "The backend need to be implemented".
+fi
+
+if [ "$backend" == "OMP" ]; then
+  echo "The backend need to be implemented".
+fi
+
+# DEBUG: Compile all backends in one command, i.e., MPI, ROCM, CUDA
+if [ "$backend" == "all" ]; then
+  docker build --pull --rm -f "buildqiskit-mpi.dockerfile" -t qiskit-mpi:${DATE_TAG} --build-arg DATE_TAG=${DATE_TAG} . 
+  docker build --pull --rm -f "buildqiskit-rocm.dockerfile" -t qiskit-rocm-mpi:${DATE_TAG} --build-arg DATE_TAG=${DATE_TAG} .
+  docker buildx build --file buildqiskit-cuda.dockerfile --platform linux/amd64,linux/arm64 -t qiskit-cuda12-mpi:${DATE_TAG} --build-arg DATE_TAG=${DATE_TAG} .
+fi
+
+# DEBUG: Comment the following line to stop del the downloaded files
 rm -rf $script_dir/qiskit-aer-build
