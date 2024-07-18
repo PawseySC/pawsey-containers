@@ -214,5 +214,5 @@ xyzservices==2023.10.1
     # via bokeh
 zict==3.0.0
     # via distributed
-zipp==3.17.0
+zipp==3.19.1
     # via importlib-metadata
