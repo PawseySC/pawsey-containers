@@ -7,21 +7,22 @@ LABEL org.opencontainers.image.devmode=false
 LABEL org.opencontainers.image.noscan=true
 
 #Image metadata
-LABEL org.opencontainers.image.name="cudaquantum"
+LABEL org.opencontainers.image.name="cuquantum"
 LABEL org.opencontainers.image.version="1.0.0"
-LABEL org.opencontainers.image.version="10-11-2024"
-LABEL org.opencontainers.image.minversion="0.0.6"
+LABEL org.opencontainers.image.version="13-11-2024"
+LABEL org.opencontainers.image.minversion="0.0.2"
 LABEL org.opencontainers.image.authors="Shusen Liu <shusen.liu@pawsey.org.au>"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
-LABEL org.opencontainers.image.title="Ella cudaquantum with cuQuantum and hpcx"
+LABEL org.opencontainers.image.title="Ella cuQuantum and hpcx"
 LABEL org.opencontainers.image.description="We provide a container image for the Ella project, \
 which includes the cuQuantum library and the HPC-X MPI library. \
 Pip venv: . /opt/cuquantum-source/cuquantum-env/bin/activate. \
-1. Compile C++ with nvq++ from cudaquantum; \
-2. Run Python with nvqpy from cudaquantum; \
-3. Run MPI with OpenMPI from HPC-X; \
-4. Run Qiskit with cuQuantum and Aer from Qiskit;"
+1. Run MPI with OpenMPI from HPC-X; \
+2. Run cuquantum examples in /opt/cuquantum-source; \
+3. Run Qiskit with cuQuantum and Aer from Qiskit; \
+4. cuQuantum Benchmarks v0.4.0 \
+5. cuquantum-cpp, cuquantum-python"
 
 ARG PY_VERSION="3.12"
 ARG CUDA_VERSION="12.6.0"
@@ -195,7 +196,6 @@ RUN /bin/bash -c ' \
 RUN mkdir -p /opt/qiskit
 COPY qiskit_aer-0.15.0-cp312-cp312-linux_aarch64.whl /opt/qiskit
 
-
 # Install cuQuantum binary without examples
 RUN wget -q https://developer.download.nvidia.com/compute/cuquantum/redist/cuquantum/linux-sbsa/cuquantum-linux-sbsa-24.08.0.5_cuda12-archive.tar.xz \
     && mkdir -p /opt/cuquantum \
@@ -248,25 +248,7 @@ RUN ln -s /opt/cuquantum/lib/libcustatevec.so.1 /opt/cuquantum-source/cuquantum-
     ln -s /opt/cuquantum/lib/libcutensornet.so.2 /opt/cuquantum-source/cuquantum-env/lib/libcutensornet.so 
 
 ENV LD_LIBRARY_PATH=/opt/cuquantum-source/cuquantum-env/lib:${LD_LIBRARY_PATH}
-
-RUN wget -q https://r2.qcompiler.com/cuda_quantum_cu12-0.0.0-cp312-cp312-manylinux_2_28_aarch64.whl -O /tmp/cuda_quantum_cu12-0.0.0-cp312-cp312-manylinux_2_28_aarch64.whl &&\
-    . /opt/cuquantum-source/cuquantum-env/bin/activate &&\
-    pip install /tmp/cuda_quantum_cu12-0.0.0-cp312-cp312-manylinux_2_28_aarch64.whl &&\
-    . /opt/cuquantum-source/cuquantum-env/lib/python3.12/site-packages/distributed_interfaces/activate_custom_mpi.sh
-
-# Install cuda-quantum and temp patch 
-RUN wget -q https://github.com/NVIDIA/cuda-quantum/releases/download/0.8.0/install_cuda_quantum.aarch64 -O /tmp/install_cuda_quantum.aarch64 && \
-    chmod +x /tmp/install_cuda_quantum.aarch64 && \
-    bash /tmp/install_cuda_quantum.aarch64 --accept && \
-    ln -s /usr/local/cuda/targets/sbsa-linux/lib/libcublas.so /usr/local/cuda/targets/sbsa-linux/lib/libcublas.so.11 && \   
-    ln -s /usr/local/cuda/targets/sbsa-linux/lib/libcublasLt.so /usr/local/cuda/targets/sbsa-linux/lib/libcublasLt.so.11 &&\
-    rm /tmp/install_cuda_quantum.aarch64
     
-ENV CUDAQ_INSTALL_PATH="/opt/nvidia/cudaq"
-ENV LD_LIBRARY_PATH=${CUDAQ_INSTALL_PATH}/lib:${LD_LIBRARY_PATH}
-ENV PATH=${CUDAQ_INSTALL_PATH}/bin:${PATH}
-ENV CPLUS_INCLUDE_PATH=${CUDAQ_INSTALL_PATH}/include:${CPLUS_INCLUDE_PATH}
-
 # Prepare activation script
 RUN echo '#!/bin/bash' > /opt/cuquantum-source/cuquantum-env/activate_cuquantum.sh && \
     echo ". /opt/cuquantum-source/cuquantum-env/bin/activate" >> /opt/cuquantum-source/cuquantum-env/activate_cuquantum.sh && \
@@ -282,6 +264,7 @@ RUN echo '#!/bin/bash' > /opt/cuquantum-source/cuquantum-env/activate_cuquantum.
     echo "export PATH=${PATH}" >> /opt/cuquantum-source/cuquantum-env/activate_cuquantum.sh && \
     chmod +x /opt/cuquantum-source/cuquantum-env/activate_cuquantum.sh
 
+
 # Copy the Dockerfile and environment files for Ella to the container
 # For reference, we copy all the dockerfiles in this topic to the container
 RUN mkdir -p /opt/docker-recipes
@@ -290,5 +273,11 @@ COPY *.env /opt/docker-recipes
 COPY *.sh /opt/docker-recipes
 COPY *.whl /opt/docker-recipes
 
+# For singularity, copy the environment activation script to /.singularity.d/env/
+RUN mkdir -p /.singularity.d/env/ && \
+    echo '#!/bin/bash'  >> /.singularity.d/env/91-environment.sh && \
+    echo "PATH=/opt/cuquantum-source/cuquantum-env/bin:${PATH}" >> /.singularity.d/env/91-environment.sh &&\
+    chmod +x /.singularity.d/env/91-environment.sh
+
 # Set entrypoint to activate the environment on container start
-ENTRYPOINT ["/opt/cuquantum-source/cuquantum-env/activate_cuquantum.sh"]
+ENTRYPOINT ["/bin/bash"]
