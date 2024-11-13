@@ -9,8 +9,8 @@ LABEL org.opencontainers.image.noscan=true
 #Image metadata
 LABEL org.opencontainers.image.name="cudaquantum"
 LABEL org.opencontainers.image.version="1.0.0"
-LABEL org.opencontainers.image.version="10-11-2024"
-LABEL org.opencontainers.image.minversion="0.0.6"
+LABEL org.opencontainers.image.version="12-11-2024"
+LABEL org.opencontainers.image.minversion="0.0.7"
 LABEL org.opencontainers.image.authors="Shusen Liu <shusen.liu@pawsey.org.au>"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
@@ -124,15 +124,15 @@ ENV CUDA_HOME=/usr/local/cuda-12.6
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:$LD_LIBRARY_PATH 
 ENV PATH=${CUDA_HOME}/bin:$PATH 
 ENV HPCX_VERSION=v2.20 
-ENV HPCX_PACKAGE=hpcx-v2.20-gcc-mlnx_ofed-ubuntu22.04-cuda12-aarch64.tbz 
-ENV HPCX_DOWNLOAD_URL=https://content.mellanox.com/hpc/hpc-x/${HPCX_VERSION}/${HPCX_PACKAGE}
+ENV HPCX_PACKAGE=hpcx-v2.20-gcc-mlnx_ofed-ubuntu22.04-cuda12-aarch64 
+ENV HPCX_DOWNLOAD_URL=https://content.mellanox.com/hpc/hpc-x/${HPCX_VERSION}/${HPCX_PACKAGE}.tbz
 
 RUN mkdir -p /opt && \
     cd /opt && \
     wget -q ${HPCX_DOWNLOAD_URL} && \
     tar -xf $(basename ${HPCX_DOWNLOAD_URL}) && \
     rm $(basename ${HPCX_DOWNLOAD_URL}) && \
-    mv hpcx-v2.20-gcc-mlnx_ofed-ubuntu22.04-cuda12-aarch64 hpcx && \
+    mv ${HPCX_PACKAGE} hpcx && \
     chmod o+w hpcx 
 
 # HPCX related paths are set only for further complation of MPI
@@ -290,5 +290,11 @@ COPY *.env /opt/docker-recipes
 COPY *.sh /opt/docker-recipes
 COPY *.whl /opt/docker-recipes
 
+# For singularity, copy the environment activation script to /.singularity.d/env/
+RUN mkdir -p /.singularity.d/env/ && \
+    echo '#!/bin/bash'  >> /.singularity.d/env/91-environment.sh && \
+    echo "PATH=/opt/cuquantum-source/cuquantum-env/bin:${PATH}" >> /.singularity.d/env/91-environment.sh &&\
+    chmod +x /.singularity.d/env/91-environment.sh
+
 # Set entrypoint to activate the environment on container start
-ENTRYPOINT ["/opt/cuquantum-source/cuquantum-env/activate_cuquantum.sh"]
+ENTRYPOINT ["/bin/bash"]

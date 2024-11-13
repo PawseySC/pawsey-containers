@@ -9,8 +9,8 @@ LABEL org.opencontainers.image.noscan=true
 #Image metadata
 LABEL org.opencontainers.image.name="hpcx"
 LABEL org.opencontainers.image.version="1.0.0"
-LABEL org.opencontainers.image.version="11-11-2024"
-LABEL org.opencontainers.image.minversion="0.0.2"
+LABEL org.opencontainers.image.version="13-11-2024"
+LABEL org.opencontainers.image.minversion="0.0.3"
 LABEL org.opencontainers.image.authors="Shusen Liu <shusen.liu@pawsey.org.au>"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
@@ -79,8 +79,8 @@ ENV PATH=${CUDA_HOME}/bin:$PATH
 
 # # Set the HPC-X version and download URL
 ENV HPCX_VERSION=v2.20
-ENV HPCX_PACKAGE=hpcx-v2.20-gcc-mlnx_ofed-redhat9-cuda12-aarch64.tbz
-ENV HPCX_DOWNLOAD_URL=https://content.mellanox.com/hpc/hpc-x/${HPCX_VERSION}/${HPCX_PACKAGE}
+ENV HPCX_PACKAGE=hpcx-v2.20-gcc-mlnx_ofed-redhat9-cuda12-aarch64
+ENV HPCX_DOWNLOAD_URL=https://content.mellanox.com/hpc/hpc-x/${HPCX_VERSION}/${HPCX_PACKAGE}.tbz
 
 # # Download and extract HPC-X
 RUN mkdir -p /opt && \
@@ -88,7 +88,7 @@ RUN mkdir -p /opt && \
     wget ${HPCX_DOWNLOAD_URL} && \
     tar -xvf $(basename ${HPCX_DOWNLOAD_URL}) && \
     rm $(basename ${HPCX_DOWNLOAD_URL}) && \
-    mv hpcx-v2.20-gcc-mlnx_ofed-redhat9-cuda12-aarch64 hpcx &&\
+    mv ${HPCX_PACKAGE} hpcx &&\
     chmod o+w hpcx
 
 # HPCX related paths are set only for further complation of MPI

@@ -125,15 +125,15 @@ ENV CUDA_HOME=/usr/local/cuda-12.6
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:$LD_LIBRARY_PATH 
 ENV PATH=${CUDA_HOME}/bin:$PATH 
 ENV HPCX_VERSION=v2.20 
-ENV HPCX_PACKAGE=hpcx-v2.20-gcc-mlnx_ofed-ubuntu22.04-cuda12-aarch64.tbz 
-ENV HPCX_DOWNLOAD_URL=https://content.mellanox.com/hpc/hpc-x/${HPCX_VERSION}/${HPCX_PACKAGE}
+ENV HPCX_PACKAGE=hpcx-v2.20-gcc-mlnx_ofed-ubuntu22.04-cuda12-aarch64 
+ENV HPCX_DOWNLOAD_URL=https://content.mellanox.com/hpc/hpc-x/${HPCX_VERSION}/${HPCX_PACKAGE}.tbz
 
 RUN mkdir -p /opt && \
     cd /opt && \
     wget -q ${HPCX_DOWNLOAD_URL} && \
     tar -xf $(basename ${HPCX_DOWNLOAD_URL}) && \
     rm $(basename ${HPCX_DOWNLOAD_URL}) && \
-    mv hpcx-v2.20-gcc-mlnx_ofed-ubuntu22.04-cuda12-aarch64 hpcx && \
+    mv ${HPCX_PACKAGE} hpcx && \
     chmod o+w hpcx 
 
 # HPCX related paths are set only for further complation of MPI
