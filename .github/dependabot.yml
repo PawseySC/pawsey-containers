@@ -1,0 +1,87 @@
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+      - dependency-name: "*"
+        directories:
+          - "**/requirements-27Aug2020.txt"
+          - "**/requirements-19Mar2021.txt"
+
+  - package-ecosystem: "rubygems"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "yarn"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
