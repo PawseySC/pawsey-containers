@@ -1,0 +1,628 @@
+name: ci
+# Version 1.0.0
+# This workflow is triggered on push events to the repository
+# Please find readme.md for the usage of this workflow
+
+on:
+  push:
+
+jobs:
+  PREPARE-job:
+    runs-on: ubuntu-latest
+    outputs:
+      dockerfile_name: ${{ steps.parse_path.outputs.dockerfile_name }}
+      platform_tag: ${{ steps.parse_path.outputs.platform_tag }}
+      date: ${{ steps.date.outputs.date }}
+      proceed_valid: ${{ steps.set_proceed_flag.outputs.proceed_valid }}
+      devmode: ${{ steps.set_proceed_flag.outputs.devmode }}
+      directory: ${{ steps.parse_path.outputs.directory }}
+      files: ${{ steps.changed_files.outputs.files }}
+      platform: ${{ steps.parse_path.outputs.platform }}
+      runner_label: ${{ steps.set_runner_label.outputs.runner_label }}
+      noscan: ${{ steps.set_proceed_flag.outputs.noscan }}
+    
+    steps:
+      - name: Set default runner label
+        id: set_default_runner_label
+        run: |
+          echo "runner_label=ubuntu-latest" >> $GITHUB_OUTPUT
+
+      - name: Check required variables and secrets and set runner-default
+        id: check_vars_secrets
+        run: |
+          missing_vars=()
+          missing_secrets=()
+
+          # check Variables
+          if [ -z "${{ vars.DOCKERHUB_USERNAME }}" ]; then
+            missing_vars+=("DOCKERHUB_USERNAME")
+          fi
+
+          if [ -z "${{ vars.QUAYIO_USERNAME }}" ]; then
+            missing_vars+=("QUAYIO_USERNAME")
+          fi
+
+          if [ -z "${{ vars.ACACIA_BUCKETNAME }}" ]; then
+            missing_vars+=("ACACIA_BUCKETNAME")
+          fi
+
+          # check Secrets
+          if [ -z "${{ secrets.PAT_TOKEN }}" ]; then
+            missing_secrets+=("PAT_TOKEN")
+          fi
+
+          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            missing_secrets+=("DOCKERHUB_TOKEN")
+          fi
+
+          if [ -z "${{ secrets.QUAYIO_TOKEN }}" ]; then
+            missing_secrets+=("QUAYIO_TOKEN")
+          fi
+
+          if [ -z "${{ secrets.ACACIA_ACCESS_KEY_ID }}" ]; then
+            missing_secrets+=("ACACIA_ACCESS_KEY_ID")
+          fi
+
+          if [ -z "${{ secrets.ACACIA_SECRET_ACCESS_KEY }}" ]; then
+            missing_secrets+=("ACACIA_SECRET_ACCESS_KEY")
+          fi
+
+          # If any missing variables or secrets, exit with error
+          if [ ${#missing_vars[@]} -ne 0 ] || [ ${#missing_secrets[@]} -ne 0 ]; then
+            echo "Some required variables or secrets are not set:"
+            if [ ${#missing_vars[@]} -ne 0 ]; then
+              echo "Missing Variables: ${missing_vars[@]}"
+            fi
+            if [ ${#missing_secrets[@]} -ne 0 ]; then
+              echo "Missing Secrets: ${missing_secrets[@]}"
+            fi
+            exit 1
+          else
+            echo "All required variables and secrets are set."
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Ensure enough history is available
+
+      - name: Get changed files
+        id: changed_files
+        run: |
+          files=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} '*.dockerfile')
+          echo "Files changed: $files"
+          echo "files=$files" 
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$files" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+
+      - name: Debug output of changed files
+        run: |
+          echo "Files from output: ${{ steps.changed_files.outputs.files }}"      
+
+
+      - name: Set proceed flag
+        id: set_proceed_flag
+        run: |
+          changed_files="${{ steps.changed_files.outputs.files }}"
+          
+          # Count files of modified Dockerfile 
+          file_count=$(echo "$changed_files" | wc -l)
+          if [ "$file_count" -eq 0 ]; then
+            echo "No Dockerfile has been modified. Setting proceed_valid to false."
+            echo "proceed_valid=false" >> $GITHUB_OUTPUT
+            exit 0
+          elif [ "$file_count" -gt 1 ]; then
+            echo "Multiple Dockerfiles have been modified ($file_count files). Setting proceed_valid to false."
+            echo "proceed_valid=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Only ONE Dockerfile modified
+          file="$changed_files"
+          echo "Single Dockerfile modified: $file"
+
+          # check Dockerfile includes org.opencontainers.image.compilation=auto
+          if grep -q -E '^[^#]*LABEL\s+org\.opencontainers\.image\.compilation\s*=\s*auto' "$file"; then
+            echo "Dockerfile contains org.opencontainers.image.compilation=auto. Setting proceed_valid to true."
+            echo "proceed_valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "Dockerfile does not contain org.opencontainers.image.compilation=auto. Setting proceed_valid to false."
+            echo "proceed_valid=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # check Dockerfile includes org.opencontainers.image.devmode=true
+          if grep -q -E '^[^#]*LABEL\s+org\.opencontainers\.image\.devmode\s*=\s*true' "$file"; then
+            echo "Dockerfile contains org.opencontainers.image.devmode=true. Setting devmode to true."
+            echo "devmode=true" >> $GITHUB_OUTPUT
+          else
+            echo "Dockerfile does not contain org.opencontainers.image.devmode=true. Setting devmode to false."
+            echo "devmode=false" >> $GITHUB_OUTPUT
+          fi
+          
+           # check Dockerfile includes org.opencontainers.image.noscan=true
+          if grep -q -E '^[^#]*LABEL\s+org\.opencontainers\.image\.noscan\s*=\s*true' "$file"; then
+            echo "Dockerfile contains org.opencontainers.image.noscan=true. Setting trivy to noscan."
+            echo "noscan=true" >> $GITHUB_OUTPUT
+          else
+            echo "Dockerfile does not contain org.opencontainers.image.noscan=true. Setting trivy to default."
+            echo "noscan=false" >> $GITHUB_OUTPUT
+          fi 
+
+      - name: Parse file path
+        if: steps.set_proceed_flag.outputs.proceed_valid == 'true'
+        id: parse_path
+        run: |
+          file="${{ steps.changed_files.outputs.files }}"
+          echo "File: $file"
+          dir=$(dirname "$file")
+          echo "Directory: $dir"
+          base=$(basename "$file")
+          echo "Base: $base"
+          dockerfile_name="${base%.*}"
+          echo "Dockerfile name: $dockerfile_name"
+          # Determine platform by checking file contents
+          if grep -q -E '^[^#]*LABEL\s+org\.opencontainers\.image\.arch\s*=\s*(arm|aarch64|arm64)' "$file"; then
+            platform="linux/arm64"
+            platform_tag="arm"            
+          elif grep -q -E '^[^#]*LABEL\s+org\.opencontainers\.image\.arch\s*=\s*(x86|amd64|x86_64)' "$file"; then
+            platform="linux/amd64"
+            platform_tag="x86"
+          else
+            echo "No known architecture label found in $file. Exiting."
+            exit 1
+          fi
+          echo "Platform: $platform"
+          echo "Platform tag: $platform_tag"
+          echo "dockerfile_name=$dockerfile_name" >> $GITHUB_OUTPUT
+          echo "platform=$platform" >> $GITHUB_OUTPUT
+          echo "platform_tag=$platform_tag" >> $GITHUB_OUTPUT
+          echo "directory=$dir" >> $GITHUB_OUTPUT
+          exit 0 
+
+      - name: Set current date
+        if: steps.set_proceed_flag.outputs.proceed_valid == 'true'
+        id: date
+        run: |
+          date_tag=$(date +'%m-%d')
+          echo "Date tag: $date_tag"
+          echo "date=$date_tag" >> $GITHUB_OUTPUT
+      
+      - name: Determine runner label
+        if: steps.set_proceed_flag.outputs.proceed_valid == 'true'
+        id: determine_runner
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{secrets.PAT_TOKEN}}
+          script: |
+            let runner_label = 'X64';
+            const platform = '${{ steps.parse_path.outputs.platform }}';
+            if (platform === 'linux/arm64') {
+              const runners = await github.paginate(
+                github.rest.actions.listSelfHostedRunnersForRepo,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                }
+              );
+
+              console.log(`Total runners found: ${runners.length}`);
+
+              runners.forEach(runner => {
+              const labels = runner.labels.map(label => label.name);
+              console.log(`Runner ID: ${runner.id}, Name: ${runner.name}, Status: ${runner.status}, Labels: ${labels.join(', ')}`);
+              });
+
+              let found = false;
+              for (const runner of runners) {
+                if (runner.status === 'online') {
+                  const labels = runner.labels.map(label => label.name);
+                  if (labels.includes('ARM64')) {
+                    runner_label = 'ARM64';
+                    console.log(`Found online runner with label "ARM64": Runner ID ${runner.id}, Name ${runner.name}`);
+                    found = true;
+                    break;
+                  }
+                }
+              }
+              if (found) {
+                console.log('Found online runner with label "ARM64"');
+              } else {
+                console.log('No online runner with label "ARM64" found, using default runner');
+              }
+            } else {
+              console.log('Platform is not linux/arm64, using default X64 runner');
+            }
+            core.setOutput('runner_label', runner_label);
+
+      - name: Overwrite runner label
+        id: set_runner_label
+        run: |
+          if [ -n "${{ steps.determine_runner.outputs.runner_label }}" ]; then
+            echo "runner_label=${{ steps.determine_runner.outputs.runner_label }}" >> $GITHUB_OUTPUT
+          else
+            echo "runner_label=${{ steps.set_default_runner_label.outputs.runner_label }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Debug variables before build
+        if: steps.set_proceed_flag.outputs.proceed_valid == 'true'
+        run: |
+          echo "Context: ${{ github.workspace }}/${{ steps.parse_path.outputs.directory }}"
+          echo "File: ${{ github.workspace }}/${{ steps.changed_files.outputs.files }}"
+          echo "Tag: ${{ vars.DOCKERHUB_USERNAME }}/${{ steps.parse_path.outputs.dockerfile_name }}-${{ steps.parse_path.outputs.platform_tag }}:${{ steps.date.outputs.date }}"
+          echo "Platforms: ${{ steps.parse_path.outputs.platform }}"
+          echo "Runner label: ${{ steps.determine_runner.outputs.runner_label }}"
+      
+
+      
+  BUILD-job:
+    needs: PREPARE-job
+    runs-on: ${{ needs.PREPARE-job.outputs.runner_label }}
+    if: needs.PREPARE-job.outputs.proceed_valid == 'true'
+    steps:
+      - name: Print hostname
+        run: |
+          echo "Hostname: $(hostname)"
+      
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # As the runs-on machine maybe different from Build, re-checkout source code. Only the current commit is needed
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ needs.PREPARE-job.outputs.platform }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          install: true
+    
+      - name: Show current Buildx builders
+        run: docker buildx ls
+
+      - name: Enable BuildKit
+        run: |
+          echo ${{ needs.PREPARE-job.outputs.runner_label}} 
+          echo "DOCKER_BUILDKIT=1" >> $GITHUB_ENV 
+
+      - name: Check and set docker cache location
+        id: docker_cache_check
+        run: |
+          CACHE_DIR="$HOME/runner/docker-cache"
+          echo "CACHE_DIR=$CACHE_DIR"
+
+          if [ -d "$CACHE_DIR" ]; then
+            echo "Cache directory exists."
+            CACHE_SIZE=$(du -sh "$CACHE_DIR" | cut -f1)
+            echo "Cache directory size: $CACHE_SIZE"
+          else
+            echo "Cache directory does not exist. Creating..."
+            sudo mkdir -p "$CACHE_DIR"
+            sudo chown $(whoami):$(id -gn) "$CACHE_DIR"
+            echo "Cache directory created."
+          fi
+
+          echo "HOME=$HOME"
+          echo "CACHELOC=$CACHE_DIR" >> $GITHUB_ENV
+          echo "CACHELOC is set to ${CACHE_DIR} ".           
+
+      - name: Build Docker image locally, save to tar file and move to persistent storage
+        uses: docker/build-push-action@v6
+        if: needs.PREPARE-job.outputs.devmode != 'true'
+        with:
+          context: ${{ github.workspace }}/${{ needs.PREPARE-job.outputs.directory }}
+          file: ${{ github.workspace }}/${{ needs.PREPARE-job.outputs.files }}
+          tags: | 
+            ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+          platforms: ${{ needs.PREPARE-job.outputs.platform }}
+          push: false
+          load: true
+          provenance: false
+          cache-from: type=local,src=${{env.CACHELOC}}
+          cache-to: type=local,dest=${{env.CACHELOC}},mode=max
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
+
+      - name: Build Docker image locally, for development mode
+        env:
+          CACHELOC: ${{ env.CACHELOC }}
+        if: needs.PREPARE-job.outputs.devmode == 'true'
+        run: |
+          docker buildx build \
+            --progress plain \
+            --cache-from type=local,src=${CACHELOC} \
+            --cache-to type=local,dest=${CACHELOC},mode=max \
+            --provenance=false \
+            --load \
+            --platform ${{ needs.PREPARE-job.outputs.platform }} \
+            --file ${{ github.workspace }}/${{ needs.PREPARE-job.outputs.files }} \
+            --tag ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} \
+            ${{ github.workspace }}/${{ needs.PREPARE-job.outputs.directory }}
+
+      - name: Save Docker image to tar file
+        run: |
+          docker save -o ${GITHUB_WORKSPACE}/image.tar ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+          echo "Docker image saved to ${GITHUB_WORKSPACE}/image.tar"
+
+      - name: Move image.tar to local persistent storage "$HOME/runner/artifacts"
+        run: |
+          sudo mkdir -p $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}
+          sudo chown -R $(whoami):$(id -gn) $HOME/runner/artifacts/
+          cp ${GITHUB_WORKSPACE}/image.tar $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar
+          echo "Moved image.tar to $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar"
+
+
+  SCAN-AND-REPORT-job:
+    needs: [BUILD-job, PREPARE-job]
+    runs-on: ${{ needs.PREPARE-job.outputs.runner_label }}
+    if: needs.PREPARE-job.outputs.proceed_valid == 'true' && needs.PREPARE-job.outputs.noscan != 'true'
+    steps:
+      - name: Print hostname
+        run: |
+          echo "Hostname: $(hostname)"
+      - name: Copy back persistent storage "$HOME/runner/artifacts" to current directory 
+        run: |
+          if [ -f "$HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar" ]; then
+            echo "File already exists, skipping copy."
+          else
+            cp $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar ${GITHUB_WORKSPACE}
+            echo "Copied image.tar from $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar to ${GITHUB_WORKSPACE}"
+          fi
+      - name: Create Trivy report directory
+        run: mkdir -p ./trivy-reports
+  
+      - name: Scan the Docker image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          input: './image.tar'        
+          format: 'table'
+          output: './trivy-reports/trivy-report-${{ needs.PREPARE-job.outputs.dockerfile_name }}.txt'
+          severity: 'MEDIUM,CRITICAL,HIGH'
+      
+      - name: Add Trivy report to GitHub Actions summary
+        run: |
+          echo '## Trivy Scan Report for ${{ needs.PREPARE-job.outputs.dockerfile_name }}' >> $GITHUB_STEP_SUMMARY
+          cat ./trivy-reports/trivy-report-${{ needs.PREPARE-job.outputs.dockerfile_name }}.txt >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Trivy scan report
+        uses: actions/upload-artifact@v4
+        with:
+            name: trivy-report-${{ needs.PREPARE-job.outputs.dockerfile_name }}
+            path: ${{ github.workspace }}/trivy-reports/trivy-report-${{ needs.PREPARE-job.outputs.dockerfile_name}}.txt
+
+  PUSH-PRIV-job:
+    needs: [BUILD-job, PREPARE-job]
+    runs-on: ${{ needs.PREPARE-job.outputs.runner_label }}
+    if: needs.PREPARE-job.outputs.proceed_valid == 'true'
+    env:
+     BUCKET: ${{ vars.ACACIA_BUCKETNAME }} # BYO or pawsey0001-image-compilation if compile for project
+     DESTINATION_PATH: ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/${{ needs.PREPARE-job.outputs.date }}
+    steps:
+      - name: Print hostname and set approved label for deployment
+        id: set_approved_label
+        run: |
+          echo "Hostname: $(hostname)"
+
+      - name: Copy back persistent storage "$HOME/runner/artifacts" to current directory in case of running before scan
+        run: |
+          if [ -f "$HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar" ]; then
+            echo "File already exists, skipping copy."
+          else
+            cp $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar ${GITHUB_WORKSPACE}
+            echo "Copied image.tar from $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar to ${GITHUB_WORKSPACE}"
+          fi
+
+      - name: Setup rclone
+        uses: ./.github/actions/setup-rclone
+        with:
+          access_key_id: ${{ secrets.ACACIA_ACCESS_KEY_ID }}
+          secret_access_key: ${{ secrets.ACACIA_SECRET_ACCESS_KEY }}
+          endpoint: https://projects.pawsey.org.au
+          bucket: ${{ env.BUCKET }}
+          destination_path: ${{ env.DESTINATION_PATH }}
+
+      - name: Upload image tar to S3 with rclone
+        run: |
+          set -e
+          rclone copy ${{ github.workspace }}/image.tar pawsey0001:"${{ env.BUCKET }}/${{ env.DESTINATION_PATH }}/"\
+              --transfers=16 \
+              --drive-chunk-size=128M \
+              --multi-thread-streams=4   
+
+      - name: Login to Docker Hub       
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Load Docker image from image.tar
+        run: |
+            docker load -i ${GITHUB_WORKSPACE}/image.tar
+
+      - name: Tag Docker image for Dockerhub and Quay.IO
+        run: |
+          docker tag ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} ${{ vars.DOCKERHUB_USERNAME }}/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+
+      - name: Push Docker image to Dockerhub after approval
+        run: |          
+          docker push ${{ vars.DOCKERHUB_USERNAME }}/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+
+      - name: Remove Docker images
+        run: |
+          # Remove the main image
+          docker rmi ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} || true
+        
+            # Remove tagged images
+          docker rmi ${{ vars.DOCKERHUB_USERNAME }}/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} || true
+
+
+  CLEANUP-job:
+    needs: [APPROVE-PUSH-PUB-job,PUSH-PRIV-job, SCAN-AND-REPORT-job, BUILD-job, PREPARE-job]
+    if: always()
+    runs-on: ${{ needs.PREPARE-job.outputs.runner_label }}
+    steps:
+      - name: Clean-up
+        run: |
+          sudo rm -rf $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}
+
+  DEPLOY-job:
+    needs: [PUSH-PRIV-job,PREPARE-job]
+    runs-on: Ella
+    if: needs.PREPARE-job.outputs.platform_tag == 'arm'
+    env:
+      BUCKET: ${{ vars.ACACIA_BUCKETNAME }} # BYO or pawsey0001-image-compilation if compile for project
+      DESTINATION_PATH: ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/${{ needs.PREPARE-job.outputs.date }}
+    #environment:
+     # name: manual_approval  
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # As the runs-on machine maybe different from Build, re-checkout source code. Only the current commit is needed
+
+      - name: Setup rclone
+        uses: ./.github/actions/setup-rclone
+        with:
+          access_key_id: ${{ secrets.ACACIA_ACCESS_KEY_ID }}
+          secret_access_key: ${{ secrets.ACACIA_SECRET_ACCESS_KEY }}
+          endpoint: https://projects.pawsey.org.au
+          bucket: ${{ env.BUCKET }}
+          destination_path: ${{ env.DESTINATION_PATH }}
+      - name: Deploy ARM image to Ella  
+        run: |
+            echo "Deploying ARM image to Ella"
+            echo "Hostname: $(hostname)"
+            echo "Deploying image: ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}" to Ella
+            mkdir -p $MYSCRATCH/image/${{ needs.PREPARE-job.outputs.dockerfile_name }}/
+            rclone copy pawsey0001:"${{ env.BUCKET }}/${{ env.DESTINATION_PATH }}/image.tar" $MYSCRATCH/image/${{ needs.PREPARE-job.outputs.dockerfile_name }}/
+      - name: Convert to Singularity File
+        run: |
+            echo "Converting to Singularity File"
+            echo "Converting image: ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}" to Singularity
+            source ~/.bashrc
+          
+            singularity build --force $MYSCRATCH/image/${{ needs.PREPARE-job.outputs.dockerfile_name }}/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}.sif docker-archive://$MYSCRATCH/image/${{ needs.PREPARE-job.outputs.dockerfile_name }}/image.tar
+  
+  APPROVE-PUSH-PUB-job:
+    needs: [BUILD-job, PREPARE-job]
+    runs-on: ${{ needs.PREPARE-job.outputs.runner_label }}
+    if: needs.PREPARE-job.outputs.proceed_valid == 'true'
+    environment:
+      name: manual_approval  
+    steps:
+      - name: Print hostname and set approved label for deployment
+        id: set_approved_label
+        run: |
+          echo "Hostname: $(hostname)"
+      - name: Copy back persistent storage "$HOME/runner/artifacts" to current directory in case of running before scan
+        run: |
+          if [ -f "$HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar" ]; then
+            echo "File already exists, skipping copy."
+          else
+            cp $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar ${GITHUB_WORKSPACE}
+            echo "Copied image.tar from $HOME/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar to ${GITHUB_WORKSPACE}"
+          fi
+
+      - name: Login to quay Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ vars.QUAYIO_USERNAME }}
+          password: ${{ secrets.QUAYIO_TOKEN }}
+      
+      - name: Load Docker image from image.tar
+        run: |
+            docker load -i ${GITHUB_WORKSPACE}/image.tar
+
+      - name: Tag Docker image for Dockerhub and Quay.IO
+        run: |
+          docker tag ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} quay.io/${{ vars.QUAYIO_USERNAME }}/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+          docker tag ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} quay.io/pawsey/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+
+      - name: Push Docker image to Quay.IO after approval
+        if: needs.PREPARE-job.outputs.devmode != 'true'
+        run: |          
+          docker push quay.io/${{ vars.QUAYIO_USERNAME }}/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+          docker push quay.io/pawsey/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+
+      - name: Remove Docker images
+        run: |
+          # Remove the main image
+          docker rmi ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} || true
+        
+            # Remove tagged images
+          docker rmi quay.io/${{ vars.QUAYIO_USERNAME }}/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} || true 
+          docker rmi quay.io/pawsey/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} || true       
+         
+
+
+
+
+  # APPROVE-AND-DEPLOY-job:
+  #   needs: [SCAN-AND-REPORT-job, PREPARE-job]
+  #   runs-on: experiment
+  #   if: needs.PREPARE-job.outputs.proceed_valid == 'true'
+  #   strategy:
+  #     matrix:
+  #       task: [push-dockerhub, push-quay, upload-s3]
+  #   env:
+  #     BUCKET: pawsey0001-image-compilation
+  #     DESTINATION_PATH: ${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}
+  #   environment:
+  #     name: manual_approval  
+  #   steps:
+  #     - name: Copy back persistent storage "/home/runner/artifacts" to current directory
+  #       run: |
+  #         cp /home/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar ${GITHUB_WORKSPACE}
+  #         echo "Copied image.tar from /home/runner/artifacts/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}/image.tar to ${GITHUB_WORKSPACE}"
+      
+  #     - name: Load Docker image from image.tar and tag for dockerhub and quay.io
+  #       run: |
+  #         docker load -i ${GITHUB_WORKSPACE}/image.tar
+  #         docker tag klinus/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }} quay.io/klinus/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+
+  #     - name: Login to Docker Hub
+  #       if: matrix.task == 'push-dockerhub'
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ vars.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}        
+
+  #     - name: Push Docker image to DockerHub
+  #       if: matrix.task == 'push-dockerhub'
+  #       run: |
+  #         docker push klinus/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+      
+  #     - name: Login to Quay Container Registry
+  #       if: matrix.task == 'push-quay'
+  #       uses: docker/login-action@v3
+  #       with:
+  #         registry: quay.io
+  #         username: ${{ vars.QUAYIO_USERNAME }}
+  #         password: ${{ secrets.QUAYIO_TOKEN }}
+
+  #     - name: Push Docker image to Quay.IO after approval
+  #       if: matrix.task == 'push-quay'
+  #       run: |
+  #         docker push quay.io/klinus/${{ needs.PREPARE-job.outputs.dockerfile_name }}-${{ needs.PREPARE-job.outputs.platform_tag }}:${{ needs.PREPARE-job.outputs.date }}
+
+  #     # Steps for uploading to S3 with rclone
+  #     - name: Setup rclone
+  #       if: matrix.task == 'upload-s3'
+  #       uses: ./.github/actions/setup-rclone
+  #       with:
+  #         access_key_id: ${{ secrets.ACACIA_ACCESS_KEY_ID }}
+  #         secret_access_key: ${{ secrets.ACACIA_SECRET_ACCESS_KEY }}
+  #         endpoint: https://projects.pawsey.org.au
+  #         bucket: ${{ env.BUCKET }}
+  #         destination_path: ${{ env.DESTINATION_PATH }}
+      
+  #     - name: Upload image tar to S3 with rclone
+  #       if: matrix.task == 'upload-s3'
+  #       run: |
+  #         set -e
+  #         rclone copy ${{ github.workspace }}/image.tar pawsey0001:"${{ env.BUCKET }}/${{ env.DESTINATION_PATH }}/"
