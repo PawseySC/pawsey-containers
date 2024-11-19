@@ -290,6 +290,19 @@ F  - The workflow reads the `org.opencontainers.image.arch` label in the Dockerf
 
 This comprehensive workflow automates the building, scanning, and deployment of Docker images in a secure and efficient manner. By incorporating caching mechanisms and cross-platform capabilities, it ensures that images are built quickly and are compatible with various architectures. The inclusion of a vulnerability scanning step enhances security, while the manual approval process before deployment adds an extra layer of control. This workflow is a robust solution for continuous integration and deployment pipelines involving Docker images.
 
+## Issues
+1. Proposal for org.opencontainers.image.notar=true Functionality (**to be discussed**)
+
+Q: Should we add a org.opencontainers.image.notar=true functionality similar to noscan for large OCI images?
+A: The use of TAR files in the current workflow is designed to accelerate data (image) transfer. Each job is stateless and relies on artifacts for communication. However, uploading and downloading artifacts via GitHub for each job is too slow. By packaging OCI images into TAR files, we achieve two key benefits:
+
+- **Faster Scanning**: While Trivy supports scanning OCI images, pulling them via Docker is slow. Using TAR files speeds up this process.
+- **Efficient Deployment**: TAR files allow rapid deployment to platforms like Ella or Setonix via Acacia, avoiding the slower process of uploading to Quay.io and re-downloading for various tasks.
+For example, without TAR, a 10GB image takes about 1.5 hours for scanning and deployment. With TAR, the same process completes in just 4 minutes, enabling us to handle 20-30 versions per day.
+
+Adding a notar functionality might conflict with the current workflow since it would likely require removing scanning and automated deployment features, making the process slower and less efficient. While adding notar could be considered, it should be **aligned with the workflow’s clearly defined steps to avoid unnecessary slowdowns**.
+
+
 ## License
 This project is licensed under the GNU GPL 3.0 License.
 
