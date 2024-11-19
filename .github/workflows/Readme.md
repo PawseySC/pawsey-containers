@@ -75,7 +75,7 @@ The workflow is triggered on every `push` event to the repository. However, it o
 - **Single Dockerfile Modification**: Exactly **ONLY** one Dockerfile can be modified in the commit.
 - **Specific Label Present**: 
     - The modified Dockerfile must contain the label `org.opencontainers.image.compilation=auto`.
-    - The modified Docerfile must contain the laber for arch `LABEL org.opencontainers.image.arch=x86` or `LABEL org.opencontainers.image.arch=arm`
+    - The modified Dockerfile must contain the laber for arch `LABEL org.opencontainers.image.arch=x86` or `LABEL org.opencontainers.image.arch=arm`
 
 If these conditions are not met, the workflow exits gracefully without performing any further actions. This ensures that builds are only triggered for intentional and specific changes.
 
@@ -107,9 +107,9 @@ flowchart TD
 
 ## Prerequisites (if forked)
 - **Uplift your current account to sudo group (admin group for Mac)** : As this script use local storage (save image to local path) which beyonds the Github workspace scope, you need to upgrade `$(whoami)` to sudo group and also set no PASSWORD are required for this group.
-- **Docker Hub Account**: Required for pushing Docker images to Docker Hub.
+- **DockerHub Account**: Required for pushing Docker images to DockerHub.
 - **Quay.io Account**: An alternative container registry for hosting Docker images.
-- **Access to S3-Compatible Storage**: For uploading Docker image archives to Acacia (Pawsey) using `rclone`.
+- **Access to S3-Compatible Storage**: For uploading Docker image archives to Acacia [Pawsey](https://portal.pawsey.org.au/origin) using `rclone`.
 - **Self-Hosted Runner**: The workflow specifies `runs-on: experiment`, indicating the use of a self-hosted runner named `work` (You can use your other BYO runner).
 - **PAT Token**: PAT token is used for checking the runner label and their availability. 
 ## Variables and Secrets Configuration
@@ -154,7 +154,7 @@ This initial job sets up the environment and determines whether the workflow sho
    - Stores the list of changed files in the `files` output variable.
 
 3. **Set Proceed Flag**: 
-   - Checks if no Dockerfiles or multiple Dockerfiles have been modified.
+   - Checks if no Dockerfiles or multiple Dockerfiles (above 1) have been modified.
      - If no Dockerfiles are modified, sets `proceed_valid` to `false` and exits.
      - If multiple Dockerfiles are modified, sets `proceed_valid` to `false` and exits.
    - If exactly one Dockerfile is modified, proceeds to check for the required label.
@@ -166,7 +166,7 @@ This initial job sets up the environment and determines whether the workflow sho
    - `directory`: The directory containing the Dockerfile.
    - `dockerfile_name`: The base name of the Dockerfile without the extension.
    - `platform` and `platform_tag`: Determined by checking the `org.opencontainers.image.arch` label in the Dockerfile.
-     - Supports `linux/arm64` (tagged as `arm`) and `linux/amd64` (tagged as `x86`).
+   - Supports `linux/arm64` (tagged as `arm`) and `linux/amd64` (tagged as `x86`).
 
 5. **Set Current Date**: Captures the current date in `MM-DD` format for use in tagging the Docker image.
 
@@ -178,7 +178,7 @@ This job builds the Docker image using Docker Buildx and saves it for later use.
 
 **Key Steps:**
 
-1. **Set Up QEMU**: Uses `docker/setup-qemu-action@v3` to enable cross-platform emulation, allowing builds for different architectures.
+1. **Set Up QEMU**: Uses `docker/setup-qemu-action@v3` to enable cross-platform emulation with [QEMU emulator](https://www.qemu.org/), allowing builds for different architectures.
 
 2. **Set Up Docker Buildx**: Initializes Docker Buildx with the `docker-container` driver.
 
@@ -238,7 +238,7 @@ This job requires manual approval before proceeding, adding an extra layer of co
      - Quay.io: `quay.io/{QUAYIO_USERNAME}/{dockerfile_name}-{platform_tag}:{date}`
 
 4. **Push Docker Image**:
-   - Pushes the tagged image to Docker Hub.
+   - Pushes the tagged image to DockerHub.
    - Pushes the tagged image to Quay.io.
 
 5. **Upload to S3-Compatible Storage**:
@@ -270,7 +270,7 @@ The workflow employs caching strategies to optimize build times:
 Supporting multiple architectures is achieved through:
 
 - **Architecture Detection**:
-  - The workflow reads the `org.opencontainers.image.arch` label in the Dockerfile.
+F  - The workflow reads the `org.opencontainers.image.arch` label in the Dockerfile.
   - Supports the following architectures:
     - `arm`, `aarch64`, `arm64`: Mapped to `linux/arm64`.
     - `x86`, `amd64`, `x86_64`: Mapped to `linux/amd64`.
@@ -291,7 +291,7 @@ Supporting multiple architectures is achieved through:
 This comprehensive workflow automates the building, scanning, and deployment of Docker images in a secure and efficient manner. By incorporating caching mechanisms and cross-platform capabilities, it ensures that images are built quickly and are compatible with various architectures. The inclusion of a vulnerability scanning step enhances security, while the manual approval process before deployment adds an extra layer of control. This workflow is a robust solution for continuous integration and deployment pipelines involving Docker images.
 
 ## License
-This project is licensed under the MIT License.
+This project is licensed under the GNU GPL 3.0 License.
 
 ## Contact and Author
 For any questions or support, please open an issue in the repository or contact Shusen Liu (Shusen.liu@pawsey.org.au or shusen.liu@csiro.au)

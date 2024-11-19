@@ -301,9 +301,13 @@ jobs:
             echo "Cache directory size: $CACHE_SIZE"
           else
             echo "Cache directory does not exist. Creating..."
-            sudo mkdir -p "$CACHE_DIR"
-            sudo chown $(whoami):$(id -gn) "$CACHE_DIR"
-            echo "Cache directory created."
+            if sudo mkdir -p "$CACHE_DIR"; then
+              sudo chown $(whoami):$(id -gn) "$CACHE_DIR"
+              echo "Cache directory created successfully."
+            else
+              echo "Failed to create cache directory: $CACHE_DIR" >&2
+              exit 1
+            fi
           fi
 
           echo "HOME=$HOME"
@@ -428,10 +432,37 @@ jobs:
       - name: Upload image tar to S3 with rclone
         run: |
           set -e
-          rclone copy ${{ github.workspace }}/image.tar pawsey0001:"${{ env.BUCKET }}/${{ env.DESTINATION_PATH }}/"\
-              --transfers=16 \
-              --drive-chunk-size=128M \
-              --multi-thread-streams=4   
+      
+          # calculate file size
+          FILE_SIZE=$(wc -c < "${{ github.workspace }}/image.tar")
+          echo "File size: $FILE_SIZE bytes"
+      
+          # dynamically set rclone parameters based on file size: 500MB, 5G,others
+          if [ "$FILE_SIZE" -lt $((1024 * 1024 * 500)) ]; then
+            S3_CHUNK_SIZE="16M"
+            S3_UPLOAD_CONCURRENCY=4
+            MULTI_THREAD_STREAMS=2
+          elif [ "$FILE_SIZE" -lt $((1024 * 1024 * 5000)) ]; then
+            S3_CHUNK_SIZE="64M"
+            S3_UPLOAD_CONCURRENCY=8
+            MULTI_THREAD_STREAMS=4
+          else
+            S3_CHUNK_SIZE="128M"
+            S3_UPLOAD_CONCURRENCY=16
+            MULTI_THREAD_STREAMS=8
+          fi
+    
+      
+          echo "Using S3 chunk size: $S3_CHUNK_SIZE"
+          echo "Using S3 upload concurrency: $S3_UPLOAD_CONCURRENCY"
+          echo "Using multi-thread streams: $MULTI_THREAD_STREAMS"
+
+      
+          # execute rclone copy
+          rclone copy ${{ github.workspace }}/image.tar pawsey0001:"${{ env.BUCKET }}/${{ env.DESTINATION_PATH }}/" \
+            --multi-thread-streams=$MULTI_THREAD_STREAMS \
+            --s3-chunk-size=$S3_CHUNK_SIZE \
+            --s3-upload-concurrency=$S3_UPLOAD_CONCURRENCY
 
       - name: Login to Docker Hub       
         uses: docker/login-action@v3
