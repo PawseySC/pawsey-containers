@@ -143,8 +143,16 @@ jobs:
           
            # check Dockerfile includes org.opencontainers.image.noscan=true
           if grep -q -E '^[^#]*LABEL\s+org\.opencontainers\.image\.noscan\s*=\s*true' "$file"; then
-            echo "Dockerfile contains org.opencontainers.image.noscan=true. Setting trivy to noscan."
-            echo "noscan=true" >> $GITHUB_OUTPUT
+            if grep -q -E '^[^#]*LABEL\s+org\.opencontainers\.image\.noscanreason\s*' "$file"; then 
+              echo "Dockerfile contains org.opencontainers.image.noscan=true. Setting trivy to noscan as a reason is provided."
+              echo "noscan=true" >> $GITHUB_OUTPUT
+              reason=$(grep -E '^[^#]*LABEL\s+org\.opencontainers\.image\.noscanreason\s*' "$file")
+              echo "noscanreason=${reason}" >> $GITHUB_OUTPUT
+            else
+              echo "Dockerfile does not contain reason for no scan, please set org.opencontainers.image.noscanreason."
+              echo "Setting proceed_valid to false."
+              echo "proceed_valid=false" >> $GITHUB_OUTPUT
+            fi
           else
             echo "Dockerfile does not contain org.opencontainers.image.noscan=true. Setting trivy to default."
             echo "noscan=false" >> $GITHUB_OUTPUT

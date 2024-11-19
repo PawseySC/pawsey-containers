@@ -190,8 +190,8 @@ This job builds the Docker image using Docker Buildx and saves it for later use.
    - Image is tagged using the format: `{dockerfile_name}-{platform_tag}:{date}`.
    - Specifies the target platform (`linux/arm64` or `linux/amd64`).
    - Uses caching mechanisms:
-     - `cache-from: type=gha` to pull cache from GitHub Actions cache.
-     - `cache-to: type=gha,mode=max` to save build cache layers.
+     - `cache-from: type=local,src=${{env.CACHELOC}}` to pull cache from local storage cache.
+     - `cache-to: type=local,dest=${{env.CACHELOC}},mode=max` to save build cache layers to the local storage.
 
 5. **Save Docker Image**:
    - Saves the built Docker image to `image.tar`.
