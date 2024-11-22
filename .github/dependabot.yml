@@ -1,9 +1,7 @@
 # .github/dependabot.yml
 version: 2
 updates:
-
-  # Define an anchor for common settings
-  - &common_settings
+  - package-ecosystem: "bundler"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -13,50 +11,145 @@ updates:
         directories:
           - "**/deprecated"
 
-  - package-ecosystem: "bundler"
-    <<: *common_settings
-
   - package-ecosystem: "cargo"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "composer"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "devcontainers"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "docker"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "dotnet-sdk"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "mix"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "elm"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "gitsubmodule"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "github-actions"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "gomod"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "gradle"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "maven"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "npm"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "nuget"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "pip"
     directory: "/"
@@ -73,10 +166,32 @@ updates:
           - "**/requirements-19Mar2021.txt"
 
   - package-ecosystem: "pub"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "swift"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
 
   - package-ecosystem: "terraform"
-    <<: *common_settings
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
