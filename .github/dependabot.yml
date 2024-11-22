@@ -1,7 +1,147 @@
 # .github/dependabot.yml
 version: 2
 updates:
+  - package-ecosystem: "bundler"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "devcontainers"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "dotnet-sdk"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "mix"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "elm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
   - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["all"]
+        directories:
+          - "**/deprecated"
+
+  - package-ecosystem: "nuget"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -25,7 +165,7 @@ updates:
           - "**/requirements-27Aug2020.txt"
           - "**/requirements-19Mar2021.txt"
 
-  - package-ecosystem: "rubygems"
+  - package-ecosystem: "pub"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -35,7 +175,7 @@ updates:
         directories:
           - "**/deprecated"
 
-  - package-ecosystem: "docker"
+  - package-ecosystem: "swift"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -45,37 +185,7 @@ updates:
         directories:
           - "**/deprecated"
 
-  - package-ecosystem: "maven"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["all"]
-        directories:
-          - "**/deprecated"
-
-  - package-ecosystem: "gradle"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["all"]
-        directories:
-          - "**/deprecated"
-
-  - package-ecosystem: "nuget"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["all"]
-        directories:
-          - "**/deprecated"
-
-  - package-ecosystem: "yarn"
+  - package-ecosystem: "terraform"
     directory: "/"
     schedule:
       interval: "weekly"
