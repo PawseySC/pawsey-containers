@@ -255,7 +255,7 @@ ENV CXI_FORK_SAFE=1
 ENV CXI_FORK_SAFE_HP=1
 ENV HSA_FORCE_FINE_GRAIN_PCIE=1
 ENV FI_CXI_DISABLE_CQ_HUGETLB=1
-
+ENV ROCM_PATH=/opt/rocm
 # Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
 #              Standard naming of "environment" scripts is 9X-environment.sh
 RUN mkdir -p /.singularity.d/env/
