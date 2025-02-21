@@ -261,6 +261,7 @@ ENV ROCM_PATH=/opt/rocm
 RUN mkdir -p /.singularity.d/env/
 RUN echo "export NCCL_SOCKET_IFNAME=hsn"  >> /.singularity.d/env/91-environment.sh \
     && echo "export CXI_FORK_SAFE=1"  >> /.singularity.d/env/91-environment.sh \
+    && echo "export ROCM_PATH=/opt/rocm"  >> /.singularity.d/env/91-environment.sh \
     && echo "export CXI_FORK_SAFE_HP=1" >> /.singularity.d/env/91-environment.sh \
     && echo "export HSA_FORCE_FINE_GRAIN_PCIE=1" >> /.singularity.d/env/91-environment.sh \
     && echo "export FI_CXI_DISABLE_CQ_HUGETLB=1" >> /.singularity.d/env/91-environment.sh

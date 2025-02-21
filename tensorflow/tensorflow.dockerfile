@@ -17,3 +17,4 @@ ENV HCC_AMDGPU_TARGET=gfx90a
 RUN python3 -m pip install --force-reinstall "numpy<=1.24.0"
 RUN python3 -m pip install --prefix=/usr --force-reinstall --upgrade --no-cache-dir "horovod==0.28.1"
 RUN echo 'export TF_CPP_MIN_LOG_LEVEL=3' >> /.singularity.d/env/91-environment.sh
+RUN echo 'export ROCM_PATH=/opt/rocm' >> /.singularity.d/env/91-environment.sh

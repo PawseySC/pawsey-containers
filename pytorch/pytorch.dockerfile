@@ -71,3 +71,4 @@ RUN     cd /tmp/build \
 
 
 RUN	[ -e /tmp/build ] && rm -rf /tmp/build
+RUN echo 'export ROCM_PATH=/opt/rocm' >> /.singularity.d/env/91-environment.sh
