@@ -10,7 +10,7 @@ ENV PYTORCH_ROCM_ARCH=gfx90a
 ENV LD_LIBRARY_PATH=/opt/rocm/llvm/lib:$LD_LIBRARY_PATH
 ENV ROCM_PATH=/opt/rocm
 
-RUN	apt -y install libopenblas-dev "libpng*" "libjpeg-turbo*" libjpeg-dev libpng-dev \
+RUN	apt -y install libopenblas-dev "libpng*" "libjpeg-turbo*" libjpeg-dev python3-venv libpng-dev \
         && (! [ -e /tmp/build ] || rm -rf /tmp/build) \
         && mkdir /tmp/build && cd /tmp/build \
         # install eigen
@@ -22,6 +22,7 @@ RUN	apt -y install libopenblas-dev "libpng*" "libjpeg-turbo*" libjpeg-dev libpng
         && cmake .. \
         && make -j 16 \
         && make install
+
 
 RUN     cd /tmp/build \
         && git clone --branch v2.6.0 --recursive https://github.com/pytorch/pytorch \
@@ -38,6 +39,7 @@ RUN     cd /tmp/build \
         && python3 tools/amd_build/build_amd.py\
         && python3 setup.py install
 
+RUN pip3 install jupyterlab
 
 RUN     pip3 install mpmath urllib3 typing-extensions sympy pillow numpy networkx MarkupSafe idna fsspec filelock charset-normalizer certifi requests pytorch-triton-rocm jinja2 --index-url https://download.pytorch.org/whl/rocm6.2.4 --no-dependencies
 

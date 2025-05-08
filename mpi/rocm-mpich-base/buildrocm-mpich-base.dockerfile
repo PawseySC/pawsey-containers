@@ -61,6 +61,7 @@ RUN echo "Install apt packages" \
         python3-numpy \
         python3-pip \
         python3-scipy \
+        python3-venv \
         subversion \
         tzdata \
         valgrind \
@@ -80,18 +81,17 @@ RUN echo "Install apt packages" \
         libmount-dev pkg-config \
         && echo "Done"
 
+ENV PATH=/usr/cmake-3.31.7-linux-x86_64/bin:$PATH
+
 # now to ensure we get very new cmake to make sure it will work with rocm
+# but cant get latest as 4.x breaks stuff
 RUN echo "Adding cmake " \
     && apt -y remove --purge --auto-remove cmake \
-    && wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null \
-        | gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null \
-    && apt-add-repository -y "deb https://apt.kitware.com/ubuntu/ jammy main" \
-    && apt -y update \
-    && apt -y --no-install-recommends install cmake \
-    && apt-get clean all \
-    && rm -r /var/lib/apt/lists/* \
+    && wget https://github.com/Kitware/CMake/releases/download/v3.31.7/cmake-3.31.7-linux-x86_64.sh \
+    && chmod a+x cmake-3.31.7-linux-x86_64.sh && yes | ./cmake-3.31.7-linux-x86_64.sh --prefix=/usr \
     && cmake --version \
     && echo "Finished apt-get installs"
+
 
 # generate a kernel config for building luster
 RUN echo "Generate kernel config file" \
@@ -167,7 +167,9 @@ RUN echo "Building MPICH ... " \
 # add mpi4py in the container 
 #RUN pip install --break-system-packages mpi4py==${MPI4PY_VERSION}
 RUN pip install mpi4py==${MPI4PY_VERSION}
-
+RUN apt -y update
+RUN apt -y upgrade
+RUN apt -y install rsync
 # Install ROCm (note that version to installer version incomplete)
 ARG ROCM_VERSION=6.0.2
 RUN echo "Building rocm ${ROCM_VERSION}" \
