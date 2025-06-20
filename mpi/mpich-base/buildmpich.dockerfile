@@ -97,6 +97,19 @@ RUN mkdir -p /tmp/osu-benchmark-build \
       && rm -rf /tmp/osu-benchmark-build
 ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:$PATH"
 
+# Add a more complex set of tests for MPI as well
+RUN mkdir -p /opt/ \
+      && cd /opt/ \
+      && git clone https://github.com/pelahi/profile_util \
+      && cd profile_util  \
+      && sed -i "s:CXX=CC:CXX=g++:g" ./build_cpu.sh \
+      && sed -i "s:MPICXX=CC:MPICXX=mpic++:g" ./build_cpu.sh \
+      && ./build_cpu.sh \
+      && cd examples/mpi/ \
+      && make MPICXX=mpic++ \
+      && cd ../../examples/openmp \
+      && make CXX=g++ bin/openmpvec_cpp
+
 
 # add mpi4py in the container 
 # CMEYER: --breaks-system-packages needed with python/3.12 + ubuntu24.04
