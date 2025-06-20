@@ -5,9 +5,10 @@
 # Defining the base container to build from
 # IMPORTANT: 
 # Setonix needs at least ubuntu20.04 (From August 2023)
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+#FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+FROM quay.io/cmeyer/mpich-base:3.4.3_ubuntu24.04
 
-LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
+#LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
 ARG OFVERSION="v2012"
 #Using bash from now on
@@ -43,8 +44,9 @@ RUN echo "root:${OFVERSION}" | chpasswd
 #Recent native developers' containers are not using this "ofuser" anymore, although it is still useful to have it
 #for pawsey purposes where /group needs to be used as the place for the *USER* variables. Then, /group directory
 #will be mounted into the ofuser dir whenever own compiled tools are used
-RUN groupadd -g 999 ofuser \
- && useradd -r -m -u 999 -g ofuser ofuser
+#CMEYER: Change 999 -> 9999 since 999 is already in use
+RUN groupadd -g 9999 ofuser \
+ && useradd -r -m -u 9999 -g ofuser ofuser
 RUN echo "ofuser:${OFVERSION}" | chpasswd
 
 
@@ -104,9 +106,11 @@ RUN apt-get update -qq\
    gnuplot libreadline-dev libncurses-dev libxt-dev \
 #AEG:NoQt4:   qt4-dev-tools libqt4-dev libqt4-opengl-dev libqtwebkit-dev\ 
 #AEG:Not installing qt4 (as in the official instructions), but qt5 as in the 3rd party requirements list
-   qtbase5-dev qttools5-dev qttools5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
+#CMEYER: Expanded set of qt5 libraries for ubuntu/24.04
+   qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake qtbase5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
 #AEG:And these other suggested in the wiki:
-   qt5-default libqt5help5 qtdeclarative5-dev \
+   #qt5-default
+   libqt5help5 qtdeclarative5-dev \
 #--continue
    freeglut3-dev  \
 #AEG:No scotch because it installs openmpi which later messes up with MPICH
@@ -117,12 +121,33 @@ RUN apt-get update -qq\
 #AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
    libgmp-dev libmpfr-dev\
 #AEG: Some more suggestions from the wiki instructions:
-   python python-dev \
+#CMEYER: python2 unavailable by default in ubuntu24.04
+   #python python-dev \
    libglu1-mesa-dev \
 #AEG:I found the following was needed to install  FlexLexer.h
    libfl-dev \
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
+
+#CMEYER: Install python3.6 from source, which is compatible with paraview/5.6.3
+#CMEYER:  python/3.12 default for ubuntu24.04 not working for paraview/5.6.3
+RUN mkdir -p /python_build \
+ && cd /python_build \
+ && wget https://www.python.org/ftp/python/3.6.8/Python-3.6.8.tgz \
+ && tar -xvf Python-3.6.8.tgz \
+ && cd Python-3.6.8 \
+ && ./configure \
+   --prefix=/usr \
+   --exec-prefix=/usr \
+   --bindir=/usr/bin \
+   --libdir=/usr/lib \
+   --includedir=/usr/include \
+   --enable-optimizations \
+   --enable-shared \
+ && make -j 4 \
+ && sudo make altinstall \
+ && cd $OFINSTIDR \
+ && rm -rf /python_build
 
 #...........
 #Step 2. Download
@@ -218,6 +243,7 @@ RUN cd ${OFINSTDIR}/ThirdParty-${OFVERSION} \
 #Install paraview for catalyst module to properly compile (wont work with just VTK)
 #Install paraview for graphical postprocessing to be available in the container 
 
+
 ##Paraview compilation (Adapted alternative instructions from OpenFoamWiki)
 RUN . ${OFBASHRC} \
 #AEG: recomendation in the ThirdParty-xx/README.md:
@@ -228,7 +254,13 @@ RUN . ${OFBASHRC} \
  && cp makeParaView makeParaView.original \
  && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' makeParaView \
  && sed -i 's,^#!/bin/sh,###!/bin/sh,' makeParaView \
- && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
+ #CMEYER: Unable to get paraview building in ubuntu24.04 with default compiler and python
+ #CMEYER: Using gcc9 and python/3.6 instead of gcc13 and python/3.12
+ && ./makeParaView \
+   CMAKE_C_COMPILER=/usr/bin/gcc-9 CMAKE_CXX_COMPILER=/usr/bin/g++-9 \
+   PYTHON_EXECUTABLE=/usr/bin/python3.6m PYTHON_INCLUDE_DIR=/usr/include/python3.6m \
+   PYTHON_LIBRARY=/usr/lib/libpython3.6m.so PYTHON_LIBRARY_DIR=/usr/lib/python3.6/config-3.6m-x86_64-linux-gnu \
+   -python3 -mpi -python-lib /usr/lib/libpython3.6m.so 2>&1 | tee log.makePV
 
 #AEG##...........
 #AEG##Step 5.
@@ -242,8 +274,24 @@ RUN . ${OFBASHRC} \
 #AEG##--Dummy line:
 #AEG# && echo ''
 
+#CMEYER: Patch files for fix to sha1 overload problem
+#CMEYER: see https://develop.openfoam.com/Development/openfoam/-/issues/2496
+#CMEYER: see https://develop.openfoam.com/Development/openfoam/-/commit/eb3f7dfe7443fe852b256072f337ac24effff0ac
+RUN . ${OFBASHRC} \
+ && cd ${WM_PROJECT_DIR}
+WORKDIR /opt/OpenFOAM/OpenFOAM-v2012
+COPY sha1-fix.patch /tmp/sha1-fix.patch
+RUN patch -p1 < /tmp/sha1-fix.patch
+
 #Third party compilation
 RUN . ${OFBASHRC} \
+#CMEYER: Update files to account for gcc/13 compiler behaviour changes in ubuntu 24.04
+#CMEYER: cstdint and array needed in some files
+ && sed -i '0,/^#include/{/^#include/i #include <cstdint>}' ${WM_PROJECT_DIR}/src/meshTools/searchableSurfaces/searchableSphere/searchableSphere.C \
+ && sed -i '0,/^#include/{/^#include/i #include <array>}' ${WM_PROJECT_DIR}/src/meshTools/searchableSurfaces/searchableSphere/searchableSphere.C \
+ && sed -i '0,/^#include/{/^#include/i #include <cstdint>}' ${WM_PROJECT_DIR}/modules/avalanche/src/avalanche/gistools/shapefile.H \
+ && sed -i '0,/^#include/{/^#include/i #include <cstdint>}' ${WM_PROJECT_DIR}/src/OpenFOAM/primitives/strings/word/word.C \
+ && sed -i '0,/^#include/{/^#include/i #include <cstdint>}' ${WM_PROJECT_DIR}/src/OSspecific/POSIX/printStack/printStack.C \
 #AEG: recomendation in the ThirdParty-xx/README.md:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
  && cd $WM_THIRD_PARTY_DIR \

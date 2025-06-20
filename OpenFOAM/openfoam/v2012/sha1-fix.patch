@@ -1,0 +1,110 @@
+From eb3f7dfe7443fe852b256072f337ac24effff0ac Mon Sep 17 00:00:00 2001
+From: Mark Olesen <Mark.Olesen@esi-group.com>
+Date: Fri, 3 Jun 2022 08:52:58 +0200
+Subject: [PATCH] COMP: gcc-12 buffer check bypasses xsputn (#2481, #2496)
+
+- add overflow() method to the SHA1 streambuf. Previously could rely
+  on xsputn for adding to sha1 content, but streams now check pptr()
+  first to test for the buffering range and thus overflow() is needed.
+---
+ src/OpenFOAM/db/IOstreams/hashes/OSHA1stream.H | 13 ++++++++++---
+ src/OpenFOAM/primitives/hashes/SHA1/SHA1.H     |  9 ++++++---
+ src/OpenFOAM/primitives/hashes/SHA1/SHA1I.H    |  8 +++++++-
+ 3 files changed, 23 insertions(+), 7 deletions(-)
+
+diff --git a/src/OpenFOAM/db/IOstreams/hashes/OSHA1stream.H b/src/OpenFOAM/db/IOstreams/hashes/OSHA1stream.H
+index 3336941f46a..73e2ac5240e 100644
+--- a/src/OpenFOAM/db/IOstreams/hashes/OSHA1stream.H
++++ b/src/OpenFOAM/db/IOstreams/hashes/OSHA1stream.H
+@@ -32,8 +32,8 @@ Description
+
+ \*---------------------------------------------------------------------------*/
+
+-#ifndef OSHA1stream_H
+-#define OSHA1stream_H
++#ifndef Foam_OSHA1stream_H
++#define Foam_OSHA1stream_H
+
+ #include "OSstream.H"
+ #include "SHA1.H"
+@@ -63,10 +63,17 @@ class osha1stream
+
+     protected:
+
++        //- Handle overflow
++        virtual int overflow(int c = EOF)
++        {
++            if (c != EOF) sha1_.append(c);
++            return c;
++        }
++
+         //- Put sequence of characters
+         virtual std::streamsize xsputn(const char* s, std::streamsize n)
+         {
+-            sha1_.append(s, n);
++            if (n) sha1_.append(s, n);
+             return n;
+         }
+
+diff --git a/src/OpenFOAM/primitives/hashes/SHA1/SHA1.H b/src/OpenFOAM/primitives/hashes/SHA1/SHA1.H
+index 302fc517bec..16e576f7d17 100644
+--- a/src/OpenFOAM/primitives/hashes/SHA1/SHA1.H
++++ b/src/OpenFOAM/primitives/hashes/SHA1/SHA1.H
+@@ -6,7 +6,7 @@
+      \\/     M anipulation  |
+ -------------------------------------------------------------------------------
+     Copyright (C) 2011-2016 OpenFOAM Foundation
+-    Copyright (C) 2019 OpenCFD Ltd.
++    Copyright (C) 2019-2022 OpenCFD Ltd.
+ -------------------------------------------------------------------------------
+ License
+     This file is part of OpenFOAM.
+@@ -42,8 +42,8 @@ SourceFiles
+
+ \*---------------------------------------------------------------------------*/
+
+-#ifndef SHA1_H
+-#define SHA1_H
++#ifndef Foam_SHA1_H
++#define Foam_SHA1_H
+
+ #include <string>
+ #include <cstdint>
+@@ -113,6 +113,9 @@ public:
+         //- Reset the hashed data before appending more
+         void clear();
+
++        //- Append single character
++        inline void append(char c);
++
+         //- Append data for processing
+         inline SHA1& append(const char* str);
+
+diff --git a/src/OpenFOAM/primitives/hashes/SHA1/SHA1I.H b/src/OpenFOAM/primitives/hashes/SHA1/SHA1I.H
+index 5f932a55772..7009c2f4718 100644
+--- a/src/OpenFOAM/primitives/hashes/SHA1/SHA1I.H
++++ b/src/OpenFOAM/primitives/hashes/SHA1/SHA1I.H
+@@ -6,7 +6,7 @@
+      \\/     M anipulation  |
+ -------------------------------------------------------------------------------
+     Copyright (C) 2011 OpenFOAM Foundation
+-    Copyright (C) 2019 OpenCFD Ltd.
++    Copyright (C) 2019-2022 OpenCFD Ltd.
+ -------------------------------------------------------------------------------
+ License
+     This file is part of OpenFOAM.
+@@ -53,6 +53,12 @@ inline Foam::SHA1::SHA1(const std::string& str)
+
+ // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
+
++inline void Foam::SHA1::append(char c)
++{
++    processBytes(&c, 1);
++}
++
++
+ inline Foam::SHA1& Foam::SHA1::append(const char* data, size_t len)
+ {
+     processBytes(data, len);
+--
+GitLab
