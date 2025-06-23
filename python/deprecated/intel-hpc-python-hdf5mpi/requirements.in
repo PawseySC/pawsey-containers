@@ -1,0 +1,11 @@
+astropy
+cython
+dask
+ipython
+matplotlib
+nose
+numba
+pandas
+plotly
+pytest
+scikit-learn

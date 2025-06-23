@@ -103,6 +103,7 @@ config:\n\
     && ./bin/spack spec nano \
     # generate symbolic link to spack 
     && ln -s /root/spack/spack/bin/spack /usr/bin/spack \
+    && chmod +x /usr/bin/spack \
     && echo "Finished"
 
 # and copy the recipe into the docker recipes directory

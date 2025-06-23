@@ -1,0 +1,12 @@
+astropy
+cython
+dask
+ipython
+matplotlib
+netcdf4
+nose
+numba
+pandas
+plotly
+pytest
+scikit-learn
