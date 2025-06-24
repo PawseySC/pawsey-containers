@@ -3,16 +3,16 @@
 # builds mpich and also some useful mpi packages for testing
 # The labels present here will need to be updated
 
-ARG OS_VERSION="20.04"
+ARG OS_VERSION="24.04"
 FROM ubuntu:${OS_VERSION}
 # redefine after FROM to ensure it is defined
-ARG OS_VERSION="20.04"
+ARG OS_VERSION="24.04"
 # mpich version
 ARG MPICH_VERSION="3.4.3"
 
 #define some metadata 
-LABEL org.opencontainers.image.created="2023-02"
-LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>"
+LABEL org.opencontainers.image.created="2025-06"
+LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au"
 LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey-containers/"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/mpi/mpich-base/buildmpich.dockerfile"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
@@ -67,7 +67,7 @@ RUN apt-get update -qq \
     && echo "Finished apt-get installs"
 
 # Build MPICH
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FC=gfortran"
+ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FC=gfortran FFLAGS=-fallow-argument-mismatch FCFLAGS=-fallow-argument-mismatch"
 ARG MPICH_MAKE_OPTIONS="-j4"
 RUN mkdir -p /tmp/mpich-build \
       && cd /tmp/mpich-build \
@@ -97,7 +97,7 @@ RUN mkdir -p /tmp/osu-benchmark-build \
       && rm -rf /tmp/osu-benchmark-build
 ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:$PATH"
 
-# Add a more complex set of tests for MPI as well 
+# Add a more complex set of tests for MPI as well
 RUN mkdir -p /opt/ \
       && cd /opt/ \
       && git clone https://github.com/pelahi/profile_util \
@@ -110,8 +110,10 @@ RUN mkdir -p /opt/ \
       && cd ../../examples/openmp \
       && make CXX=g++ bin/openmpvec_cpp
 
+
 # add mpi4py in the container 
-RUN pip install mpi4py
+# CMEYER: --breaks-system-packages needed with python/3.12 + ubuntu24.04
+RUN pip install --break-system-packages mpi4py
 
 RUN mkdir -p /container-scratch/
 
