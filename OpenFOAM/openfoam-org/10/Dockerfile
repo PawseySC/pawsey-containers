@@ -4,8 +4,8 @@
 # 0. Initial main definition
 # Defining the base container to build from
 # IMPORTANT: 
-# Setonix needs at least ubuntu20.04 (From August 2023)
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+# Setonix needs at least ubuntu24.04 (From August 2025)
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu24.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -43,8 +43,8 @@ RUN echo "root:${OFVERSION}" | chpasswd
 #Recent native developers' containers are not using this "ofuser" anymore, although it is still useful to have it
 #for pawsey purposes where /group needs to be used as the place for the *USER* variables. Then, /group directory
 #will be mounted into the ofuser dir whenever own compiled tools are used
-RUN groupadd -g 999 ofuser \
- && useradd -r -m -u 999 -g ofuser ofuser
+RUN groupadd -g 10001 ofuser \
+ && useradd -r -m -u 10001 -g ofuser ofuser
 RUN echo "ofuser:${OFVERSION}" | chpasswd
 
 
@@ -88,8 +88,11 @@ RUN apt-get update -qq\
     build-essential cmake git ca-certificates \
     flex libfl-dev bison zlib1g-dev libboost-system-dev libboost-thread-dev \
 #AEG:No openMPI as MPICH is to be used:    libopenmpi-dev openmpi-bin \
-    gnuplot libreadline-dev libncurses-dev libxt-dev \
-    libqt5x11extras5-dev libxt-dev qt5-default qttools5-dev curl \
+    gnuplot libreadline-dev libncurses-dev \
+#AEG: CMEYER suggestion:replace qt5-default by the expanded set of qt5 libraries for ubuntu24.04
+    #qt5-default \
+    qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake qtbase5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
+    curl \
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
