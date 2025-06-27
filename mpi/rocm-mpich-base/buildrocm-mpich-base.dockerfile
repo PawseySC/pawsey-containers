@@ -10,7 +10,8 @@ ARG MPICH_VERSION="3.4.3"
 # lustre version
 ARG LUSTRE_VERSION="2.15.0-RC4"
 # mpi4py version
-ARG MPI4PY_VERSION="3.1.4"
+# CMEYER: 3.1.4 fails to install in ubuntu24.04, minimal upgrade to 3.1.5 does sinstall
+ARG MPI4PY_VERSION="3.1.5"
 
 
 #define some metadata 
@@ -171,8 +172,7 @@ RUN echo "Building MPICH ... " \
     && echo "Finished building MPICH" 
 
 # add mpi4py in the container
-# CMEYER: Version 3.4.1 not installing smoothly in ubuntu24.04, default version 4.1.0 installs
-RUN pip install --break-system-packages mpi4py
+RUN pip install --break-system-packages mpi4py==${MPI4PY_VERSION}
 RUN apt -y update
 RUN apt -y upgrade
 RUN apt -y install rsync
