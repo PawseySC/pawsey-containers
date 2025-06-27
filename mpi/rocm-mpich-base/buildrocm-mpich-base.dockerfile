@@ -260,34 +260,22 @@ ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libe
 
 # For the moment, not adding the more complex mpi tests as this can be added later
 # Add a more complex set of tests for MPI as well 
-RUN echo "Adding some extra mpi tests " \
-    && mkdir -p /opt/ \
-    && cd /opt/ \
-    && git clone https://github.com/pelahi/profile_util \
-    && cd profile_util  \
-    # CMEYER: Edits needed for ./build_cpu.sh and ./build_hip.sh configured for cray/ella systems
-    && sed -i "s:CXX=CC:CXX=g++:g" ./build_cpu.sh \
-    && sed -i "s:MPICXX=CC:MPICXX=mpic++:g" ./build_cpu.sh \
-    && sed -i "s:MPICXX=CC:MPICXX=mpic++:g" ./build_hip.sh \
-    && sed -i -E 's|^CXX="hipcc --amdgpu-target=gfx90a.*"|CXX="hipcc --amdgpu-target=gfx90a -stdlib++-isystem /usr/include/c++/11 -stdlib++-isystem /usr/include/x86_64-linux-gnu/c++/11"|' ./build_hip.sh \
-    && sed -i -E 's|^MPICXX="hipcc --amdgpu-target=gfx90a.*"|MPICXX="hipcc --amdgpu-target=gfx90a -stdlib++-isystem /usr/include/c++/11 -stdlib++-isystem /usr/include/x86_64-linux-gnu/c++/11"|' ./build_hip.sh \
-    && sed -i -E 's|^(GPUFLAGS="[^"]*)|\1 -I/opt/rocm/include|' ./build_hip.sh \
-    && ./build_cpu.sh \
-    && ./build_hip.sh \
-    && cd examples/mpi/ \
-    && make MPICXX=mpic++ \
-    && cd ../../examples/openmp \
-    && make CXX=g++ bin/openmpvec_cpp \
-    && cd ../../examples/gpu-openmp \
-    # CMEYER: Add rocm/path for building gpu-openmp tests
-    && sed -i -E 's|^(GPUFLAGS=.*)|\1 -I/opt/rocm/include|' Makefile \
-    && cd ../../examples/gpu-mpi/ \
-    # CMEYER: Edits for gpu-mpi tests
-    && sed -i -E 's|^(GPUFLAGS=.*)|\1 -I/opt/rocm/include|' Makefile \
-    && sed -i -E 's|\$\(cXXFLAGS\)|$(CXXFLAGS)|g' Makefile \
-    && sed -i 's|-fopenmp-targets=amdgcn-amd-amdhsa||g' Makefile \
-    && make CXX=hipcc GPU=hip MPICXX=hipcc ARCH=gfx90a CRAY=false CXXFLAGS="-I/usr/local/include -L/usr/local/lib" \
-    && echo "Done"
+# RUN echo "Adding some extra mpi tests " \
+#     && mkdir -p /opt/ \
+#     && cd /opt/ \
+#     && git clone https://github.com/pelahi/profile_util \
+#     && cd profile_util  \
+#     && sed -i "s:CXX=CC:CXX=g++:g" ./build_cpu.sh \
+#     && sed -i "s:MPICXX=CC:MPICXX=mpic++:g" ./build_cpu.sh \
+#     && sed -i "s:MPICXX=CC:MPICXX=mpic++:g" ./build_hip.sh \
+#     && ./build_hip.sh \
+#     && cd examples/mpi/ \
+#     && make MPICXX=mpic++ \
+#     && cd ../../examples/openmp \
+#     && make CXX=g++ bin/openmpvec_cpp \
+#     && cd ../../examples/gpu-mpi/ \
+#     && make \
+#     && echo "Done"
 
 # Set some environment variables related to gpu communication and libfabric
 ENV NCCL_SOCKET_IFNAME=hsn
