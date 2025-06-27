@@ -208,12 +208,9 @@ RUN echo "Building rocm ${ROCM_VERSION}" \
     && echo ${roc_url} \
     && wget ${roc_url} \
     && apt -y install ./amdgpu-install_${ROCM_INSTALLER_VERSION}_all.deb \
-    # CMEYER: older rocm versions not installing when --no-dkms not used - may be incompatibility with older rocm + newer OS
-    && if [ "$rocm_major" -lt 6 ] || { [ "$rocm_major" -eq 6 ] && [ "$rocm_minor" -lt 2 ]; }; then \
-        amdgpu-install -y --usecase=hiplibsdk,rocm,hip,opencl --no-dkms; \
-       else \
-        amdgpu-install -y --usecase=hiplibsdk,rocm,hip,opencl; \
-       fi \
+    # CMEYER: Adding --no-dkms - older rocm versions fail without it and seems to be recommended by amd
+    # CMEYER: See https://rocmdocs.amd.com/projects/install-on-linux/en/latest/install/install-methods/amdgpu-installer/amdgpu-installer-ubuntu.html and https://github.com/amd/InfinityHub-CI/blob/55ffdd622595cf678fb55fce7681792390173f3d/base-mpich-rocm-docker/Dockerfile#L47
+    && amdgpu-install -y --usecase=hiplibsdk,rocm,hip,opencl --no-dkms \
     && cd /tmp/build && rm -rf amdgpu-install_${ROCM_INSTALLER_VERSION}_all.deb \
     && echo "Done"
 
