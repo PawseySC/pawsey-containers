@@ -1,7 +1,7 @@
-ARG OS_VERSION="22.04"
+ARG OS_VERSION="24.04"
 FROM ubuntu:${OS_VERSION}
 # redefine after FROM to ensure it is defined
-ARG OS_VERSION="22.04"
+ARG OS_VERSION="24.04"
 
 #libfabric version 
 ARG LIBFABRIC_VERSION=1.18.1
@@ -10,12 +10,13 @@ ARG MPICH_VERSION="3.4.3"
 # lustre version
 ARG LUSTRE_VERSION="2.15.0-RC4"
 # mpi4py version
-ARG MPI4PY_VERSION="3.1.4"
+# CMEYER: 3.1.4 fails to install in ubuntu24.04, minimal upgrade to 3.1.5 does sinstall
+ARG MPI4PY_VERSION="3.1.5"
 
 
 #define some metadata 
-LABEL org.opencontainers.image.created="2024-02"
-LABEL org.opencontainers.image.authors="Cristian Di Pietratonio <cristian.dipietrantonio@pawsey.org.au>, Pascal Elahi <pascal.elahi@pawsey.org.au>"
+LABEL org.opencontainers.image.created="2025-06"
+LABEL org.opencontainers.image.authors="Cristian Di Pietratonio <cristian.dipietrantonio@pawsey.org.au>, Pascal Elahi <pascal.elahi@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>"
 LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey-containers/"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/mpi/mpich-base/buildmpich.dockerfile"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
@@ -25,8 +26,8 @@ LABEL org.opencontainers.image.description="Common base image providing mpi + ro
 LABEL org.opencontainers.image.base.name="pawsey/mpibase:ubuntu${OS_VERSION}-mpich-${MPICH_VERSION}.setonix"
 
 # Install required packages and dependencies
-ARG LINUX_KERNEL=5.15.0-91
-# for newer ubuntu might want to use newer kernels like 6.2.0-39
+#CMEYER: Newer kernel for ubuntu24.04 instead of 5.15.0-91
+ARG LINUX_KERNEL=6.8.0-31
 ENV DEBIAN_FRONTEND="noninteractive"
 RUN echo "Install apt packages" \
     && apt-get update -qq \
@@ -94,8 +95,14 @@ RUN echo "Adding cmake " \
 
 
 # generate a kernel config for building luster
+# CMEYER: ./debian/scripts/misc/annotations not present in ubuntu24.04 by default, this is workaround
 RUN echo "Generate kernel config file" \
-    && cd /usr/src/linux-source-$(echo ${LINUX_KERNEL} | awk -F"-" '{print $1}')/ \ 
+    && echo "deb-src http://archive.ubuntu.com/ubuntu noble main restricted" >> /etc/apt/sources.list \
+    && apt-get update -qq \
+    && apt-get install -y --no-install-recommends build-essential fakeroot devscripts dpkg-dev \
+    && apt-get source linux \
+    && cd linux-6.8.0 \
+    && chmod +x ./debian/scripts/misc/annotations \
     && ./debian/scripts/misc/annotations \
         --arch amd64 --flavour generic --export > .config \
     && echo "Finished"
@@ -164,14 +171,23 @@ RUN echo "Building MPICH ... " \
     && rm -rf /tmp/mpich-build \
     && echo "Finished building MPICH" 
 
-# add mpi4py in the container 
-#RUN pip install --break-system-packages mpi4py==${MPI4PY_VERSION}
-RUN pip install mpi4py==${MPI4PY_VERSION}
+# add mpi4py in the container
+RUN pip install --break-system-packages mpi4py==${MPI4PY_VERSION}
 RUN apt -y update
 RUN apt -y upgrade
 RUN apt -y install rsync
 # Install ROCm (note that version to installer version incomplete)
 ARG ROCM_VERSION=6.0.2
+# CMEYER: Need to add jammpy repo to sources list in ubuntu24.04 to get libraries needed for rocm5
+RUN rocm_major=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $1}') \
+    && if [ "$rocm_major" -eq 5 ]; then \
+        { \
+            echo "deb http://archive.ubuntu.com/ubuntu jammy main universe" > /etc/apt/sources.list.d/jammy.list \
+            && apt-get update -qq \
+            && apt-get -y --no-install-recommends install \
+                libtinfo5 libncurses5 libpython3.10; \
+        }; \
+       fi
 RUN echo "Building rocm ${ROCM_VERSION}" \
     && rocm_major=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $1}') \
     && rocm_minor=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $2}') \
@@ -183,11 +199,18 @@ RUN echo "Building rocm ${ROCM_VERSION}" \
     && cd /tmp/build \
     # && wget https://bootstrap.pypa.io/get-pip.py \
     # && python3 get-pip.py \
-    && roc_url="https://repo.radeon.com/amdgpu-install/"${ROCM_VERSION}"/ubuntu/jammy/amdgpu-install_"${ROCM_INSTALLER_VERSION}"_all.deb" \
+    # CMEYER: Need jammy for < rocm6.2, noble for > rocm6.2
+    && if [ "$rocm_major" -lt 6 ] || { [ "$rocm_major" -eq 6 ] && [ "$rocm_minor" -lt 2 ]; }; then \
+        roc_url="https://repo.radeon.com/amdgpu-install/"${ROCM_VERSION}"/ubuntu/jammy/amdgpu-install_"${ROCM_INSTALLER_VERSION}"_all.deb"; \
+       else \
+        roc_url="https://repo.radeon.com/amdgpu-install/"${ROCM_VERSION}"/ubuntu/noble/amdgpu-install_"${ROCM_INSTALLER_VERSION}"_all.deb"; \
+       fi \
     && echo ${roc_url} \
     && wget ${roc_url} \
     && apt -y install ./amdgpu-install_${ROCM_INSTALLER_VERSION}_all.deb \
-    && amdgpu-install -y --usecase=hiplibsdk,rocm,hip,opencl \
+    # CMEYER: Adding --no-dkms - older rocm versions fail without it and seems to be recommended by amd
+    # CMEYER: See https://rocmdocs.amd.com/projects/install-on-linux/en/latest/install/install-methods/amdgpu-installer/amdgpu-installer-ubuntu.html and https://github.com/amd/InfinityHub-CI/blob/55ffdd622595cf678fb55fce7681792390173f3d/base-mpich-rocm-docker/Dockerfile#L47
+    && amdgpu-install -y --usecase=hiplibsdk,rocm,hip,opencl --no-dkms \
     && cd /tmp/build && rm -rf amdgpu-install_${ROCM_INSTALLER_VERSION}_all.deb \
     && echo "Done"
 
@@ -248,7 +271,7 @@ ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libe
 #     && cd ../../examples/openmp \
 #     && make CXX=g++ bin/openmpvec_cpp \
 #     && cd ../../examples/gpu-mpi/ \
-#     && make \ 
+#     && make \
 #     && echo "Done"
 
 # Set some environment variables related to gpu communication and libfabric
