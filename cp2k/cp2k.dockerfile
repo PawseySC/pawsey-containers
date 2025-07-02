@@ -1,3 +1,6 @@
+# NOTE: This container uses the AMD Infinityhub CP2K dockerfile as a starting point - see https://github.com/amd/InfinityHub-CI/blob/main/cp2k/docker/Dockerfile
+
+# Build with mpich and rocm/6.3.0
 FROM quay.io/pawsey/rocm-mpich-base:rocm6.3.0-mpich3.4.3-ubuntu24.04
 
 ARG CP2K_BRANCH="v2024.3"
@@ -9,6 +12,15 @@ ENV LD_LIBRARY_PATH=$ROCM_PATH/lib/hipblas:$ROCM_PATH/lib/hipfft:$ROCM_PATH/lib/
     C_INCLUDE_PATH=$ROCM_PATH/include/rocfft:$ROCM_PATH/include/hipblas:$ROCM_PATH/include/hipfft:$ROCM_PATH/include/rocblas:$C_INCLUDE_PATH \
     CPLUS_INCLUDE_PATH=$ROCM_PATH/include/rocfft:$ROCM_PATH/include/hipfft:$ROCM_PATH/include/hipblas:$ROCM_PATH/include/rocblas:$CPLUS_INCLUDE_PATH
 
+# Add rocm/cmake to the Environment
+ENV PATH=$ROCM_PATH/bin:/opt/cmake/bin:$PATH \
+    LD_LIBRARY_PATH=$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/llvm/lib \
+    LIBRARY_PATH=$ROCM_PATH/lib:$ROCM_PATH/lib64 \
+    C_INCLUDE_PATH=$ROCM_PATH/include \
+    CPLUS_INCLUDE_PATH=$ROCM_PATH/include \
+    CMAKE_PREFIX_PATH=$ROCM_PATH/lib/cmake
+
+# Set cp2k directory and GPU targets
 ENV CP2K_DIR=/opt/cp2k \
     AMDGPU_TARGETS=${AMDGPU_TARGETS}
 
@@ -24,14 +36,6 @@ RUN echo "Install apt packages" \
         && echo "Done"
 
 WORKDIR /opt/
-
-# Adding rocm/cmake to the Environment 
-ENV PATH=$ROCM_PATH/bin:/opt/cmake/bin:$PATH \
-    LD_LIBRARY_PATH=$ROCM_PATH/lib:$ROCM_PATH/lib64:$ROCM_PATH/llvm/lib \
-    LIBRARY_PATH=$ROCM_PATH/lib:$ROCM_PATH/lib64 \
-    C_INCLUDE_PATH=$ROCM_PATH/include \
-    CPLUS_INCLUDE_PATH=$ROCM_PATH/include \
-    CMAKE_PREFIX_PATH=$ROCM_PATH/lib/cmake
 
 # Get CP2K
 RUN git clone --recursive -b ${CP2K_BRANCH} https://github.com/cp2k/cp2k.git \
@@ -106,13 +110,7 @@ COPY /scripts /scripts
 RUN chmod -R 777 /scripts
 
 # Adding environment variable for Running as ROOT
-ENV PATH=$PATH:/opt/cp2k/bin:/scripts \
-    OMPI_MCA_pml=ucx \
-    OMPI_MCA_pml_ucx_tls=any \
-    OMPI_MCA_osc=ucx \
-    OMPI_MCA_btl=^vader,tcp,uct \
-    OMPI_MCA_pml_ucx_devices=any \
-    UCX_TLS=self,sm,tcp,rocm
+ENV PATH=$PATH:/opt/cp2k/bin:/scripts
 
 WORKDIR /opt/cp2k/benchmarks
 
