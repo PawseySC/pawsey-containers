@@ -214,6 +214,12 @@ RUN echo "Building rocm ${ROCM_VERSION}" \
     && cd /tmp/build && rm -rf amdgpu-install_${ROCM_INSTALLER_VERSION}_all.deb \
     && echo "Done"
 
+ARG GFX_ARCH=gfx90a
+# modify the rocm_agent_enumerator and andgpu-arch executables to detect the gfx90a architecture regardless of whether it is present on
+# the system or not. This is useful to build containers optimised for the gfx90a architecture on machines with no GPUs.
+RUN cd /opt/rocm/bin; mv rocm_agent_enumerator rocm_agent_enumerator_old; echo "echo ${GFX_ARCH}" >> rocm_agent_enumerator; chmod 0777 rocm_agent_enumerator;
+RUN cd /opt/rocm/lib/llvm/bin; mv amdgpu-arch amdgpu-arch.old;  echo "echo ${GFX_ARCH}" >> amdgpu-arch; chmod 0777 amdgpu-arch;
+
 # Install aws-ofi-rccl
 ARG RCCL_CONFIGURE_OPTIONS="--prefix=/usr --with-mpi=/usr --with-libfabric=/usr --with-hip=/opt/rocm --with-rccl=/opt/rocm CC=gcc-12 CXX=g++-12"
 RUN echo "Build aws-ofi-rccl" \
