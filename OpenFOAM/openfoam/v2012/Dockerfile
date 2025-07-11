@@ -4,9 +4,9 @@
 # 0. Initial main definition
 # Defining the base container to build from
 # IMPORTANT: 
-# Setonix needs at least ubuntu20.04 (From August 2023)
-#FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
-FROM quay.io/cmeyer/mpich-base:3.4.3_ubuntu24.04
+# Setonix needs at least ubuntu24.04 (From August 2025)
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu24.04
+
 
 #LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -129,26 +129,6 @@ RUN apt-get update -qq\
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
-#CMEYER: Install python3.6 from source, which is compatible with paraview/5.6.3
-#CMEYER:  python/3.12 default for ubuntu24.04 not working for paraview/5.6.3
-RUN mkdir -p /python_build \
- && cd /python_build \
- && wget https://www.python.org/ftp/python/3.6.8/Python-3.6.8.tgz \
- && tar -xvf Python-3.6.8.tgz \
- && cd Python-3.6.8 \
- && ./configure \
-   --prefix=/usr \
-   --exec-prefix=/usr \
-   --bindir=/usr/bin \
-   --libdir=/usr/lib \
-   --includedir=/usr/include \
-   --enable-optimizations \
-   --enable-shared \
- && make -j 4 \
- && sudo make altinstall \
- && cd $OFINSTIDR \
- && rm -rf /python_build
-
 #...........
 #Step 2. Download
 #Change to the installation dir, download OpenFOAM and untar
@@ -243,24 +223,21 @@ RUN cd ${OFINSTDIR}/ThirdParty-${OFVERSION} \
 #Install paraview for catalyst module to properly compile (wont work with just VTK)
 #Install paraview for graphical postprocessing to be available in the container 
 
-
+# CMEYER: Paraview is failing to build in ubuntu24.04 with default Python and Compiler. So Paraview (or paraFoam) will not work inside this container. 
+# If there is still interest to compile it, the recommendation is to try installing an old verion of Python and gcc and attempt compilation again or else
+# upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
+# due to how new it is
 ##Paraview compilation (Adapted alternative instructions from OpenFoamWiki)
-RUN . ${OFBASHRC} \
-#AEG: recomendation in the ThirdParty-xx/README.md:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
-#AEG: makeParaView failing due to bash-isms, changing explicitly to bash:
- && cp makeParaView makeParaView.original \
- && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' makeParaView \
- && sed -i 's,^#!/bin/sh,###!/bin/sh,' makeParaView \
- #CMEYER: Unable to get paraview building in ubuntu24.04 with default compiler and python
- #CMEYER: Using gcc9 and python/3.6 instead of gcc13 and python/3.12
- && ./makeParaView \
-   CMAKE_C_COMPILER=/usr/bin/gcc-9 CMAKE_CXX_COMPILER=/usr/bin/g++-9 \
-   PYTHON_EXECUTABLE=/usr/bin/python3.6m PYTHON_INCLUDE_DIR=/usr/include/python3.6m \
-   PYTHON_LIBRARY=/usr/lib/libpython3.6m.so PYTHON_LIBRARY_DIR=/usr/lib/python3.6/config-3.6m-x86_64-linux-gnu \
-   -python3 -mpi -python-lib /usr/lib/libpython3.6m.so 2>&1 | tee log.makePV
+# RUN . ${OFBASHRC} \
+# #AEG: recomendation in the ThirdParty-xx/README.md:
+#  && $WM_PROJECT_DIR/wmake/src/Allmake \
+#  && cd $WM_THIRD_PARTY_DIR \
+#  && export QT_SELECT=qt5 \
+# #AEG: makeParaView failing due to bash-isms, changing explicitly to bash:
+#  && cp makeParaView makeParaView.original \
+#  && sed -i '\,^#!/bin/sh.*,i#!/bin/bash' makeParaView \
+#  && sed -i 's,^#!/bin/sh,###!/bin/sh,' makeParaView \
+#  && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
 
 #AEG##...........
 #AEG##Step 5.
@@ -287,11 +264,11 @@ RUN patch -p1 < /tmp/sha1-fix.patch
 RUN . ${OFBASHRC} \
 #CMEYER: Update files to account for gcc/13 compiler behaviour changes in ubuntu 24.04
 #CMEYER: cstdint and array needed in some files
- && sed -i '0,/^#include/{/^#include/i #include <cstdint>}' ${WM_PROJECT_DIR}/src/meshTools/searchableSurfaces/searchableSphere/searchableSphere.C \
- && sed -i '0,/^#include/{/^#include/i #include <array>}' ${WM_PROJECT_DIR}/src/meshTools/searchableSurfaces/searchableSphere/searchableSphere.C \
- && sed -i '0,/^#include/{/^#include/i #include <cstdint>}' ${WM_PROJECT_DIR}/modules/avalanche/src/avalanche/gistools/shapefile.H \
- && sed -i '0,/^#include/{/^#include/i #include <cstdint>}' ${WM_PROJECT_DIR}/src/OpenFOAM/primitives/strings/word/word.C \
- && sed -i '0,/^#include/{/^#include/i #include <cstdint>}' ${WM_PROJECT_DIR}/src/OSspecific/POSIX/printStack/printStack.C \
+ && sed -i '0,/^#include/ s//\#include <cstdint>\n&/' ${WM_PROJECT_DIR}/src/meshTools/searchableSurfaces/searchableSphere/searchableSphere.C \
+ && sed -i '0,/^#include/ s//\#include <array>\n&/' ${WM_PROJECT_DIR}/src/meshTools/searchableSurfaces/searchableSphere/searchableSphere.C \
+ && sed -i '0,/^#include/ s//\#include <cstdint>\n&/' ${WM_PROJECT_DIR}/modules/avalanche/src/avalanche/gistools/shapefile.H \
+ && sed -i '0,/^#include/ s//\#include <cstdint>\n&/' ${WM_PROJECT_DIR}/src/OpenFOAM/primitives/strings/word/word.C \
+ && sed -i '0,/^#include/ s//\#include <cstdint>\n&/' ${WM_PROJECT_DIR}/src/OSspecific/POSIX/printStack/printStack.C \
 #AEG: recomendation in the ThirdParty-xx/README.md:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
  && cd $WM_THIRD_PARTY_DIR \
