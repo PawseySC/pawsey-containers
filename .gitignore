@@ -5,6 +5,7 @@ out_*
 nohup.out
 *.tgz
 log.*
+*.log
 
 # Virtualenv
 /.venv/
