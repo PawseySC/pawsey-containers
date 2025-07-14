@@ -191,22 +191,26 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 
 #AEG: foundation source files do not count with makeVTK script, so will not attempt to install VTK
 
+# CMEYER: Paraview is failing to build in ubuntu24.04 with default Python and Compiler. So Paraview (or paraFoam) will not work inside this container. 
+# If there is still interest to compile it, the recommendation is to try installing an old verion of Python and gcc and attempt compilation again or else
+# upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
+# due to how comparatively new it is
 #Downloading first ParaView with wget because automatic download with curl is failing
 #(Paraview download address copy/pasted from ThirdParty-<Version>/README.org)
-ARG PVverFull="5.6.3"
-ARG PVverMajor="5.6"
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
- && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
- && tar xvf ParaView-v${PVverFull}.tar.gz \
- && rm ParaView-v${PVverFull}.tar.gz \
- && mv ParaView-v${PVverFull} ParaView-${PVverFull}
+# ARG PVverFull="5.6.3"
+# ARG PVverMajor="5.6"
+# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#  && cd $WM_THIRD_PARTY_DIR \
+#  && export QT_SELECT=qt5 \
+#  && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
+#  && tar xvf ParaView-v${PVverFull}.tar.gz \
+#  && rm ParaView-v${PVverFull}.tar.gz \
+#  && mv ParaView-v${PVverFull} ParaView-${PVverFull}
 
-#Paraview compilation (according to instructions from the official site)
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
- && cd $WM_THIRD_PARTY_DIR \
- && ./makeParaView 2>&1 | tee log.makePVOfficial
+# #Paraview compilation (according to instructions from the official site)
+# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#  && cd $WM_THIRD_PARTY_DIR \
+#  && ./makeParaView 2>&1 | tee log.makePVOfficial
 
 #NotFor8:#Paraview compilation (Using instructions from the wiki)
 #NotFor8:RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
