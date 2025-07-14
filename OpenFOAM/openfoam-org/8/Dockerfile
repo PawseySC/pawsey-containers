@@ -4,8 +4,8 @@
 # 0. Initial main definition
 # Defining the base container to build from
 # IMPORTANT: 
-# Setonix needs at least ubuntu20.04 (From August 2023)
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+# Setonix needs at least ubuntu24.04 (From August 2025)
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu24.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -43,8 +43,8 @@ RUN echo "root:${OFVERSION}" | chpasswd
 #Recent native developers' containers are not using this "ofuser" anymore, although it is still useful to have it
 #for pawsey purposes where /group needs to be used as the place for the *USER* variables. Then, /group directory
 #will be mounted into the ofuser dir whenever own compiled tools are used
-RUN groupadd -g 999 ofuser \
- && useradd -r -m -u 999 -g ofuser ofuser
+RUN groupadd -g 10001 ofuser \
+ && useradd -r -m -u 10001 -g ofuser ofuser
 RUN echo "ofuser:${OFVERSION}" | chpasswd
 
 
@@ -86,7 +86,10 @@ RUN apt-get update -qq\
 #AEG:No OpenMPI because MPICH will be used (installed in the parent FROM image)
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
    gnuplot libreadline-dev libncurses-dev \
-   libqt5x11extras5-dev libxt-dev qt5-default qttools5-dev curl \
+#AEG: CMEYER suggestion:replace qt5-default by the expanded set of qt5 libraries for ubuntu24.04
+    #qt5-default \
+    qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake qtbase5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
+    curl \
 #NotIn8:   freeglut3-dev libqtwebkit-dev \
 #AEG:No scotch because it installs openmpi which later messes up with MPICH
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
@@ -96,9 +99,9 @@ RUN apt-get update -qq\
 #AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
 #NotIn8:   libgmp-dev libmpfr-dev\
 #AEG:Wiki additional qt suggestions:
-   qtbase5-dev \
+   #qtbase5-dev \
 #AEG: Some more suggestions from the wiki instructions:
-   python python-dev \
+   python3 python3-dev \
    libglu1-mesa-dev \
 #AEG:I found the following was needed to install  FlexLexer.hi (now included in the wiki instructions too):
    libfl-dev \
@@ -189,6 +192,15 @@ ARG BASHRC_OPTIONS=""
 #                            So, if needed, will first be tried to install with apt-get at the top of this recipe.
 #                            It seems that "foamyHexMesh" has been deprecated, so CGAL seems not to be needed.
 
+#CMEYER: Patch files for fix to sha1 overload problem
+#CMEYER: see https://develop.openfoam.com/Development/openfoam/-/issues/2496
+#CMEYER: see https://develop.openfoam.com/Development/openfoam/-/commit/eb3f7dfe7443fe852b256072f337ac24effff0ac
+RUN . ${OFBASHRC} \
+ && cd ${WM_PROJECT_DIR}
+WORKDIR /opt/OpenFOAM/OpenFOAM-8
+COPY sha1-fix.patch /tmp/sha1-fix.patch
+RUN patch -p1 < /tmp/sha1-fix.patch
+
 #Third party compilation
 RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
@@ -201,24 +213,31 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 #Install paraview for graphical postprocessing to be available in the container
 #Catalyst tools are not available for the foundation version
 
+# CMEYER: Paraview is failing to build in ubuntu24.04 with default Python and Compiler. So Paraview (or paraFoam) will not work inside this container. 
+# If there is still interest to compile it, the recommendation is to try installing an old verion of Python and gcc and attempt compilation again or else
+# upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
+# due to how comparaitvely new it is
 #AEG: foundation source files do not count with makeVTK script, so will not attempt to install VTK
-
 #Downloading first ParaView with wget because automatic download with curl is failing
 #(Paraview download address copy/pasted from ThirdParty-<Version>/README.org)
-ARG PVverFull="5.6.3"
-ARG PVverMajor="5.6"
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
- && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
- && tar xvf ParaView-v${PVverFull}.tar.gz \
- && rm ParaView-v${PVverFull}.tar.gz \
- && mv ParaView-v${PVverFull} ParaView-${PVverFull}
+# ARG PVverFull="5.6.3"
+# ARG PVverMajor="5.6"
+# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#  && cd $WM_THIRD_PARTY_DIR \
+#  && export QT_SELECT=qt5 \
+#  && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
+#  && tar xvf ParaView-v${PVverFull}.tar.gz \
+#  && rm ParaView-v${PVverFull}.tar.gz \
+#  && mv ParaView-v${PVverFull} ParaView-${PVverFull}
 
 #Paraview compilation (according to instructions from the official site)
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
- && cd $WM_THIRD_PARTY_DIR \
- && ./makeParaView 2>&1 | tee log.makePVOfficial
+# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#  && cd $WM_THIRD_PARTY_DIR \
+#  && ./makeParaView \
+#    CMAKE_C_COMPILER=/usr/bin/gcc-9 CMAKE_CXX_COMPILER=/usr/bin/g++-9 \
+#    PYTHON_EXECUTABLE=/usr/local/bin/python2.7 PYTHON_INCLUDE_DIR=/usr/local/include/python2.7 \
+#    PYTHON_LIBRARY=/usr/local/lib/libpython2.7.so PYTHON_LIBRARY_DIR=/usr/local/lib/python2.7/config \
+#    -python -mpi -python-include /usr/local/include/python2.7 -python-lib /usr/local/lib/libpython2.7.so 2>&1 | tee log.makePV
 
 #NotFor8:#Paraview compilation (Using instructions from the wiki)
 #NotFor8:RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
