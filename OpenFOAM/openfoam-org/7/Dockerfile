@@ -201,17 +201,17 @@ ARG BASHRC_OPTIONS="FOAMY_HEX_MESH=yes"
 # If there is still interest to compile it, the recommendation is to try installing an old verion of Python and gcc and attempt compilation again or else
 # upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
 # due to how comparatively new it is
-##Paraview compilation (Using instructions from the wiki)
-# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
-#  && cd $WM_THIRD_PARTY_DIR \
-#  && export QT_SELECT=qt5 \
-# #downloading ParaView with wget because the supposedly automatic download with curl is failing
-# #(Paraview download address pasted from ThirdParty-<Version>/README.org)
-#  && wget --no-check-certificate http://www.paraview.org/files/v5.6/ParaView-v5.6.0.tar.gz \
-#  && tar xvf ParaView-v5.6.0.tar.gz \
-#  && rm ParaView-v5.6.0.tar.gz \
-#  && mv ParaView-v5.6.0 ParaView-5.6.0 \
-#  && ./makeParaView -python -mpi -python-include /usr/local/include/python2.7 -python-lib /usr/local/lib/libpython2.7.so.1.0 2>&1 | tee log.makePV
+#NotForUb24.04##Paraview compilation (Using instructions from the wiki)
+#NotForUb24.04# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#NotForUb24.04#  && cd $WM_THIRD_PARTY_DIR \
+#NotForUb24.04#  && export QT_SELECT=qt5 \
+#NotForUb24.04# #downloading ParaView with wget because the supposedly automatic download with curl is failing
+#NotForUb24.04# #(Paraview download address pasted from ThirdParty-<Version>/README.org)
+#NotForUb24.04#  && wget --no-check-certificate http://www.paraview.org/files/v5.6/ParaView-v5.6.0.tar.gz \
+#NotForUb24.04#  && tar xvf ParaView-v5.6.0.tar.gz \
+#NotForUb24.04#  && rm ParaView-v5.6.0.tar.gz \
+#NotForUb24.04#  && mv ParaView-v5.6.0 ParaView-5.6.0 \
+#NotForUb24.04#  && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
 
 #...........
 #Step 5.

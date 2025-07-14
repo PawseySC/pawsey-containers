@@ -195,22 +195,22 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 # If there is still interest to compile it, the recommendation is to try installing an old verion of Python and gcc and attempt compilation again or else
 # upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
 # due to how comparatively new it is
-#Downloading first ParaView with wget because automatic download with curl is failing
-#(Paraview download address copy/pasted from ThirdParty-<Version>/README.org)
-# ARG PVverFull="5.6.3"
-# ARG PVverMajor="5.6"
-# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
-#  && cd $WM_THIRD_PARTY_DIR \
-#  && export QT_SELECT=qt5 \
-#  && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
-#  && tar xvf ParaView-v${PVverFull}.tar.gz \
-#  && rm ParaView-v${PVverFull}.tar.gz \
-#  && mv ParaView-v${PVverFull} ParaView-${PVverFull}
+#NotForUb24.04#Downloading first ParaView with wget because automatic download with curl is failing
+#NotForUb24.04#(Paraview download address copy/pasted from ThirdParty-<Version>/README.org)
+#NotForUb24.04# ARG PVverFull="5.6.3"
+#NotForUb24.04# ARG PVverMajor="5.6"
+#NotForUb24.04# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#NotForUb24.04#  && cd $WM_THIRD_PARTY_DIR \
+#NotForUb24.04#  && export QT_SELECT=qt5 \
+#NotForUb24.04#  && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && tar xvf ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && rm ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && mv ParaView-v${PVverFull} ParaView-${PVverFull}
 
-# #Paraview compilation (according to instructions from the official site)
-# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
-#  && cd $WM_THIRD_PARTY_DIR \
-#  && ./makeParaView 2>&1 | tee log.makePVOfficial
+#NotForUb24.04# #Paraview compilation (according to instructions from the official site)
+#NotForUb24.04# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#NotForUb24.04#  && cd $WM_THIRD_PARTY_DIR \
+#NotForUb24.04#  && ./makeParaView 2>&1 | tee log.makePVOfficial
 
 #NotFor8:#Paraview compilation (Using instructions from the wiki)
 #NotFor8:RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
