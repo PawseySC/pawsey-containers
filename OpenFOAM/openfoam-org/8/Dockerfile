@@ -218,26 +218,22 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 # upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
 # due to how comparaitvely new it is
 #AEG: foundation source files do not count with makeVTK script, so will not attempt to install VTK
-#Downloading first ParaView with wget because automatic download with curl is failing
-#(Paraview download address copy/pasted from ThirdParty-<Version>/README.org)
-# ARG PVverFull="5.6.3"
-# ARG PVverMajor="5.6"
-# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
-#  && cd $WM_THIRD_PARTY_DIR \
-#  && export QT_SELECT=qt5 \
-#  && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
-#  && tar xvf ParaView-v${PVverFull}.tar.gz \
-#  && rm ParaView-v${PVverFull}.tar.gz \
-#  && mv ParaView-v${PVverFull} ParaView-${PVverFull}
+#NotForUb24.04#Downloading first ParaView with wget because automatic download with curl is failing
+#NotForUb24.04#(Paraview download address copy/pasted from ThirdParty-<Version>/README.org)
+#NotForUb24.04# ARG PVverFull="5.6.3"
+#NotForUb24.04# ARG PVverMajor="5.6"
+#NotForUb24.04# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#NotForUb24.04#  && cd $WM_THIRD_PARTY_DIR \
+#NotForUb24.04#  && export QT_SELECT=qt5 \
+#NotForUb24.04#  && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && tar xvf ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && rm ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && mv ParaView-v${PVverFull} ParaView-${PVverFull}
 
-#Paraview compilation (according to instructions from the official site)
-# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
-#  && cd $WM_THIRD_PARTY_DIR \
-#  && ./makeParaView \
-#    CMAKE_C_COMPILER=/usr/bin/gcc-9 CMAKE_CXX_COMPILER=/usr/bin/g++-9 \
-#    PYTHON_EXECUTABLE=/usr/local/bin/python2.7 PYTHON_INCLUDE_DIR=/usr/local/include/python2.7 \
-#    PYTHON_LIBRARY=/usr/local/lib/libpython2.7.so PYTHON_LIBRARY_DIR=/usr/local/lib/python2.7/config \
-#    -python -mpi -python-include /usr/local/include/python2.7 -python-lib /usr/local/lib/libpython2.7.so 2>&1 | tee log.makePV
+#NotForUb24.04#Paraview compilation (according to instructions from the official site)
+#NotForUb24.04# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#NotForUb24.04#  && cd $WM_THIRD_PARTY_DIR \
+#NotForUb24.04#  && ./makeParaView 2>&1 | tee log.makePVOfficial \
 
 #NotFor8:#Paraview compilation (Using instructions from the wiki)
 #NotFor8:RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
