@@ -199,7 +199,8 @@ RUN . ${OFBASHRC} \
  && cd ${WM_PROJECT_DIR}
 WORKDIR /opt/OpenFOAM/OpenFOAM-8
 COPY sha1-fix.patch /tmp/sha1-fix.patch
-RUN patch -p1 < /tmp/sha1-fix.patch
+RUN patch -p1 < /tmp/sha1-fix.patch \
+ && rm /tmp/sha1-fix.patch
 
 #Third party compilation
 RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \

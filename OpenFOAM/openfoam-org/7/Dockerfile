@@ -234,7 +234,8 @@ RUN . ${OFBASHRC} \
  && cd ${WM_PROJECT_DIR}
 WORKDIR /opt/OpenFOAM/OpenFOAM-7
 COPY sha1-fix.patch /tmp/sha1-fix.patch
-RUN patch -p1 < /tmp/sha1-fix.patch
+RUN patch -p1 < /tmp/sha1-fix.patch \
+ && rm /tmp/sha1-fix.patch
 
 # CMEYER: Install cgal from source, given library packaged with ubuntu/24.04 incompatible with openfoam 7
 RUN apt-get update -qq\
