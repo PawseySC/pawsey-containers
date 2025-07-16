@@ -4,8 +4,8 @@
 # 0. Initial main definition
 # Defining the base container to build from
 # IMPORTANT: 
-# Setonix needs at least ubuntu20.04 (From August 2023)
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+# Setonix needs at least ubuntu24.04 (From August 2025)
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu24.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -43,8 +43,8 @@ RUN echo "root:${OFVERSION}" | chpasswd
 #Recent native developers' containers are not using this "ofuser" anymore, although it is still useful to have it
 #for pawsey purposes where /group needs to be used as the place for the *USER* variables. Then, /group directory
 #will be mounted into the ofuser dir whenever own compiled tools are used
-RUN groupadd -g 999 ofuser \
- && useradd -r -m -u 999 -g ofuser ofuser
+RUN groupadd -g 10001 ofuser \
+ && useradd -r -m -u 10001 -g ofuser ofuser
 RUN echo "ofuser:${OFVERSION}" | chpasswd
 
 
@@ -87,20 +87,24 @@ RUN apt-get update -qq\
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
    gnuplot libreadline-dev libncurses-dev \
 #AEG:NoQt4: libqtwebkit-dev \ 
-   libqt5x11extras5-dev libxt-dev qt5-default qttools5-dev curl \
+#AEG: CMEYER suggestion:replace qt5-default by the expanded set of qt5 libraries for ubuntu24.04
+    #qt5-default \
+    qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake qtbase5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
+    curl \
 #--continue
    freeglut3-dev \
 #AEG:No scotch because it installs openmpi which later messes up with MPICH
 #    Therefore, ThirdParty scotch is the one to be installed and used by openfoam.
 #AEG:NoScotch:   libscotch-dev \
 #AEG:(No third party CGAL is provided (although can be downloaded) but will use the system installation):
-   libcgal-dev \
+#CMEYER: ubuntu/24.04 libcgal-dev incompatible with openfoam 7, build cgal from source instead
+   #libcgal-dev \
 #AEG:These libraries are needed for CGAL (system and third party) (if needed, change libgmp-dev for libgmp3-dev):
    libgmp-dev libmpfr-dev\
 #AEG:Wiki additional qt suggestions:
    qtbase5-dev \
 #AEG: Some more suggestions from the wiki instructions:
-   python python-dev \
+   python3 python3-dev \
    libglu1-mesa-dev \
 #AEG:I found the following was needed to install  FlexLexer.hi (now included in the wiki instructions too):
    libfl-dev \
@@ -193,17 +197,21 @@ ARG BASHRC_OPTIONS="FOAMY_HEX_MESH=yes"
 
 #AEG: foundation source files do not count with makeVTK script, so will not attempt to install VTK
 
-##Paraview compilation (Using instructions from the wiki)
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
-#downloading ParaView with wget because the supposedly automatic download with curl is failing
-#(Paraview download address pasted from ThirdParty-<Version>/README.org)
- && wget --no-check-certificate http://www.paraview.org/files/v5.6/ParaView-v5.6.0.tar.gz \
- && tar xvf ParaView-v5.6.0.tar.gz \
- && rm ParaView-v5.6.0.tar.gz \
- && mv ParaView-v5.6.0 ParaView-5.6.0 \
- && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
+# CMEYER: Paraview is failing to build in ubuntu24.04 with default Python and Compiler. So Paraview (or paraFoam) will not work inside this container. 
+# If there is still interest to compile it, the recommendation is to try installing an old verion of Python and gcc and attempt compilation again or else
+# upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
+# due to how comparatively new it is
+#NotForUb24.04##Paraview compilation (Using instructions from the wiki)
+#NotForUb24.04# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#NotForUb24.04#  && cd $WM_THIRD_PARTY_DIR \
+#NotForUb24.04#  && export QT_SELECT=qt5 \
+#NotForUb24.04# #downloading ParaView with wget because the supposedly automatic download with curl is failing
+#NotForUb24.04# #(Paraview download address pasted from ThirdParty-<Version>/README.org)
+#NotForUb24.04#  && wget --no-check-certificate http://www.paraview.org/files/v5.6/ParaView-v5.6.0.tar.gz \
+#NotForUb24.04#  && tar xvf ParaView-v5.6.0.tar.gz \
+#NotForUb24.04#  && rm ParaView-v5.6.0.tar.gz \
+#NotForUb24.04#  && mv ParaView-v5.6.0 ParaView-5.6.0 \
+#NotForUb24.04#  && ./makeParaView -python -mpi -python-lib /usr/lib/x86_64-linux-gnu/libpython2.7.so.1.0 2>&1 | tee log.makePV
 
 #...........
 #Step 5.
@@ -219,6 +227,39 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 #@@-@@#:#--Dummy line:
 #@@-@@#: && echo ''
 
+#CMEYER: Patch files for fix to sha1 overload problem
+#CMEYER: see https://develop.openfoam.com/Development/openfoam/-/issues/2496
+#CMEYER: see https://develop.openfoam.com/Development/openfoam/-/commit/eb3f7dfe7443fe852b256072f337ac24effff0ac
+RUN . ${OFBASHRC} \
+ && cd ${WM_PROJECT_DIR}
+WORKDIR /opt/OpenFOAM/OpenFOAM-7
+COPY sha1-fix.patch /tmp/sha1-fix.patch
+RUN patch -p1 < /tmp/sha1-fix.patch \
+ && rm /tmp/sha1-fix.patch
+
+# CMEYER: Install cgal from source, given library packaged with ubuntu/24.04 incompatible with openfoam 7
+RUN apt-get update -qq\
+ && apt-get -y --no-install-recommends install \
+   build-essential cmake libboost-all-dev libgmp-dev libmpfr-dev
+RUN mkdir -p /tmp/cgal-build \
+ && cd /tmp/cgal-build \
+ && wget https://github.com/CGAL/cgal/releases/download/releases/CGAL-4.10/CGAL-4.10.tar.xz \
+ && tar -xf CGAL-4.10.tar.xz \
+ && cd CGAL-4.10 \
+ && mkdir build \
+ && cd build \
+ && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local/cgal-4.10 \
+ && make -j 4 \
+ && make install \
+ && cd /tmp \
+ && rm -rf CGAL-4.10 CGAL-4.10.tar.xz
+
+ENV CGAL_INC_DIR=/usr/local/cgal-4.10/include \
+   CGAL_LIB_DIR=/usr/local/cgal-4.10/lib \
+   LD_LIBRARY_PATH=$CGAL_LIB_DIR:$LD_LIBRARY_PATH \
+   CPATH=$CGAL_INC_DIR:$CPATH \
+   LIBRARY_PATH=$CGAL_LIB_DIR:$LIBRARY_PATH
+
 #Third party compilation
 RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
@@ -230,6 +271,9 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 ARG OFNUMPROCOPTION="-j 4"
 RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
+ # CMEYER: Patch etc/config/CGAL.sh to use custom-installed cgal
+ && sed -i 's/^cgal_version=cgal-system$/cgal_version=CGAL-4.10/' ./etc/config.sh/CGAL \
+ && echo -e "\nif [ \"\$cgal_version\" != \"cgal-system\" ]\nthen\n    export CGAL_ARCH_PATH=/usr/local/cgal-4.10\nfi" >> ./etc/config.sh/CGAL \
  && export QT_SELECT=qt5 \
  && ./Allwmake $OFNUMPROCOPTION 2>&1 | tee log.Allwmake
 

@@ -1,0 +1,76 @@
+--- a/src/OpenFOAM/db/IOstreams/hashes/OSHA1stream.H
++++ b/src/OpenFOAM/db/IOstreams/hashes/OSHA1stream.H
+@@ -32,8 +32,8 @@
+ 
+ \*---------------------------------------------------------------------------*/
+ 
+-#ifndef OSHA1stream_H
+-#define OSHA1stream_H
++#ifndef Foam_OSHA1stream_H
++#define Foam_OSHA1stream_H
+ 
+ #include "OSstream.H"
+ #include "SHA1.H"
+@@ -62,6 +62,15 @@
+ 
+     friend class osha1stream;
+ 
++protected:
++
++    //- Handle overflow
++    virtual int overflow(int c = EOF)
++    {
++        if (c != EOF) sha1_.append(c);
++        return c;
++    }
++
+ public:
+ 
+     // Constructors
+@@ -77,7 +86,7 @@
+         //- Process unbuffered
+         virtual std::streamsize xsputn(const char* str, std::streamsize n)
+         {
+-            sha1_.append(str, n);
++            if (n) sha1_.append(str, n);
+             return n;
+         }
+ };
+--- a/src/OpenFOAM/primitives/hashes/SHA1/SHA1.H
++++ b/src/OpenFOAM/primitives/hashes/SHA1/SHA1.H
+@@ -39,8 +39,8 @@
+ 
+ \*---------------------------------------------------------------------------*/
+ 
+-#ifndef SHA1_H
+-#define SHA1_H
++#ifndef Foam_SHA1_H
++#define Foam_SHA1_H
+ 
+ #include <string>
+ #include <cstddef>
+@@ -126,6 +126,9 @@
+         //- Reset the hashed data before appending more
+         void clear();
+ 
++        //- Append single character
++        inline void append(char c);
++
+         //- Append data for processing
+         inline SHA1& append(const char* data, size_t len);
+ 
+--- a/src/OpenFOAM/primitives/hashes/SHA1/SHA1I.H
++++ b/src/OpenFOAM/primitives/hashes/SHA1/SHA1I.H
+@@ -50,6 +50,12 @@
+ 
+ // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
+ 
++inline void Foam::SHA1::append(char c)
++{
++    processBytes(&c, 1);
++}
++
++
+ inline Foam::SHA1& Foam::SHA1::append(const char* data, size_t len)
+ {
+     processBytes(data, len);
