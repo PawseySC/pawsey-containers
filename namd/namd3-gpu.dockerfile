@@ -3,6 +3,14 @@ FROM quay.io/pawsey/rocm-mpich-base:rocm6.3.0-mpich3.4.3-ubuntu24.04
 
 SHELL [ "/bin/bash", "-c" ]
 
+# Install needed gfortran
+ENV DEBIAN_FRONTEND="noninteractive"
+RUN echo "Install apt packages" \
+    && apt-get update -qq \
+    && apt-get -y --no-install-recommends install \
+        gfortran \
+        && echo "Done"
+
 ENV ROCM_PATH=/opt/rocm
 # Prefix for tarball containing source
 # Cannot provide source directly due to namd license, so this recipe requires whoever is running it to already have access to the source tarball
