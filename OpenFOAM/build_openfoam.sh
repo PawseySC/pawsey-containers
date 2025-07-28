@@ -9,20 +9,23 @@
 ### BEGIN OF EDITABLE: edit these variables to change which images are being built
 # Definition of base images, only to force pull them
 base="quay.io/pawsey/mpich-base"
-#base_os_vers="16.04 18.04 20.04"
-base_os_vers="20.04"
+#base_os_vers="16.04 18.04 20.04 24.04"
+base_os_vers="24.04"
 base_mpich_vers="3.4.3"
 # Target registry/organisation
 reg_org="quay.io/pawsey"
 # Using chunks, to avoid filling up the disk of small machines
-of_tool_tags_1="openfoam/v2212 openfoam/v2206 openfoam/v2012"
-#of_tool_tags_2="openfoam/v2006 openfoam/v1912"
-#of_tool_tags_3="openfoam/v1812 openfoam/v1712"
-of_tool_tags_4="openfoam-org/10 openfoam-org/9 openfoam-org/8"
-of_tool_tags_5="openfoam-org/7"
-#of_tool_tags_6="openfoam-org/5.x openfoam-org/2.4.x openfoam-org/2.2.0"
-#chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_4 of_tool_tags_5 of_tool_tags_6"
-chunks="of_tool_tags_1 of_tool_tags_4 of_tool_tags_5"
+of_tool_tags_1="openfoam/v2412"
+of_tool_tags_2="openfoam/v2212 openfoam/v2206 openfoam/v2012"
+of_tool_tags_3="openfoam/v2006 openfoam/v1912"
+#of_tool_tags_4="openfoam/v1812 openfoam/v1712"
+of_tool_tags_5="openfoam-org/12"
+of_tool_tags_6="openfoam-org/10 openfoam-org/9 openfoam-org/8"
+of_tool_tags_7="openfoam-org/7"
+#of_tool_tags_8="openfoam-org/5.x openfoam-org/2.4.x openfoam-org/2.2.0"
+#chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_4 of_tool_tags_5 of_tool_tags_6 of_tool_tags_7 of_tool_tags_8"
+#chunks="of_tool_tags_1 of_tool_tags_2 of_tool_tags_3 of_tool_tags_5 of_tool_tags_6 of_tool_tags_7"
+chunks="of_tool_tags_1 of_tool_tags_5"
 
 # 
 # Enable removal (in chunks) of local images, to save disk space
