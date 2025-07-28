@@ -4,8 +4,8 @@
 # 0. Initial main definition
 # Defining the base container to build from
 # IMPORTANT: 
-# Setonix needs at least ubuntu20.04 (From August 2023)
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
+# Setonix needs at least ubuntu24.04 (From August 2025)
+FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu24.04
 
 LABEL maintainer="Alexis.Espinosa@pawsey.org.au"
 #OpenFOAM version to install
@@ -43,8 +43,8 @@ RUN echo "root:${OFVERSION}" | chpasswd
 #Recent native developers' containers are not using this "ofuser" anymore, although it is still useful to have it
 #for pawsey purposes where /group needs to be used as the place for the *USER* variables. Then, /group directory
 #will be mounted into the ofuser dir whenever own compiled tools are used
-RUN groupadd -g 999 ofuser \
- && useradd -r -m -u 999 -g ofuser ofuser
+RUN groupadd -g 10001 ofuser \
+ && useradd -r -m -u 10001 -g ofuser ofuser
 RUN echo "ofuser:${OFVERSION}" | chpasswd
 
 
@@ -88,8 +88,11 @@ RUN apt-get update -qq\
     build-essential cmake git ca-certificates \
     flex libfl-dev bison zlib1g-dev libboost-system-dev libboost-thread-dev \
 #AEG:No openMPI as MPICH is to be used:    libopenmpi-dev openmpi-bin \
-    gnuplot libreadline-dev libncurses-dev libxt-dev \
-    libqt5x11extras5-dev libxt-dev qt5-default qttools5-dev curl \
+    gnuplot libreadline-dev libncurses-dev \
+#AEG: CMEYER suggestion:replace qt5-default by the expanded set of qt5 libraries for ubuntu24.04
+    #qt5-default \
+    qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake qtbase5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
+    curl \
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
@@ -188,22 +191,26 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 
 #AEG: foundation source files do not count with makeVTK script, so will not attempt to install VTK
 
-#Downloading first ParaView with wget because automatic download with curl is failing
-#(Paraview download address copy/pasted from ThirdParty-<Version>/README.org)
-ARG PVverFull="5.6.3"
-ARG PVverMajor="5.6"
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
- && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
- && tar xvf ParaView-v${PVverFull}.tar.gz \
- && rm ParaView-v${PVverFull}.tar.gz \
- && mv ParaView-v${PVverFull} ParaView-${PVverFull}
+# CMEYER: Paraview is failing to build in ubuntu24.04 with default Python and Compiler. So Paraview (or paraFoam) will not work inside this container. 
+# If there is still interest to compile it, the recommendation is to try installing an old verion of Python and gcc and attempt compilation again or else
+# upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
+# due to how comparatively new it is
+#NotForUb24.04#Downloading first ParaView with wget because automatic download with curl is failing
+#NotForUb24.04#(Paraview download address copy/pasted from ThirdParty-<Version>/README.org)
+#NotForUb24.04# ARG PVverFull="5.6.3"
+#NotForUb24.04# ARG PVverMajor="5.6"
+#NotForUb24.04# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#NotForUb24.04#  && cd $WM_THIRD_PARTY_DIR \
+#NotForUb24.04#  && export QT_SELECT=qt5 \
+#NotForUb24.04#  && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && tar xvf ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && rm ParaView-v${PVverFull}.tar.gz \
+#NotForUb24.04#  && mv ParaView-v${PVverFull} ParaView-${PVverFull}
 
-#Paraview compilation (according to instructions from the official site)
-RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
- && cd $WM_THIRD_PARTY_DIR \
- && ./makeParaView 2>&1 | tee log.makePVOfficial
+#NotForUb24.04# #Paraview compilation (according to instructions from the official site)
+#NotForUb24.04# RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
+#NotForUb24.04#  && cd $WM_THIRD_PARTY_DIR \
+#NotForUb24.04#  && ./makeParaView 2>&1 | tee log.makePVOfficial
 
 #NotFor8:#Paraview compilation (Using instructions from the wiki)
 #NotFor8:RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
