@@ -44,25 +44,13 @@ cd $basedir
 
 # Generate lists of command aliases for each openfoam image
 # using chunks, to avoid filling up the disk of small machines
+internal_script="./inside_openfoam_executables.sh"
 for of_tool_tags in $chunks ; do
   for tool_tag in ${!of_tool_tags} ; do
     sif="${tool_tag/\//_}.sif"
-    tool="${sif%_*}"
-    ver="${sif#*_}"
-    ver="${ver%.sif}"
-    alias_dir="aliases_${tool}"
-    alias_file="${alias_dir}/${ver}.yaml"
-    echo " .. Now creating command aliases for $sif"
-    mkdir -p $alias_dir
-    echo "aliases:" >$alias_file
-    bindir="$( singularity exec $sif which pimpleFoam )"
-    bindir="${bindir%/*}"
-    list_file="list_cmd_${tool}_${ver}"
-    bin_list="$( singularity exec $sif ls $bindir >${list_file} )"
-    for bin in $( cat $list_file  ) ; do
-      echo "  ${bin}: ${bindir}/${bin}" >>$alias_file
-    done 
-    rm -f $list_file
+    
+    singularity exec "$sif" bash -c "$internal_script $tool_tag"
+    
   done
 done
 
