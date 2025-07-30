@@ -1,0 +1,62 @@
+name: 'Setup Rclone'
+description: 'Installs and configures rclone for S3 uploads/downloads.'
+inputs:
+  access_key_id:
+    description: 'Access Key ID for S3'
+    required: true
+  secret_access_key:
+    description: 'Secret Access Key for S3'
+    required: true
+  endpoint:
+    description: 'S3 Endpoint URL'
+    required: true
+  bucket:
+    description: 'S3 Bucket Name'
+    required: true
+  destination_path:
+    description: 'Destination path in the S3 bucket'
+    required: true
+outputs:
+  rclone_installed:
+    description: 'Indicates if rclone was installed in this run'
+    value: ${{ steps.check_rclone.outputs.installed }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Check if rclone is installed
+      id: check_rclone
+      shell: bash
+      run: |
+        if command -v rclone >/dev/null 2>&1; then
+          echo "rclone is already installed."
+          echo "installed=true" >> $GITHUB_OUTPUT
+        else
+          echo "rclone is not installed."
+          echo "installed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Install rclone
+      if: steps.check_rclone.outputs.installed != 'true'
+      shell: bash
+      run: |
+        echo "Installing rclone..."
+        curl https://rclone.org/install.sh | sudo bash
+
+    - name: Configure rclone
+      shell: bash
+      run: |
+        mkdir -p ~/.config/rclone
+        tee ~/.config/rclone/rclone.conf > /dev/null <<EOF
+        [pawsey0001]
+        type = s3
+        provider = Ceph
+        endpoint = ${{ inputs.endpoint }}
+        access_key_id = ${{ inputs.access_key_id }}
+        secret_access_key = ${{ inputs.secret_access_key }}
+        EOF
+
+    - name: Verify rclone Configuration
+      shell: bash
+      run: |
+        echo "Verifying rclone configuration..."
+        rclone config show
