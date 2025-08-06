@@ -3,19 +3,19 @@
 # builds lustre-aware mpich and also some useful mpi packages for testing
 # The labels present here will need to be updated
 
-ARG OS_VERSION="20.04"
+ARG OS_VERSION="24.04"
 FROM ubuntu:${OS_VERSION}
 # redefine after FROM to ensure it is defined
-ARG OS_VERSION="20.04"
+ARG OS_VERSION="24.04"
 # mpich version
 ARG MPICH_VERSION="3.4.3"
 # lustre version
 ARG LUSTRE_VERSION="2.15.0-RC4"
 # mpi4py version
-ARG MPI4PY_VERSION="3.1.4"
+ARG MPI4PY_VERSION="3.1.5"
 
 #define some metadata 
-LABEL org.opencontainers.image.created="2023-02"
+LABEL org.opencontainers.image.created="2025-08"
 LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>"
 LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey-containers/"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/mpi/mpich-base/buildlustrempich.dockerfile"
@@ -27,13 +27,16 @@ LABEL org.opencontainers.image.base.name="pawsey/mpibase:ubuntu${OS_VERSION}-mpi
 
 # syntax=docker/dockerfile:1 
 # run apt-get install on a few packages
+ARG GCC_VERSION="13"
+ARG LINUX_KERNEL="5.15"
 ENV DEBIAN_FRONTEND="noninteractive"
+RUN uname -r 
 RUN apt-get update -qq \
     && apt-get -y --no-install-recommends install \
         build-essential \
         ca-certificates \
         gdb \
-        gcc g++ gfortran \
+        gcc-${GCC_VERSION} g++-${GCC_VERSION} gfortran-${GCC_VERSION} \
         wget \
         git \
         python3-six python3-setuptools \
@@ -66,23 +69,29 @@ RUN apt-get update -qq \
         wget \
         xsltproc \
         zlib1g-dev \
-        libkeyutils-dev libnl-genl-3-dev libyaml-dev linux-headers-$(uname -r) \
+        libkeyutils-dev libnl-genl-3-dev libyaml-dev linux-headers-generic \
         libmount-dev pkg-config \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_VERSION} 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${GCC_VERSION} 100 \
+    && update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_VERSION} 100 \
     && apt-get clean all \
     && rm -r /var/lib/apt/lists/* \
     && echo "Finished apt-get installs"
-    
+
+
 # Build lustre
+ARG LINUX_KERNEL="6.8.0-71-generic"
 RUN echo "Building lustre" \
     && mkdir -p /tmp/lustre-build \
     && cd /tmp/lustre-build \
     && git clone git://git.whamcloud.com/fs/lustre-release.git \
+    && echo "Checking out Lustre "    
     && cd lustre-release \
     # there appears to be an odd error with some release not being able to configure. 
     # for the moment, just use the main branch rather than a particular version.
     # && git fetch --tags && git checkout ${LUSTRE_VERSION} \
     && chmod +x ./autogen.sh && ./autogen.sh \
-    && ./configure --disable-server --enable-client \
+    && ./configure --disable-server --enable-client --with-linux-obj=/usr/src/linux-headers-${LINUX_KERNEL} \
     && make -j8 && make install \
     && cd / \
     && rm -rf /tmp/lustre-build \
@@ -98,7 +107,7 @@ ARG MPICH_CONFIGURE_OPTIONS="--without-mpe --enable-fortran=all --enable-shared 
 --enable-threads=runtime \
 --enable-fast=O2 \
 --enable-thread-cs=global \
-"
+CC=gcc CXX=g++ FC=gfortran FFLAGS=-fallow-argument-mismatch"
 ARG MPICH_MAKE_OPTIONS="-j8"
 COPY mpich_patches.tgz /tmp/
 RUN echo "Building MPICH ... " \
@@ -120,7 +129,7 @@ RUN echo "Building MPICH ... " \
     && echo "Finished building MPICH" 
 
 # Build OSU Benchmarks
-ARG OSU_VERSION="6.2"
+ARG OSU_VERSION="7.3"
 ARG OSU_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3"
 ARG OSU_MAKE_OPTIONS="-j8"
 RUN mkdir -p /tmp/osu-benchmark-build \
@@ -149,7 +158,7 @@ RUN mkdir -p /opt/ \
       && make CXX=g++ bin/openmpvec_cpp
 
 # add mpi4py in the container 
-RUN pip install mpi4py==${MPI4PY_VERSION}
+RUN pip install --break-system-packages mpi4py==${MPI4PY_VERSION}
 
 RUN mkdir -p /container-scratch/
 
