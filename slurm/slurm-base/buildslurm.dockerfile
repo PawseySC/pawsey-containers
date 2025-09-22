@@ -24,13 +24,15 @@ LABEL org.opencontainers.image.base.name="pawsey/slurmbase:ubuntu${OS_VERSION}-s
 
 # install packages like munge
 ENV DEBIAN_FRONTEND="noninteractive"
+ARG GCC_VERSION=13
 RUN apt-get update -qq \
     && apt-get -y --no-install-recommends install \
     wget \
     bzip2 \
     perl \
-    gcc \
-    g++ \
+    gcc-${GCC_VERSION} \
+    g++-${GCC_VERSION} \
+    gfortran-${GCC_VERSION} \
     git \
     gnupg \
     make \
@@ -39,7 +41,7 @@ RUN apt-get update -qq \
     python3-dev \
     python3-pip \
     python3 \
-    python2 \
+    # python2 \
     psmisc \
     bash-completion \
     autoconf automake libtool \
@@ -51,6 +53,9 @@ RUN apt-get update -qq \
     lua5.3 liblua5.3 liblua5.3-dev lua-cjson-dev \
     pkg-config \
     openssl libcurl4-openssl-dev \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_VERSION} 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${GCC_VERSION} 100 \
+    && update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_VERSION} 100 \
     && apt-get clean all \
     && rm -r /var/lib/apt/lists/* \
     && echo "Finished apt-get installs"
@@ -70,12 +75,12 @@ RUN echo "Building json" \
     && make -j${NPROCS} \
     && make install \
     && cd ../../ && rm -rf json-c \
-    && echo "Finished json build" \
-    && echo "Building http parser" \
+    && echo "Finished json build" 
+RUN echo "Building http parser" \
     && git clone --depth 1 --single-branch -b ${HTTP_PARSER_VERSION} https://github.com/nodejs/http-parser.git http_parser \
     && cd http_parser \
-    && make -j${NPROCS} \
-    && make install \
+    && make -j${NPROCS} CC=gcc \
+    && make install CC=gcc \
     && cd ../ && rm -rf http_parser \
     && echo "Finished http parser build" \
     # yaml 
@@ -140,9 +145,12 @@ RUN echo "Building slurm ${SLURM_VERSION}" \
         /var/lib/slurmd/fed_mgr_state \
     # ensure that slurm directory is owned by slurm user/group
     && chown -R slurm:slurm /var/*/slurm* \
+    && echo "Finished building slurm"
+
     # create munge kes 
-    && /sbin/create-munge-key \
-    && echo "Finished building slurm "
+RUN echo "Create keys" \
+    #&& /sbin/create-munge-key \
+    && echo "Finished keys "
 
 # and copy the recipe into the docker recipes directory
 RUN mkdir -p /opt/docker-recipes/
