@@ -3,12 +3,13 @@
 # builds mpich and also some useful mpi packages for testing
 # The labels present here will need to be updated
 
-ARG OS_VERSION="20.04"
+ARG OS_VERSION="24.04"
 FROM ubuntu:${OS_VERSION}
 #redefine arguments after the FROM command
-ARG OS_VERSION="20.04"
+ARG OS_VERSION="24.04"
 # define slurm version for meta data 
-ARG SLURM_VERSION="22-05-2-1"
+#ARG SLURM_VERSION="22-05-2-1"
+ARG SLURM_VERSION="24-11-6-1"
 # for builds in parallel 
 ARG NCPUS=8
 
@@ -50,7 +51,7 @@ RUN apt-get update -qq \
     #vim-enhanced \
     libhttp-parser-dev \
     libjson-glib-dev libjson-c-dev libjsonparser-dev \
-    lua5.3 liblua5.3 liblua5.3-dev lua-cjson-dev \
+    lua5.3 liblua5.3 liblua5.3-dev lua-cjson-dev lua-posix-dev \
     pkg-config \
     openssl libcurl4-openssl-dev \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_VERSION} 100 \
