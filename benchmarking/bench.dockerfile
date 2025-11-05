@@ -2,7 +2,7 @@
 # adds minimal packages with apt-get
 # adds spack and the default base image is 
 # set to build on top of the pawsey provided mpich image
-FROM mpich-luster-rocm-base:3.4.3_ubuntu24.04-rocm7.0.2 
+FROM quay.io/pawsey/rocm-mpich-base:rocm7.0.2-mpich3.4.3-ubuntu24.04
 ARG SPACK_VERSION=v0.23.1
 # currently this is a build time argument in the 
 # recipe but eventually will migrate so that 
@@ -10,7 +10,7 @@ ARG SPACK_VERSION=v0.23.1
 ARG MPICH_VERSION=3.4.3
 
 LABEL org.opencontainers.image.created="2025-10"
-LABEL org.opencontainers.image.authors="Cristian Di Pietrantonio (cristian.dipietrantonio@csiro.au)"
+LABEL org.opencontainers.image.authors="Cristian Di Pietrantonio (cristian.dipietrantonio@csiro.au), Pascal Jahan Elahi <pascal.elahi@pawsey.org.au.com>"
 LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey-containers/"
 LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
