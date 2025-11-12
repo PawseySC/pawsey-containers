@@ -2,7 +2,7 @@
 # adds minimal packages with apt-get
 # adds spack and the default base image is 
 # set to build on top of the pawsey provided mpich image
-FROM quay.io/pawsey/rocm-mpich-base:rocm7.0.2-mpich3.4.3-ubuntu24.04
+FROM quay.io/pawsey/rocm-mpich-base:rocm6.3.3-mpich3.4.3-ubuntu24.04
 ARG SPACK_VERSION=v0.23.1
 # currently this is a build time argument in the 
 # recipe but eventually will migrate so that 
