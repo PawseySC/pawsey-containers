@@ -136,7 +136,7 @@ RUN echo "Building http parser" \
 FROM slurm_dependencies AS slurm_engine
 # Recalling arguments from their global definition
 ARG SLURM_VERSION
-ARG NCPUS=8
+ARG NCPUS
 
 RUN echo "Building slurm ${SLURM_VERSION}" \
     && set -x \
