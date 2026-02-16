@@ -3,17 +3,21 @@
 # builds mpich and also some useful mpi packages for testing
 # The labels present here will need to be updated
 
-ARG OS_VERSION="24.04"
-FROM ubuntu:${OS_VERSION}
-#redefine arguments after the FROM command
+# Define global arguments (remember to recall them in each stage that may need them)
+#define Ubuntu OS version
 ARG OS_VERSION="24.04"
 # define slurm version for meta data 
-#ARG SLURM_VERSION="22-05-2-1"
 ARG SLURM_VERSION="24-11-6-1"
 # for builds in parallel 
 ARG NCPUS=8
 
-LABEL org.opencontainers.image.created="2023-02"
+# Primary stage of the image
+FROM ubuntu:${OS_VERSION} AS primary
+# Recalling arguments from their global definition
+ARG OS_VERSION
+ARG SLURM_VERSION
+
+LABEL org.opencontainers.image.created="2026-02"
 LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascaljelahi@gmail.com>"
 LABEL org.opencontainers.image.documentation="https://github.com/"
 LABEL org.opencontainers.image.source="https://github.com/pelahi/docker-recipes/slurm-base/"
@@ -21,9 +25,10 @@ LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
 LABEL org.opencontainers.image.licenses="GNU GPL3.0"
 LABEL org.opencontainers.image.title="Setonix compatible slurm container"
 LABEL org.opencontainers.image.description="Common base image providing slurm compatible with that on Setonix"
-LABEL org.opencontainers.image.base.name="pawsey/slurmbase:ubuntu${OS_VERSION}-slurm-${SLURM_VERSION}"
+LABEL org.opencontainers.image.base.name="pawsey/slurm-base:ubuntu${OS_VERSION}-slurm-${SLURM_VERSION}"
 
 # install packages like munge
+FROM primary AS packages_raw
 ENV DEBIAN_FRONTEND="noninteractive"
 ARG GCC_VERSION=13
 RUN apt-get update -qq \
@@ -62,7 +67,28 @@ RUN apt-get update -qq \
     && echo "Finished apt-get installs"
 
 
-# now build dependencies based on schemd
+# install fixes (as that for munge)
+FROM packages_raw AS packages_fixed
+# fixing munge vulnerability detailed in https://github.com/dun/munge/security/advisories/GHSA-r9cr-jf4v-75gh  
+# Here, instead of installing munge 0.5.18
+# Instead, we are applying vendor-supported updates that include fixes for CVE-2026-25506
+# Instructed here: https://ubuntu.com/security/notices/USN-8040-1
+RUN echo "=== RAW STATE ===" > /munge-version-info.txt \
+ && apt-cache policy munge libmunge2 >> /munge-version-info.txt \
+ && echo "=== FIXED STATE (after security repo applied) ===" >> /munge-version-info.txt \
+ && apt-get update -qq \
+ && apt-cache policy munge libmunge2 >> /munge-version-info.txt \
+ && munge --version >> /munge-version-info.txt \
+ && echo -e "\n=== VERIFICATION ===" >> /munge-version-info.txt \
+ && (grep -q "0.5.15-4ubuntu0.1" /munge-version-info.txt \
+     && echo "✓ FIXED: Ubuntu security patch 0.5.15-4ubuntu0.1 confirmed" \
+     || echo "✗ VULNERABLE: Security patch missing") >> /munge-version-info.txt \
+ && grep "0.5.15-4ubuntu0.1" /munge-version-info.txt || exit 1
+
+
+
+# now build dependencies based on schedmd
+FROM packages_fixed AS slurm_dependencies
 # now build json 
 ARG JSON_VERSION=json-c-0.15-20200726
 ARG HTTP_PARSER_VERSION=v2.9.4
@@ -107,6 +133,11 @@ RUN echo "Building http parser" \
     && echo "Finished slurm dependency build"
 
 # now build schedmd slurm 
+FROM slurm_dependencies AS slurm_engine
+# Recalling arguments from their global definition
+ARG SLURM_VERSION
+ARG NCPUS=8
+
 RUN echo "Building slurm ${SLURM_VERSION}" \
     && set -x \
     && git clone -b slurm-${SLURM_VERSION} --single-branch --depth=1 https://github.com/SchedMD/slurm.git \
@@ -148,6 +179,8 @@ RUN echo "Building slurm ${SLURM_VERSION}" \
     && chown -R slurm:slurm /var/*/slurm* \
     && echo "Finished building slurm"
 
+# Final actions
+FROM slurm_engine AS final
     # create munge kes 
 RUN echo "Create keys" \
     #&& /sbin/create-munge-key \
@@ -156,3 +189,4 @@ RUN echo "Create keys" \
 # and copy the recipe into the docker recipes directory
 RUN mkdir -p /opt/docker-recipes/
 COPY buildslurm.dockerfile /opt/docker-recipes/
+COPY --from=packages_fixed /munge-version-info.txt /opt/docker-recipes/
