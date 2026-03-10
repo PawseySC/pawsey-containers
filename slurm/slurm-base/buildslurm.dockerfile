@@ -189,4 +189,4 @@ RUN echo "Create keys" \
 # and copy the recipe into the docker recipes directory
 RUN mkdir -p /opt/docker-recipes/
 COPY buildslurm.dockerfile /opt/docker-recipes/
-COPY --from=packages_fixed /munge-version-info.txt /opt/docker-recipes/
+RUN mv /munge-version-info.txt /opt/docker-recipes/
