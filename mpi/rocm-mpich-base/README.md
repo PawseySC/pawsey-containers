@@ -13,4 +13,7 @@ This container provides:
 * rccl 
 * osu microbenchmarks that provide tests for checking the mpi works
 
-
+Example build line:
+```
+sudo docker build  --build-arg ROCM_VERSION=6.1 -t mpich-luster-rocm-base:3.4.3_ubuntu22.04-rocm6.1 -f buildrocm-mpich-base.dockerfile .
+```

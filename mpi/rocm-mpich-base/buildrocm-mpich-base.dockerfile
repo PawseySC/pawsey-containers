@@ -30,7 +30,7 @@ LABEL org.opencontainers.image.base.name="pawsey/mpibase:ubuntu${OS_VERSION}-mpi
 ARG LINUX_KERNEL=6.8.0-31
 ENV DEBIAN_FRONTEND="noninteractive"
 RUN echo "Install apt packages" \
-    && apt-get update -qq \
+    && apt-get -y update  \
     && apt-get -y --no-install-recommends install \
         build-essential \
         gnupg gnupg2 \
@@ -128,7 +128,7 @@ ARG LUSTRE_CONFIG_ARGS="--with-linux=/usr/lib/modules/${LINUX_KERNEL}-generic/bu
 RUN echo "Building lustre" \
     && mkdir -p /tmp/lustre-build \
     && cd /tmp/lustre-build \
-    && git clone git://git.whamcloud.com/fs/lustre-release.git \
+    && git clone https://github.com/lustre/lustre-release.git \
     && cd lustre-release \
     # there appears to be an odd error with some release not being able to configure. 
     # for the moment, just use the main branch rather than a particular version.
@@ -195,7 +195,9 @@ RUN echo "Building rocm ${ROCM_VERSION}" \
     # if rocm version does not list minor patch version number add 00 to end of installer version
     && if [ $(echo ${ROCM_VERSION} | sed "s/\./\n/g" | wc -l) -eq "2" ]; then ROCM_INSTALLER_VERSION=${ROCM_INSTALLER_VERSION}"00"; fi \
     && ROCM_INSTALLER_VERSION=${ROCM_INSTALLER_VERSION}"-1" \
-    && ROCM_INSTALLER_VERSION=${rocm_major}.${rocm_minor}.${ROCM_INSTALLER_VERSION} \
+    && if [ $rocm_major -ge 7 ]; then ROCM_INSTALLER_VERSION=${ROCM_VERSION}.${ROCM_INSTALLER_VERSION}; \
+        else \
+        ROCM_INSTALLER_VERSION=${rocm_major}.${rocm_minor}.${ROCM_INSTALLER_VERSION}; fi \
     && cd /tmp/build \
     # && wget https://bootstrap.pypa.io/get-pip.py \
     # && python3 get-pip.py \
@@ -205,13 +207,14 @@ RUN echo "Building rocm ${ROCM_VERSION}" \
        else \
         roc_url="https://repo.radeon.com/amdgpu-install/"${ROCM_VERSION}"/ubuntu/noble/amdgpu-install_"${ROCM_INSTALLER_VERSION}"_all.deb"; \
        fi \
+    # && roc_url="https://repo.radeon.com/amdgpu-install/7.0.1/ubuntu/noble/amdgpu-install_7.0.1.70001-1_all.deb" \
     && echo ${roc_url} \
     && wget ${roc_url} \
-    && apt -y install ./amdgpu-install_${ROCM_INSTALLER_VERSION}_all.deb \
+    && apt -y install ./amdgpu-install_*_all.deb \
     # CMEYER: Adding --no-dkms - older rocm versions fail without it and seems to be recommended by amd
     # CMEYER: See https://rocmdocs.amd.com/projects/install-on-linux/en/latest/install/install-methods/amdgpu-installer/amdgpu-installer-ubuntu.html and https://github.com/amd/InfinityHub-CI/blob/55ffdd622595cf678fb55fce7681792390173f3d/base-mpich-rocm-docker/Dockerfile#L47
     && amdgpu-install -y --usecase=hiplibsdk,rocm,hip,opencl --no-dkms \
-    && cd /tmp/build && rm -rf amdgpu-install_${ROCM_INSTALLER_VERSION}_all.deb \
+    && cd /tmp/build && rm -rf amdgpu-install_*_all.deb \
     && echo "Done"
 
 ARG GFX_ARCH=gfx90a
@@ -228,7 +231,7 @@ RUN echo "Build aws-ofi-rccl" \
     # before rccl was not compatible with 6.0.2 till there was a PR that was merged. Leaving this to document that something similar could be ncessary in the future
     #&& if [ "${rocm_major}" = "6" ]; then gitrepo=https://github.com/teojgo/aws-ofi-rccl.git; RCCL_CONFIGURE_OPTIONS=${RCCL_CONFIGURE_OPTIONS}" CFLAGS=-D__HIP_PLATFORM_AMD__ CXXFLAGS=-D__HIP_PLATFORM_AMD__"; fi \
     # now just need to ensure that adding __HIP_PLATFORM_AMD__ to compilation as that was not being set in the 6.0.2 installation
-    && if [ "${rocm_major}" = "6" ]; then RCCL_CONFIGURE_OPTIONS=${RCCL_CONFIGURE_OPTIONS}" CFLAGS=-D__HIP_PLATFORM_AMD__ CXXFLAGS=-D__HIP_PLATFORM_AMD__"; fi \
+    && if [ "${rocm_major}" -ge "6" ]; then RCCL_CONFIGURE_OPTIONS=${RCCL_CONFIGURE_OPTIONS}" CFLAGS=-D__HIP_PLATFORM_AMD__ CXXFLAGS=-D__HIP_PLATFORM_AMD__"; fi \
     && git clone ${gitrepo} \
     && cd aws-ofi-rccl \
     # this is only valid when was grabbing a fork for a fix. 
@@ -252,7 +255,7 @@ RUN echo "Building OSU" \
 	&& wget http://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
 	&& tar xzvf osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
 	&& cd osu-micro-benchmarks-${OSU_VERSION} \
-    && if [ "${rocm_major}" = "6" ]; then OSU_CONFIGURE_OPTIONS=${OSU_CONFIGURE_OPTIONS}" CFLAGS=-D__HIP_PLATFORM_AMD__ CXXFLAGS=-D__HIP_PLATFORM_AMD__"; fi \
+    && if [ "${rocm_major}" -ge "6" ]; then OSU_CONFIGURE_OPTIONS=${OSU_CONFIGURE_OPTIONS}" CFLAGS=-D__HIP_PLATFORM_AMD__ CXXFLAGS=-D__HIP_PLATFORM_AMD__"; fi \
 	&& ./configure ${OSU_CONFIGURE_OPTIONS} \
 	&& make ${OSU_MAKE_OPTIONS} \
 	&& make install \
@@ -260,7 +263,7 @@ RUN echo "Building OSU" \
 	&& rm -rf /tmp/osu-benchmark-build \
 	&& echo "Done"
 ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:$PATH"
-
+#
 # For the moment, not adding the more complex mpi tests as this can be added later
 # Add a more complex set of tests for MPI as well 
 # RUN echo "Adding some extra mpi tests " \
@@ -282,8 +285,6 @@ ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libe
 
 # Set some environment variables related to gpu communication and libfabric
 ENV NCCL_SOCKET_IFNAME=hsn
-ENV CXI_FORK_SAFE=1
-ENV CXI_FORK_SAFE_HP=1
 ENV HSA_FORCE_FINE_GRAIN_PCIE=1
 ENV FI_CXI_DISABLE_CQ_HUGETLB=1
 ENV ROCM_PATH=/opt/rocm
@@ -291,9 +292,7 @@ ENV ROCM_PATH=/opt/rocm
 #              Standard naming of "environment" scripts is 9X-environment.sh
 RUN mkdir -p /.singularity.d/env/
 RUN echo "export NCCL_SOCKET_IFNAME=hsn"  >> /.singularity.d/env/91-environment.sh \
-    && echo "export CXI_FORK_SAFE=1"  >> /.singularity.d/env/91-environment.sh \
     && echo "export ROCM_PATH=/opt/rocm"  >> /.singularity.d/env/91-environment.sh \
-    && echo "export CXI_FORK_SAFE_HP=1" >> /.singularity.d/env/91-environment.sh \
     && echo "export HSA_FORCE_FINE_GRAIN_PCIE=1" >> /.singularity.d/env/91-environment.sh \
     && echo "export FI_CXI_DISABLE_CQ_HUGETLB=1" >> /.singularity.d/env/91-environment.sh
 
