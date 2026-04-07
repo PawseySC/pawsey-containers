@@ -1,1 +1,0 @@
-buildhpcpythonhdf5mpi.dockerfile
