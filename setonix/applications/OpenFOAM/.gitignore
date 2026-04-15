@@ -1,17 +1,22 @@
+# Some names found during development not to be commited
 log*build*
+build*.log
 .*.md
 .*.swp
-run
-platforms
-linux64GccDPInt64Opt
-wmake
 old*
 localDisk
 .*.def
 .*.sh
 ._*
-slurm*
+slurm*.out
 borra*
 *.old
 *.sif
 *.NotToPush
+*.tar
+
+# OpenFOAM tools and cases source files and directories
+run
+platforms
+linux64GccDPInt64Opt
+wmake

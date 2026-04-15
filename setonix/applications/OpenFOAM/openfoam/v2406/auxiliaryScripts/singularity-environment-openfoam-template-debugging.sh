@@ -1,6 +1,6 @@
 #!/bin/bash
 #This script should be copied into the image to the right path for the Singularity Environment Files.
-#After copying, the BASHRC_TEMPLATE_TAG should be replaced with the correct path to the OpenFOAM bashrc file.
+#After copying, the BASHRC_TEMPLATE TAG should be replaced with the correct path to the OpenFOAM bashrc file.
 
 # Singularity Environment Script to be sourced on entry to singularity container.
 # Works when "singularity exec" or "singularity shell" are invoqued.

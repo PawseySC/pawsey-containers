@@ -1,9 +1,9 @@
 #!/bin/bash --login
 # This script prepares the domain decomposition for the tutorial case to run in parallel
 # This will only run if this other script was previously succesfully executed:
-#    -extractCase.sh (normal bash script to be executed on the login node)
+#    -extractCase.sh (normal bash script to be executed on the login node for copying a tutorial case into the host)
 # The following slurm job script should be submitted afterwards to run the case:
-#    -runFoam.sh (job for executing the case in parallel)
+#    -runFoam.sh (slurm job script for executing the case in parallel)
 # NOTE: Check that the Image settings are the same for the three scripts 
 
 #SBATCH --job-name=preFoam-tutorialCase
@@ -23,8 +23,8 @@ OF_FORK="openfoam" #OpenFOAM fork: "openfoam" (ESI fork) or "openfoam-org" (Foun
 OF_VERSION="v2406" #OpenFOAM version
 UBUNTU_VERSION="24.04" #Ubuntu version
 # Exact path of the singularity image:
-IMAGE_NAME="${OF_FORK}-testing_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
-#IMAGE_NAME="${OF_FORK}-2ndTest_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
+IMAGE_NAME="${OF_FORK}_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
+#IMAGE_NAME="${OF_FORK}-testing_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
 IMAGE_PATH="${MYSOFTWARE}/singularity/images"
 SINGULARITY_CONTAINER="${IMAGE_PATH}/${IMAGE_NAME}"
 echo "Image to use: ${SINGULARITY_CONTAINER}"

@@ -29,6 +29,7 @@ ARG OF_CONTROL_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/controlDict"
 
 # 0.3 Other auxiliary variables to ease building
 ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
+ARG OS_VERSION=$BASE_IMAGE_OS_VERSION
 
 
 #---------------------------------------------------------------
@@ -48,11 +49,12 @@ ARG DOCKER_RECIPES_DIR
 LABEL org.opencontainers.image.authors="Alexis Espinosa <Alexis.Espinosa@pawsey.org.au>"
 LABEL org.opencontainers.image.name="${OF_FORK}"
 LABEL org.opencontainers.image.branch="${OF_VERSION}-ubuntu${OS_VERSION}"
-LABEL org.opencontainers.image.recipe-backup="${DOCKER_RECIPES_DIR}"
+LABEL org.opencontainers.image.dockerfile-internal-backup="${DOCKER_RECIPES_DIR}"
+LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawsey-containers"
 
 #---------------------------------------------------------------
 # A.2 Installing additional tools useful for interactive sessions
-#     and the check of bashisms in OpenFOAM scripts
+#     and the check of bashisms in scripts
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  &&  apt-get -y --no-install-recommends install \
             vim time \
@@ -106,29 +108,18 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
     libqt5opengl5-dev \
     libgl1-mesa-dev libglu1-mesa-dev freeglut3-dev \
     libcgal-dev libfftw3-dev \
+    #For Catalyst (and ParaView):
+    python3-dev \
 # Additional dependencies listed in ThirdParty-xxx/Requirements.md (not repeating):
     qttools5-dev qttools5-dev-tools libqt5x11extras5-dev \
 # Additional dependencies found when building the image:
-    # For compiling ParaView (Qt5 GUI support):
-    libqt5svg5-dev \
-    # For compiling OpenFOAM (to include FlexLexer.h):
+    #For compiling ParaView (Qt5 GUI support & xmlpatterns library):
+    libqt5svg5-dev qtxmlpatterns5-dev-tools \
+    #For compiling OpenFOAM (to include FlexLexer.h):
     libfl-dev \
 # cleaning at the end:
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
-
-#---------------------------------------------------------------
-# For the record, this was the originally suggested list of dependencies:
-#     build-essential flex bison cmake zlib1g-dev \
-#     libboost-system1.83-dev libboost-thread1.83-dev \
-#     libopenmpi-dev openmpi-bin \
-#     gnuplot libreadline8 libncurses6 libxt6 \
-#     qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
-#     qtwebkit5-dev libqt5webkit5-dev \
-#     libqt5opengl5-dev \
-#     libgl1-mesa-dev libglu1-mesa-dev freeglut3-dev \
-#     libcgal-dev libfftw3-dev \
-#     scotch scotch-openmpi scotch-openmpi-dev
 
 
 #---------------------------------------------------------------
@@ -158,13 +149,14 @@ RUN wget --no-check-certificate -O OpenFOAM-${OF_VERSION}.tgz \
 ARG OF_PREFS_FILE
 # Defining the template
 ARG OF_PREFS_TEMPLATE=${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh
+ARG OF_PREFS_HEADER_LINES=26
 
 #Updating the prefs.sh file
-RUN head -23 $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
+RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
  && echo '#------------------------------------------------------------------------------' >> ${OF_PREFS_FILE} \
 #Using a combination of the variable definition recommended for the use of system mpich in this link:
 #   https://bugs.openfoam.org/view.php?id=1167
-#And in the file .../OpenFOAM-$OF_VERSION/wmake/rules/General/mplibMPICH
+#And in the file .../OpenFOAM-${OF_VERSION}/wmake/rules/General/mplibMPICH
 #(These MPI_* environmental variables are set in the prefs.sh,
 # and this file will be sourced automatically by the bashrc when the bashrc is sourced)
 #
@@ -172,24 +164,26 @@ RUN head -23 $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
  && echo 'export WM_MPLIB=SYSTEMMPI' >> ${OF_PREFS_FILE} \
  && echo 'export MPI_ROOT="/usr"' >> ${OF_PREFS_FILE} \
 #
-#--As suggested in the link above, MPI_ARCH_FLAGS,MPI_ARCH_INC,MPI_ARCH_LIBS need to be set:
-#--Leaving active only the options that worked among the different suggestions (A,B,C)
+#--As suggested in the link above, MPI_ARCH_FLAGS,MPI_ARCH_INC,MPI_ARCH_LIBS also need to be set:
+#--The setting of these three variables has been a strugle during the years. We have found different type
+#  of solutions that are kept commented for reference. And those that work for this version of OpenFOAM
+#  are left active. So the active lines are the settings that worked among the different suggestions (A,B,C):
 #  ~(A)The suggestions from the link above:
 ## && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OF_PREFS_FILE} \
 ## && echo 'export MPI_ARCH_INC="-I/usr/include/mpich"' >> ${OF_PREFS_FILE} \
 ## && echo 'export MPI_ARCH_LIBS="-L/usr/lib/x86_64-linux-gnu -lmpich"' >> ${OF_PREFS_FILE} \
 #
-#  ~(B)The suggestions from the file mplibMPICH file are:
+#  ~(B)The suggestions from the file mplibMPICH file itself are:
  && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX"' >> ${OF_PREFS_FILE} \
 ## && echo 'export MPI_ARCH_INC="-isystem $MPI_ROOT/include"' >> ${OF_PREFS_FILE} \
 ## && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpi -lrt"' >> ${OF_PREFS_FILE} \
 #
-#  ~(C)Even further modifications were needed for some other OpenFOAM versions:
-##AEG:Gcc7 has problems with the -isystem flag. Using -I instead:
+#  ~(C)Even further modifications needed for some OpenFOAM and compiler versions:
+#..If the gcc compiler has problems with the -isystem flag, use -I instead:
  && echo 'export MPI_ARCH_INC="-I ${MPI_ROOT}/include"' >> ${OF_PREFS_FILE} \
-##AEG:Only one library path and using -lmpich
+#..Use only one library path and plus -lmpich
 ## && echo 'export MPI_ARCH_LIBS="-L$MPI_ROOT/lib -lmpich"' >> ${OF_PREFS_FILE} \
-##AEG:The two library paths and using -lmpich
+#..Use the two library paths and plus -lmpich
  && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OF_PREFS_FILE} \
 #--Dummy line to avoid tracking continuation lines:
  && echo ''
@@ -207,7 +201,6 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
  && sed -i 's/^projectDir=/# projectDir=/g' ${OF_BASHRC_FILE} \
  && sed -i '0,/\[ -n "$projectDir"/s//# \[ -n "$projectDir"/' ${OF_BASHRC_FILE} \
  && sed -i '0,/^# projectDir="$HOME.*/!b;//a\projectDir="'"${OF_INSTALL_DIR}"'/OpenFOAM-$WM_PROJECT_VERSION"' ${OF_BASHRC_FILE} \
-#" (This comment line is needed to let vi to show the right syntax)
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file 
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
 #   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
@@ -222,7 +215,7 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
 # Recall global definitions made at the top
 ARG OF_CONTROL_FILE
 
-#Defining Best Practices as defaults of the controlDict (also creating a backup of the original)
+#Defining Pawsey Best Practices as defaults of the controlDict (also creating a backup of the original)
 RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 #Setting collated as default for fileHandler
  && sed -i '\@fileHandler uncollated;@a    fileHandler collated;' ${OF_CONTROL_FILE} \
@@ -288,8 +281,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # As makeParaView failed in the past due to bash-isms, changing the script shell explicitly to bash:
  && cp makeParaView makeParaView.original \
  && sed -i '1s|/bin/sh|/bin/bash|' makeParaView \
-# Only installing with mpi capabilities but avoiding the python-ic option
- && ./makeParaView -mpi 2>&1 | tee log.makePV
+# Create a link for basic `python` name
+ && ln -sf /usr/bin/python3 /usr/bin/python \
+# Obtaining the python shared library path
+ && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu -name 'libpython3.*.so' | head -1) \
+ && echo "Using PYTHON_LIB in Paraview installation: $PYTHON_LIB" \
+# Installing with mpi capabilities. Also with python bindings (to be able to properly compile Catalyst later)
+ && ./makeParaView -mpi -python -python-lib "$PYTHON_LIB" 2>&1 | tee log.makePV
 
 
 #---------------------------------------------------------------
@@ -310,7 +308,7 @@ ARG BASHRC_OPTIONS=""
 SHELL ["/bin/bash","-c"]
 
 #---------------------------------------------------------------
-#Compilation of "Additional components/modules" used to fail due to bash-isms, changing explicitly to bash:
+#Compilation of "Additional components/modules" used to fail in previous versions due to bash-isms, changing explicitly to bash:
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && cp Allwmake Allwmake.original \
@@ -318,16 +316,23 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 
 #---------------------------------------------------------------
 #OpenFOAM compilation Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
-#Using 2 compilation passes as some compilation race conditions were found
+#Using 2 compilation passes as some compilation race conditions were found.
+# First pass compilation in parallel:
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
-# First pass in parallel:
- && ./Allwmake $OF_COMPILE_OPTION 2>&1 | tee log.Allwmake.1st_pass-parallel \
-# Second pass in serial to recover from race conditions (if any in the first pass):
+ && ./Allwmake $OF_COMPILE_OPTION 2>&1 | tee log.Allwmake.1st_pass-parallel
+
+# Second pass compilation in serial to recover from race conditions (if any in the first pass):
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Bootstrap to the wmake toolchain:
+ && $WM_PROJECT_DIR/wmake/src/Allmake \
+# Continue:
+ && cd $WM_PROJECT_DIR \
+ && export QT_SELECT=qt5 \
  && ./Allwmake 2>&1 | tee log.Allwmake.2nd_pass-serial
 
 #Obtaining a summary 
@@ -369,8 +374,8 @@ RUN chmod -R a+rwX $OF_INSTALL_DIR
 # G.2 Setup to source OpenFoam OF_BASHRC_FILE at container entry with Docker
 # Reasoning: OF_BASHRC_FILE has to be sourced on entry to define the OpenFOAM environment.
 #            It has historically showed several bash-isms, so better to interpret it with bash.
-#            The sourcing of `bashrc` script will be performed in a docker entrypoint script.
-# For Docker Use: Docker executes entrypoint script on entry to the container:
+#            The sourcing of `bashrc` script will be performed inside the execution of the Docker Entrypoint Script.
+# For Docker Use: Docker executes (yes:executes) entrypoint script on entry to the container:
 #                 (name needs to be hardcoded, can't use dynamic evaluation of arguments inside ENTRYPOINT command)
 # IMPORTANT: "docker-entrypoint-openfoam-template.sh" file should be available in the building directory
 # Recall global definitions made at the top
@@ -403,23 +408,23 @@ CMD ["/bin/bash"]
 # G.3 Setup to source OpenFoam OF_BASHRC_FILE at container entry when using Singularity
 # Reasoning: OF_BASHRC_FILE has to be sourced on entry to define the OpenFOAM environment.
 #            It has historically showed several bash-isms so it would be better to interpret it with bash.
-#            The sourcing of `bashrc` script will be performed duringa "master" sourcing of a singularity environment script.
+#            The sourcing of `bashrc` script will be performed during a "master" sourcing (yes:sourcing) of a singularity environment script.
 #            Unfortunately, the trick to force bash interpretation during sourcing of environment scripts is obsolete (see down in this section).
 #            Fortunately, the singularity-embedded-shell-interpreter understands basic bash-isms, and that has been enough so far.
-# For Singularity Use: the singularity-embedded-shell-interpreter will source scripts in /.singularity.d/env/ at startup.
+# For Singularity Use: the singularity-embedded-shell-interpreter will source (yes:source) scripts in /.singularity.d/env/ at startup.
 #            Standard naming of "environment" scripts is XX-<someName>.sh (extension is compulsory exact `.sh`).
-#            Scripts are sourced in alphanumerical order, and here we use the name: 91-environment-openfoam.sh
+#            Scripts are sourced (yes:sourced) in alphanumerical order, and here we use the name: 91-environment-openfoam.sh
 # IMPORTANT:  "singularity-environment-openfoam-template.sh" file should be available in the building directory.
 #             and is copied into "91-environment-openfoam.sh" and updated for the correct `bashrc` file in this recipe.
-# IMPORTANT2: The final script should not contain the `exec "$@"` command at the end,
+# IMPORTANT2: The environment script should not contain the `exec "$@"` command at the end,
 #             otherwise the Host Environment Variables will be lost.
 #             This is the main reason why separate scripts are kept for Docker and for Singularity startup environments.
-# IMPORTANT3: And during practical use of the singularit image,
+# IMPORTANT3: And during practical use of the singularit image:
 #             The `singularity shell` and `singularity exec` commands are the only safe commands:
-#               These commands only source the singularity environment files and ignore the Docker entry settings.
+#               These commands only source (yes:source) the singularity environment files and ignore the Docker entry settings.
 #             The `singularity run` command is not safe and fails in some corner cases:
-#               This command tries to emulate the Docker behaviour and it sources the Docker ENTRYPOINT+CMD after the sourcing of the Singularity environment part.
-#               (Even if our own `91-environment-openfoam.sh` was not set, this command fails in some corner cases and is not safe to use.)
+#               This command tries to emulate the Docker behaviour and it executes (yes:executes) the Docker ENTRYPOINT+CMD after the sourcing (yes:sourcing) of the Singularity environment part.
+#               (Even if the `91-environment-openfoam.sh` was not set, this command fails in some corner cases and is not safe to use.)
 
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE

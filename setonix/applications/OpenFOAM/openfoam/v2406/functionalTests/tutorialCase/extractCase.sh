@@ -3,8 +3,8 @@
 #      directly executing this script on the login node
 # This script performs only the extraction (copy from the interior of the image) to the host.
 # The following two slurm job scripts should be submitted afterwards to run the case:
-#    -preFoam.sh (job for preparing the domain decomposition for this case to run in parallel)
-#    -runFoam.sh (job for executing the case in parallel)
+#    -preFoam.sh (slurm job script for preparing the domain decomposition for this case to run in parallel)
+#    -runFoam.sh (slurm job script for executing the case in parallel)
 # NOTE: Check that the Image settings are the same for the three scripts  
 
 
@@ -17,8 +17,8 @@ OF_FORK="openfoam" #OpenFOAM fork: "openfoam" (ESI fork) or "openfoam-org" (Foun
 OF_VERSION="v2406" #OpenFOAM version
 UBUNTU_VERSION="24.04" #Ubuntu version
 # Exact path of the singularity image:
-IMAGE_NAME="${OF_FORK}-testing_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
-#IMAGE_NAME="${OF_FORK}-2ndTest_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
+IMAGE_NAME="${OF_FORK}_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
+#IMAGE_NAME="${OF_FORK}-testing_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
 IMAGE_PATH="${MYSOFTWARE}/singularity/images"
 SINGULARITY_CONTAINER="${IMAGE_PATH}/${IMAGE_NAME}"
 echo "Image to use: ${SINGULARITY_CONTAINER}"
