@@ -28,6 +28,7 @@ ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
 ARG OF_CONTROL_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/controlDict"
 
 # 0.3 Other auxiliary variables to ease building
+ARG COMPILE_TASKS="16"
 ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
 ARG OS_VERSION=$BASE_IMAGE_OS_VERSION
 
@@ -70,7 +71,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 # Recent native developers' containers are not using this "ofuser" anymore, although it is still useful to have it for Pawsey purposes.
 # Then, some directory within a Pawsey cluster file system could be mounted to WM_PROJECT_USER_DIR path and
 #  perform interactive testing or development of own tools.
-# (WM_PROJECT_USER_DIR is set to OF_USER_DIR in the `bashrc` file in the `download_and_settings` stage below.)
+# (WM_PROJECT_USER_DIR is set to OF_USER_DIR in the `bashrc` file in the `update_settings` stage below.)
 # Recall global definitions made at the top:
 ARG OF_USER
 ARG OF_USER_DIR
@@ -108,7 +109,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
     libqt5opengl5-dev \
     libgl1-mesa-dev libglu1-mesa-dev freeglut3-dev \
     libcgal-dev libfftw3-dev \
-    #For Catalyst (and ParaView):
+    #For Catalyst (and therefore ParaView):
     python3-dev \
 # Additional dependencies listed in ThirdParty-xxx/Requirements.md (not repeating):
     qttools5-dev qttools5-dev-tools libqt5x11extras5-dev \
@@ -125,8 +126,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# C. Download OpenFOAM source-files and define settings for installation
-FROM install_dependencies AS download_and_settings
+# C. Download OpenFOAM source-files
+FROM install_dependencies AS download
 #---------------------------------------------------------------
 # C.1 Download
 # Recall global definitions made on the top
@@ -143,9 +144,17 @@ RUN wget --no-check-certificate -O OpenFOAM-${OF_VERSION}.tgz \
  && tar -xvzf ThirdParty-${OF_VERSION}.tgz \
  && rm -f ThirdParty-${OF_VERSION}.tgz
 
+
 #---------------------------------------------------------------
-# C.2 Update of the prefs.sh file settings
+#---------------------------------------------------------------
+#---------------------------------------------------------------
+# D. Update OpenFOAM settings pre-installation
+FROM download AS update_settings
+#---------------------------------------------------------------
+# D.1 Update of the prefs.sh file settings
 # Recall global definitions made at the top
+ARG OF_VERSION
+ARG OF_INSTALL_DIR
 ARG OF_PREFS_FILE
 # Defining the template
 ARG OF_PREFS_TEMPLATE=${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh
@@ -189,7 +198,7 @@ RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
  && echo ''
 
 #---------------------------------------------------------------
-# C.3 Update of the bashrc file settings
+# D.2 Update of the bashrc file settings
 # Recall global definitions made at the top
 ARG OF_INSTALL_DIR
 ARG OF_USER_DIR
@@ -211,7 +220,7 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
  && echo ''
 
 #---------------------------------------------------------------
-# C.4 Update of the controlDict file settings
+# D.3 Update of the controlDict file settings
 # Recall global definitions made at the top
 ARG OF_CONTROL_FILE
 
@@ -227,14 +236,16 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# D. Third-Party installation
+# E. Third-Party installation
 #Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
-FROM download_and_settings AS third_party_install
+FROM update_settings AS third_party_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
+ARG COMPILE_TASKS
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
+ARG TP_COMPILE_OPTIONS="-j${COMPILE_TASKS}"
 
 #---------------------------------------------------------------
 #Using bash to interpret OpenFOAM scripts
@@ -247,20 +258,30 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Install the ThirdParty tools:
  && cd $WM_THIRD_PARTY_DIR \
- && ./Allwmake 2>&1 | tee log.Allwmake
+ && ./Allwmake $TP_COMPILE_OPTIONS 2>&1 | tee log.Allwmake
+
+# Obtaining a Summary in a final compilation pass
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Bootstrap to the wmake toolchain (see ThirdParty-xx/README.md):
+ && $WM_PROJECT_DIR/wmake/src/Allmake \
+# Install the ThirdParty tools:
+ && cd $WM_THIRD_PARTY_DIR \
+ && ./Allwmake 2>&1 | tee log.AllwmakeSummary
 
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# E. ParaView installation
+# F. ParaView installation
 FROM third_party_install AS pv_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
+ARG COMPILE_TASKS
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
-
+#NotAcceptedBy makeParaView:#ARG PV_COMPILE_OPTIONS="-j${COMPILE_TASKS}"
+ARG PV_COMPILE_OPTIONS="-DCMAKE_BUILD_PARALLEL_LEVEL=${COMPILE_TASKS}"
 #---------------------------------------------------------------
 #ParaView or VTK historically needed for runTimePostprocessing of OpenFOAM to properly compile
 #Paraview needed for graphical postprocessing to be available in the container
@@ -287,20 +308,21 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu -name 'libpython3.*.so' | head -1) \
  && echo "Using PYTHON_LIB in Paraview installation: $PYTHON_LIB" \
 # Installing with mpi capabilities. Also with python bindings (to be able to properly compile Catalyst later)
- && ./makeParaView -mpi -python -python-lib "$PYTHON_LIB" 2>&1 | tee log.makePV
+ && ./makeParaView $PV_COMPILE_OPTIONS -mpi -python -python-lib "$PYTHON_LIB" 2>&1 | tee log.makePV
 
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# F. OpenFOAM compilation
+# G. OpenFOAM compilation
 FROM pv_install AS of_install
 #FROM third_party_install AS of_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
+ARG COMPILE_TASKS
 # Auxiliary arguments
-ARG OF_COMPILE_OPTION="-j 8"
+ARG OF_COMPILE_OPTIONS="-j${COMPILE_TASKS}"
 ARG BASHRC_OPTIONS=""
 
 #---------------------------------------------------------------
@@ -308,15 +330,17 @@ ARG BASHRC_OPTIONS=""
 SHELL ["/bin/bash","-c"]
 
 #---------------------------------------------------------------
-#Compilation of "Additional components/modules" used to fail in previous versions due to bash-isms, changing explicitly to bash:
+# G.1 Updating script to bash shell.
+#     This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && cp Allwmake Allwmake.original \
  && sed -i '1s|/bin/sh|/bin/bash|' Allwmake
 
 #---------------------------------------------------------------
-#OpenFOAM compilation Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
-#Using 2 compilation passes as some compilation race conditions were found.
+# G.2 OpenFOAM compilation 
+#     Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
+#     Using 2 compilation passes as some compilation race conditions were found.
 # First pass compilation in parallel:
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
@@ -324,7 +348,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Continue:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
- && ./Allwmake $OF_COMPILE_OPTION 2>&1 | tee log.Allwmake.1st_pass-parallel
+ && ./Allwmake $OF_COMPILE_OPTIONS 2>&1 | tee log.Allwmake.1st_pass-parallel
 
 # Second pass compilation in serial to recover from race conditions (if any in the first pass):
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -335,7 +359,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && export QT_SELECT=qt5 \
  && ./Allwmake 2>&1 | tee log.Allwmake.2nd_pass-serial
 
-#Obtaining a summary 
+# Obtaining a summary 
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && $WM_PROJECT_DIR/wmake/src/Allmake \
  && cd $WM_PROJECT_DIR \
@@ -343,13 +367,14 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && ./Allwmake 2>&1 | tee log.AllwmakeSummary
 
 #---------------------------------------------------------------
-#Checking if a popular executable is working
+# G.3 Checking if a popular executable is working
+ARG OF_TOOL="icoFoam"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
- && icoFoam -help 2>&1 | tee log.icoFoam
+ && $OF_TOOL -help 2>&1 | tee log.OF_TOOL
 
 #---------------------------------------------------------------
-#Printing out the environment variables for the installation so far:
+# G.4 Printing out the environment variables for the installation so far:
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && printenv > environment_vars_raw.txt
@@ -358,20 +383,20 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# G. Final settings
+# H. Final settings
 FROM of_install AS final_settings
-#FROM download_and_settings AS final_settings
+#FROM update_settings AS final_settings
 #FROM basic_stage AS final_settings
 
 #---------------------------------------------------------------
-# G.1 Avoid permission problems with files in the installation directory
+# H.1 Avoid permission problems with files in the installation directory
 # Recall global definitions made at the top
 ARG OF_INSTALL_DIR
 # Relaxing permissions to avoid problems
 RUN chmod -R a+rwX $OF_INSTALL_DIR
 
 #---------------------------------------------------------------
-# G.2 Setup to source OpenFoam OF_BASHRC_FILE at container entry with Docker
+# H.2 Setup to source OpenFoam OF_BASHRC_FILE at container entry with Docker
 # Reasoning: OF_BASHRC_FILE has to be sourced on entry to define the OpenFOAM environment.
 #            It has historically showed several bash-isms, so better to interpret it with bash.
 #            The sourcing of `bashrc` script will be performed inside the execution of the Docker Entrypoint Script.
@@ -405,7 +430,7 @@ ENTRYPOINT ["/usr/local/bin/docker-entrypoint-openfoam.sh"]
 CMD ["/bin/bash"]
 
 #---------------------------------------------------------------
-# G.3 Setup to source OpenFoam OF_BASHRC_FILE at container entry when using Singularity
+# H.3 Setup to source OpenFoam OF_BASHRC_FILE at container entry when using Singularity
 # Reasoning: OF_BASHRC_FILE has to be sourced on entry to define the OpenFOAM environment.
 #            It has historically showed several bash-isms so it would be better to interpret it with bash.
 #            The sourcing of `bashrc` script will be performed during a "master" sourcing (yes:sourcing) of a singularity environment script.
@@ -456,7 +481,7 @@ RUN sed -i 's,BASHRC_TEMPLATE_TAG,'"${OF_BASHRC_FILE}"',g' $ENVIRONMENT_FILE_SIN
 #        If you found that OpenFOAM's bashrc sourcing still has bashisms that require forced `bash` interpretation, then read the mentioned link for alternatives (not implemented here.)
 
 #---------------------------------------------------------------
-# G.4 Backup into the image the recipe and all files "called" during building 
+# H.4 Backup into the image the recipe and all files "called" during building 
 # Recall global definitions made at the top
 ARG OF_FORK
 ARG OF_VERSION
@@ -470,7 +495,7 @@ COPY ${OF_FORK}-${OF_VERSION}.dockerfile \
 RUN chmod -R a+rwX $DOCKER_RECIPES_DIR
 
 #---------------------------------------------------------------
-# G.5 Starting as OF_USER by default
+# H.5 Starting as OF_USER by default
 # Recall global definitions made at the top
 ARG OF_USER
 # Avoid permission problems with the home directory of OF_USER

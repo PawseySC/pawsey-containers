@@ -168,6 +168,9 @@ Testing the recognition of a common solver:
 singularity exec $SINGULARITY_CONTAINER icoFoam -help
 ```
 
+### Compilation logs
+If you observe some OpenFOAM functionality failing, please check the logs of the compilation/installations inside the image. We save a log of the output of the several compilation commands within the image. Check the Dockerfile directly to see their names. These logs can provide some clues if any specific tool was compiled successfully or not.
+
 ### Tests included in this repository
 
 Tests are included in the `functionalTests` directory, which has two subdirectories: `tutorialCase` and `compileMyTool`.
