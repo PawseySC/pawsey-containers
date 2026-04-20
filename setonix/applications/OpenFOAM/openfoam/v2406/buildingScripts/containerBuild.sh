@@ -1,6 +1,6 @@
-#!/bin/bash
-# Script that builds the image using Podman
-# NOTE: podman should be accessible already
+#!/usr/bin/env bash
+# Unified script that builds the image using Docker or Podman
+# Usage: containerBuild.sh --engine docker|podman [--target <stageName>] [--targetFrom <startingStage>]
 
 # --- Initial settings
 thisScript=$(basename "$0")
@@ -10,17 +10,30 @@ totalFailed=0
 stageName=""
 recipeDir=".."
 recipeFile="${recipeDir}/Dockerfile"
+tmpDir="./tmp"
+mkdir -p $tmpDir
+echo "This directory contains temporary and log files only. It can be removed anytime." > "${tmpDir}/README.txt"
 
 # --- Parse & validate command line arguments
+ENGINE=""
 stageName=""
 stageFrom=""
 while [[ $# -gt 0 ]]; do
    case $1 in
+      --engine|-b)
+         ENGINE="$2"
+         if [[ -z "$ENGINE" ]]; then
+            echo "ERROR: --engine requires docker|podman" >&2
+            echo "Usage: $0 --engine docker|podman [--target <stageName>] [--targetFrom <startingStage>]" >&2
+            exit 1
+         fi
+         shift 2
+         ;;
       --target)
          stageName="$2"
          if [[ -z "$stageName" ]]; then
             echo "ERROR: --target requires <stageName>" >&2
-            echo "Usage: $0 [--target <stageName>] [--targetFrom <startingStage>]" >&2
+            echo "Usage: $0 --engine docker|podman [--target <stageName>] [--targetFrom <startingStage>]" >&2
             exit 1
          fi
          shift 2
@@ -29,24 +42,36 @@ while [[ $# -gt 0 ]]; do
          stageFrom="$2"
          if [[ -z "$stageFrom" ]]; then
             echo "ERROR: --targetFrom requires <startingStage>" >&2
-            echo "Usage: $0 [--target <stageName>] [--targetFrom <startingStage>]" >&2
+            echo "Usage: $0 --engine docker|podman [--target <stageName>] [--targetFrom <startingStage>]" >&2
             exit 1
          fi
          shift 2
          ;;
       -h|--help)
-         echo "Usage: $0 [--target <stageName>] [--targetFrom <startingStage>]"
-         echo "  --target <stageName>     Build specific stage (requires FROM ... AS stageName)"
+         echo "Usage: $0 --engine docker|podman [--target <stageName>] [--targetFrom <startingStage>]"
+         echo "  --engine docker|podman   Container ENGINE to use (required)"
+         echo "  --target <stageName>      Build specific stage (requires FROM ... AS stageName)"
          echo "  --targetFrom <startingStage>  Start from specific stage (requires --target)"
          exit 0
          ;;
       *)
          echo "ERROR: Unknown option '$1'" >&2
-         echo "Usage: $0 [--target <stageName>] [--targetFrom <startingStage>]" >&2
+         echo "Usage: $0 --engine docker|podman [--target <stageName>] [--targetFrom <startingStage>]" >&2
          exit 1
          ;;
    esac
 done
+
+# ENGINE validation
+if [[ -z "$ENGINE" ]]; then
+   echo "ERROR: --engine docker|podman is required" >&2
+   echo "Usage: $0 --engine docker|podman [--target <stageName>] [--targetFrom <startingStage>]" >&2
+   exit 1
+fi
+if [[ "$ENGINE" != "docker" && "$ENGINE" != "podman" ]]; then
+   echo "ERROR: --engine must be 'docker' or 'podman', got '$ENGINE'" >&2
+   exit 1
+fi
 
 # stageFrom validation
 if [[ -n "$stageFrom" && -z "$stageName" ]]; then
@@ -54,42 +79,66 @@ if [[ -n "$stageFrom" && -z "$stageName" ]]; then
    exit 1
 fi
 
-echo "Parsed: stageName='$stageName' stageFrom='$stageFrom'"
+echo "Parsed: ENGINE='$ENGINE' stageName='$stageName' stageFrom='$stageFrom'"
 echo
 
-# --- Step 1: Setting podman environment (STOP on fail)
+# --- Step 1: Setting container ENGINE environment (STOP on fail)
 #             Adapt process to your own system needs 
 ((++testNum))
-echo "$thisScript: Step $testNum - Sourcing the podman settings"
-# Check for use only on restricted Container-Building nodes at Pawsey. Adapt the check to your own system needs.
-if ! source /container/setup_podman.sh 2>/dev/null; then
-   echo "✖ Step $testNum FAIL: Failed to: source /container/setup_podman.sh"
-   ((totalFailed++))
-   exit 1
+echo "$thisScript: -----------------------------------------"
+echo "Step $testNum - Setting up $ENGINE environment"
+if [[ "$ENGINE" == "docker" ]]; then
+   echo "Step $testNum - Starting Docker engine"
+   if ! docker info >/dev/null 2>&1; then
+      echo "Starting Docker Desktop..."
+      open -a Docker
+      # Wait max 30s
+      for i in {1..30}; do
+         if docker info >/dev/null 2>&1; then
+            break
+         fi
+         sleep 1
+      done
+   fi
+   if ! docker info >/dev/null 2>&1; then
+      echo "✖ Step $testNum FAIL: Docker failed to start"
+      ((totalFailed++))
+      exit 1
+   fi
+else
+   echo "Step $testNum - Sourcing the podman settings"
+   # Check for use only on restricted Container-Building nodes at Pawsey. Adapt the check to your own system needs.
+   if ! source /container/setup_podman.sh 2>/dev/null; then
+      echo "✖ Step $testNum FAIL: Failed to: source /container/setup_podman.sh"
+      ((totalFailed++))
+      exit 1
+   fi
 fi
-echo "✓ Step $testNum PASS: Podman ready"
+echo "✓ Step $testNum PASS: ${ENGINE^} ready"
 echo
 
-# --- Step 2: Checking if podman is correctly set (STOP on fail)
+# --- Step 2: Checking if container ENGINE is correctly set (STOP on fail)
 #             Adapt checks to your own system needs
 ((++testNum))
 echo "$thisScript: -----------------------------------------"
-echo "Step $testNum - Checking if podman is accessible."
-podmanVersion=$(podman --version)
-if [[ -z "$podmanVersion" ]]; then
-   echo "✖ Step $testNum FAIL: Failed to execute: podman --version"
+echo "Step $testNum - Checking if $ENGINE is accessible."
+ENGINEVersion=$($ENGINE --version)
+if [[ -z "$ENGINEVersion" ]]; then
+   echo "✖ Step $testNum FAIL: Failed to execute: $ENGINE --version"
    ((totalFailed++))
    exit 1
 fi
-echo "✓ Step $testNum podmanVersion=$podmanVersion"
-# Check for use only on restricted Container-Building nodes at Pawsey. Adapt the check to your own system needs.
-if [[ -z "$XDG_DATA_HOME" ]]; then
-   echo "✖ Step $testNum FAIL: Failed to check existance of: XDG_DATA_HOME"
-   echo "  Probably forgot to: source /container/setup_podman.sh"
-   ((totalFailed++))
-   exit 1
+echo "✓ Step $testNum ${ENGINE}Version=$ENGINEVersion"
+if [[ "$ENGINE" == "podman" ]]; then
+   # Check for use only on restricted Container-Building nodes at Pawsey. Adapt the check to your own system needs.
+   if [[ -z "$XDG_DATA_HOME" ]]; then
+      echo "✖ Step $testNum FAIL: Failed to check existance of: XDG_DATA_HOME"
+      echo "  Probably forgot to: source /container/setup_podman.sh"
+      ((totalFailed++))
+      exit 1
+   fi
+   echo "✓ Step $testNum XDG_DATA_HOME=$XDG_DATA_HOME"
 fi
-echo "✓ Step $testNum XDG_DATA_HOME=$XDG_DATA_HOME"
 echo "✓ Step $testNum PASS"
 echo
 
@@ -97,8 +146,6 @@ echo
 ((++testNum))
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Setting the variables for defining names"
-recipeDir=".."
-recipeFile="${recipeDir}/Dockerfile"
 OF_FORK=$(grep '^ARG OF_FORK=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
 OF_VERSION=$(grep '^ARG OF_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
 OS_VERSION=$(grep '^ARG BASE_IMAGE_OS_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
@@ -115,7 +162,7 @@ fi
 echo "✓ Step $testNum PASS"
 echo
 
-# --- Step 4: Validate stage if provided (STOP on fail)
+# --- Step 4: Validate --target stageName if provided (STOP on fail)
 ((++testNum))
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Validating if stage name exists in the Dockerfile"
@@ -132,7 +179,7 @@ else
 fi
 echo
 
-# --- Step 5: Validate stageFrom if provided (STOP on fail)
+# --- Step 5: Validate --targetFrom stageFrom if provided (STOP on fail)
 ((++testNum))
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Validating if stageFrom name exists in the Dockerfile"
@@ -155,17 +202,18 @@ echo
 tempRecipeFile=""
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Creating temp Dockerfile: FROM $stageFrom AS $stageName"
-if [[ -n "$stageFrom" && -n "$stageName" ]]; then   
-   tempRecipeFile="${recipeFile}.$$.tmp"
+if [[ -n "$stageFrom" && -n "$stageName" ]]; then
+   recipeName=$(basename $recipeFile)   
+   tempRecipeFile="${tmpDir}/${recipeName}.$$.tmp"
    cp "$recipeFile" "$tempRecipeFile"
    
    # Pass 1: Comment line starting with FROM, ending with AS $stageName
    sed "/^FROM .* AS[[:space:]]*$stageName$/s/^/#-ha-#/" "$tempRecipeFile" > "${tempRecipeFile}.new.tmp"
-   
+
    # Pass 2: Insert new line after commented one
    sed "/^#-ha-#FROM .* AS[[:space:]]*$stageName$/a\\
 FROM $stageFrom AS $stageName" "${tempRecipeFile}.new.tmp" > "$tempRecipeFile" && rm "${tempRecipeFile}.new.tmp"
-   
+
    # Verify EXACT line exists
    if ! grep -q "^FROM[[:space:]]\+$stageFrom[[:space:]]\+AS[[:space:]]\+$stageName" "$tempRecipeFile"; then
       echo "✖ Step $testNum FAIL: No 'FROM $stageFrom AS $stageName' in $tempRecipeFile"
@@ -186,30 +234,35 @@ echo
 ((++testNum))
 imageName="${OF_FORK}"
 imageTag="${OF_VERSION}-ubuntu${OS_VERSION}"
-podmanOptions=""
+buildingOptions=""
 if [[ -n "$stageName" ]]; then
    imageTag="${imageTag}-${stageName}"
-   podmanOptions="--target $stageName"
+   buildingOptions="--target $stageName"
 fi
 if [[ -n "$stageFrom" ]]; then
    imageTag="${imageTag}-from-${stageFrom}"
 fi
 imageFull="${imageName}:${imageTag}"
-logFileBuild="log_build_podman.log"
-#podmanOptions+=" --build-arg COMPILE_TASKS=24"
+logFileBuild="${tmpDir}/log_build_${ENGINE}.log"
+if [[ "$ENGINE" == "docker" ]]; then
+   buildingOptions+=" --progress=plain"
+else
+   buildingOptions+=" --format=docker"
+fi
+#buildingOptions+=" --build-arg COMPILE_TASKS=24"
 echo "$thisScript: -----------------------------------------"
-echo "Step $testNum - Building with podman the image $imageFull"
+echo "Step $testNum - Building with $ENGINE the image $imageFull"
 # Timing the building command
 echo "=== BUILD START: $(date)" | tee "$logFileBuild"
-time podman build --format=docker $podmanOptions -t "$imageFull" -f "$recipeFile" "$recipeDir" |& tee -a "$logFileBuild"
+time $ENGINE build $buildingOptions -t "$imageFull" -f "$recipeFile" "$recipeDir" |& tee -a "$logFileBuild"
 statusAll=(${PIPESTATUS[@]})
 buildExit="${statusAll[0]}"
-echo "buildExit=$buildExit"
-echo "statusAll=${statusAll[*]}"
+#echo "buildExit=$buildExit"
+#echo "statusAll=${statusAll[*]}"
 echo "=== BUILD END: $(date)" | tee -a "$logFileBuild"
 
 if [[ $buildExit -ne 0 ]]; then
-   echo "✖ Step $testNum FAIL: podman build failed (check $logFileBuild)"
+   echo "✖ Step $testNum FAIL: $ENGINE build failed (check $logFileBuild)"
    echo "buildExit=$buildExit"
    echo "statusAll=${statusAll[*]}"
    exit 1
@@ -217,19 +270,31 @@ fi
 echo "✓ Step $testNum PASS: Build completed"
 echo
 
-# --- Step 8: Check existing image (STOP on fail)
+# --- Step 8: Check if the image exists in the local registry (STOP on fail)
 ((++testNum))
 echo "$thisScript: -----------------------------------------"
-echo "$thisScript: Step $testNum - Verifying image exists in podman registry"
-if podman image exists "${imageFull}"; then
-   imageRepo=$(podman image inspect "${imageFull}" --format '{{index .RepoTags 0}}')
-   imageSize=$(podman images --format "{{.Size}}" "${imageFull}")
+echo "Step $testNum - Verifying image $imageFull exists in $ENGINE local registry"
+if [[ $ENGINE == "podman" ]]; then
+   imageLocal="localhost/${imageFull}"
+else
+   imageLocal="${imageFull}"
+fi
+imageExists=false
+if $ENGINE images -q "${imageLocal}" | grep -q .; then
+   imageExists=true
+fi
+if [[ "$imageExists" == true ]]; then
+   imageReference=$($ENGINE images "${imageLocal}" --format '{{.Repository}}:{{.Tag}}' | grep "${imageLocal}")
+   imageSize=$($ENGINE images --format "{{.Size}}" "${imageLocal}" | head -n1)
    echo "✓ Step $testNum PASS: Image found!"
-   echo "  Repository: $imageRepo"
+   echo "  Local Reference: $imageReference"
    echo "  Size: $imageSize"
 else
-   echo "✖ Step $testNum FAIL: Image '${imageFull}' not found in podman registry"
-   podman images | grep "${imageFull}" || echo "  No matching images found"
+   if [[ $ENGINE == "podman" ]]; then
+      echo "✖ Step $testNum FAIL: Image '${imageFull}' not found in $ENGINE \"localhost/\" local registry"
+   else
+      echo "✖ Step $testNum FAIL: Image '${imageFull}' not found in $ENGINE local registry"
+   fi
    ((totalFailed++))
    exit 1
 fi
@@ -240,9 +305,14 @@ echo
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Checking build success line"
 
-if tail -10 "$logFileBuild" | grep -qE "Successfully tagged.*${imageFull}"; then
+if [[ "$ENGINE" == "docker" ]]; then
+   successPattern="naming to.*${imageFull}.*done"
+else
+   successPattern="Successfully tagged.*${imageFull}"
+fi
+if tail -10 "$logFileBuild" | grep -qE "$successPattern"; then
    echo "✓ Step $testNum PASS: Success line found in $logFileBuild"
-   tail -10 "$logFileBuild" | grep -E "Successfully tagged.*${imageFull}"
+   tail -10 "$logFileBuild" | grep -E "$successPattern"
 else
    echo "✖ Step $testNum FAIL: No success line in $logFileBuild"
    echo "Last 10 lines:"
@@ -258,7 +328,7 @@ echo "Checking the file $logFileBuild"
 if [[ -f $logFileBuild ]] ; then
    errorCount=$(grep -iE "\\bError\\b" "$logFileBuild" | grep -viEc 'Error[./-]|ignor')
    if [[ "$errorCount" -eq 0 ]]; then
-      echo "✓ Step $testNum PASS: CLEAN of 'Error'(s) (not ignored) in $logFileBuild"
+      echo "✓ Step $testNum PASS: Clean $logFileBuild"
    else
       echo "✖ Step $testNum FAIL: $errorCount 'Error'(s) found in $logFileBuild"
       echo "First 5 errors:"
@@ -280,14 +350,14 @@ logFile='$WM_THIRD_PARTY_DIR/log.AllwmakeSummary'
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Checking that ThirdParty compilation finalised without 'Error'"
 echo "Checking the file $logFile"
-if podman run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
-   errorCount=$(podman run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viEc 'Error[./-]|ignor')
+if $ENGINE run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
+   errorCount=$($ENGINE run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viEc 'Error[./-]|ignor')
    if [[ "$errorCount" -eq 0 ]]; then
-      echo "✓ Step $testNum PASS: CLEAN of 'Error'(s) (not ignored) in $logFile"
+      echo "✓ Step $testNum PASS: Clean $logFile"
    else
       echo "✖ Step $testNum FAIL: $errorCount 'Error'(s) found in $logFile"
       echo "First 5 errors:"
-      podman run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viE 'Error[./-]|ignor' | head -5
+      $ENGINE run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viE 'Error[./-]|ignor' | head -5
       failedTests+=("$testNum: ThirdParty log has $errorCount errors")
       ((totalFailed++))
    fi
@@ -308,14 +378,14 @@ logFile='$WM_THIRD_PARTY_DIR/log.makePV'
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Checking that ParaView compilation finalised without 'Error'"
 echo "Checking the file $logFile"
-if podman run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
-   errorCount=$(podman run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viEc 'Error[./-]|ignor')
+if $ENGINE run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
+   errorCount=$($ENGINE run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viEc 'Error[./-]|ignor')
    if [[ "$errorCount" -eq 0 ]]; then
-      echo "✓ Step $testNum PASS: CLEAN of 'Error'(s) (not ignored) in $logFile"
+      echo "✓ Step $testNum PASS: Clean $logFile"
    else
       echo "✖ Step $testNum FAIL: $errorCount 'Error'(s) found in $logFile"
       echo "First 5 errors:"
-      podman run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viE 'Error[./-]|ignor' | head -5
+      $ENGINE run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viE 'Error[./-]|ignor' | head -5
       failedTests+=("$testNum: ParaView log has $errorCount errors")
       ((totalFailed++))
    fi
@@ -338,14 +408,14 @@ logFile='$WM_PROJECT_DIR/log.AllwmakeSummary'
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Checking that OpenFOAM compilation finalised without 'Error'"
 echo "Checking the file $logFile"
-if podman run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
-   errorCount=$(podman run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viE 'Error[./-]|ignor')
+if $ENGINE run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
+   errorCount=$($ENGINE run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viE 'Error[./-]|ignor')
    if [[ "$errorCount" -eq 0 ]]; then
-      echo "✓ Step $testNum PASS: CLEAN of 'Error'(s) (not ignored) in $logFile"
+      echo "✓ Step $testNum PASS: Clean $logFile"
    else
       echo "✖ Step $testNum FAIL: $errorCount 'Error'(s) found in $logFile"
       echo "First 5 errors:"
-      podman run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viEc 'Error[./-]|ignor' | head -5
+      $ENGINE run --rm "$imageFull" bash -c "grep -iE '\\bError\\b' \"$logFile\"" | grep -viEc 'Error[./-]|ignor' | head -5
       failedTests+=("$testNum: OpenFOAM log has $errorCount errors")
       ((totalFailed++))
    fi
@@ -367,14 +437,14 @@ logFile='$WM_PROJECT_DIR/log.OF_TOOL'
 echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Checking that OpenFOAM tool basic output is correct"
 echo "Checking the file $logFile"
-if podman run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
-   if podman run --rm "$imageFull" bash -c "
+if $ENGINE run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
+   if $ENGINE run --rm "$imageFull" bash -c "
     grep -qE '^Usage:' \"$logFile\" &&
     grep -qE '^Options:' \"$logFile\" &&
     grep -qE '^Using: OpenFOAM-${OF_VERSION}' \"$logFile\"
    "; then
       echo "✓ Test $testNum PASS: All required output lines found in $logFile"
-      podman run --rm "$imageFull" bash -c "
+      $ENGINE run --rm "$imageFull" bash -c "
          grep -E '^Usage:' \"$logFile\";
          grep -E '^Options:' \"$logFile\";
          grep -E '^Using: OpenFOAM-${OF_VERSION}' \"$logFile\"
@@ -382,7 +452,7 @@ if podman run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
    else
       echo "✖ Test $testNum FAIL: Missing required output lines in $logFile"
       echo "Missing patterns:"
-      podman run --rm "$imageFull" bash -c "
+      $ENGINE run --rm "$imageFull" bash -c "
        [[ \$(grep -cE '^Usage:' \"$logFile\") -eq 0 ]] && echo '  - ^Usage:';
        [[ \$(grep -cE '^Options:' \"$logFile\") -eq 0 ]] && echo '  - ^Options:';
        [[ \$(grep -cE '^Using: OpenFOAM-${OF_VERSION}') -eq 0 ]] && echo '  - ^Using: OpenFOAM-${OF_VERSION}'
@@ -408,7 +478,6 @@ echo "======================================================"
 echo "Total steps run: $testNum"
 if [[ $totalFailed -eq 0 ]]; then
    echo "✓ ALL STEPS PASSED! Image '$imageFull' was built successfully."
-   echo " Apply minimal test and then perform singularity build."
    exit 0
 else
    echo "✖ $totalFailed STEPS(S) FAILED:"

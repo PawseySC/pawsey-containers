@@ -16,6 +16,7 @@ borra*
 *.tar
 *.bak
 *.tmp
+tmp/
 
 # OpenFOAM tools and cases source files and directories
 run

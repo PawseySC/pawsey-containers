@@ -393,7 +393,8 @@ FROM of_install AS final_settings
 # Recall global definitions made at the top
 ARG OF_INSTALL_DIR
 # Relaxing permissions to avoid problems
-RUN chmod -R a+rwX $OF_INSTALL_DIR
+RUN mkdir -p $OF_INSTALL_DIR \
+ && chmod -R a+rwX $OF_INSTALL_DIR
 
 #---------------------------------------------------------------
 # H.2 Setup to source OpenFoam OF_BASHRC_FILE at container entry with Docker

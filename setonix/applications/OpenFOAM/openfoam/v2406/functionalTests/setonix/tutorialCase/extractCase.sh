@@ -17,9 +17,9 @@ OF_FORK="openfoam" #OpenFOAM fork: "openfoam" (ESI fork) or "openfoam-org" (Foun
 OF_VERSION="v2406" #OpenFOAM version
 UBUNTU_VERSION="24.04" #Ubuntu version
 # Exact path of the singularity image:
-IMAGE_NAME="${OF_FORK}_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
 #IMAGE_DIR="${MYSOFTWARE}/singularity/images"
 IMAGE_DIR="${MYSCRATCH}/singularity/images"
+IMAGE_NAME="${OF_FORK}_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
 SINGULARITY_CONTAINER="${IMAGE_DIR}/${IMAGE_NAME}"
 echo "Image to use: ${SINGULARITY_CONTAINER}"
 

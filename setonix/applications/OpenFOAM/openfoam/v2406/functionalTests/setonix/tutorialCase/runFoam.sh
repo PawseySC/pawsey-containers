@@ -23,9 +23,9 @@ OF_FORK="openfoam" #OpenFOAM fork: "openfoam" (ESI fork) or "openfoam-org" (Foun
 OF_VERSION="v2406" #OpenFOAM version
 UBUNTU_VERSION="24.04" #Ubuntu version
 # Exact path of the singularity image:
-IMAGE_NAME="${OF_FORK}_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
 #IMAGE_DIR="${MYSOFTWARE}/singularity/images"
 IMAGE_DIR="${MYSCRATCH}/singularity/images"
+IMAGE_NAME="${OF_FORK}_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"
 SINGULARITY_CONTAINER="${IMAGE_DIR}/${IMAGE_NAME}"
 echo "Image to use: ${SINGULARITY_CONTAINER}"
 
@@ -132,7 +132,7 @@ fi
 if [[ $(echo "$execTime < $maxExecTime" | bc -l) -eq 0 ]]; then
     echo "WARNING: ExecutionTime too high: ${execTime}s is greater than limit maxExecTime=${maxExecTime}s"
 else
-    echo "Correct ✔: ExecutionTime = ${execTime}s is in range. (Less than maxExecTime=${maxExecTime}s)"
+    echo "Correct ✓: ExecutionTime = ${execTime}s is in range. (Less than maxExecTime=${maxExecTime}s)"
 fi
 
 # 3. Extract final Ux residual
@@ -147,7 +147,7 @@ fi
 if ! awk -v res="$UxLastInitialResidual" -v max="$maxUxLastInitialResidual" 'BEGIN {exit (res < max ? 0 : 1)}'; then
     echo "ERROR: UxLastInitialResidual too high: ${UxLastInitialResidual} is greater than limit maxUxLastInitialResidual=${maxUxLastInitialResidual}"
 else
-    echo "Correct ✔: UxLastInitialResidual = ${UxLastInitialResidual} is in range. (Less than maxUxLastInitialResidual=${maxUxLastInitialResidual})"
+    echo "Correct ✓: UxLastInitialResidual = ${UxLastInitialResidual} is in range. (Less than maxUxLastInitialResidual=${maxUxLastInitialResidual})"
 fi
 
 #-- Final steps:
