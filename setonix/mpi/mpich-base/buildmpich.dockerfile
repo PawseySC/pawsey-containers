@@ -8,23 +8,20 @@ FROM ubuntu:${OS_VERSION}
 # redefine after FROM to ensure it is defined
 ARG OS_VERSION="24.04"
 # mpich version
-ARG MPICH_VERSION="3.4.3"
+ARG MPICH_VERSION="4.2.2"
+# Docker recipes directory
+ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
 
-#define some metadata 
-LABEL org.opencontainers.image.created="2025-06"
+# Labels:
 LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au"
-LABEL org.opencontainers.image.documentation="https://github.com/PawseySC/pawsey-containers/"
-LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/mpi/mpich-base/buildmpich.dockerfile"
-LABEL org.opencontainers.image.vendor="Pawsey Supercomputing Research Centre"
-LABEL org.opencontainers.image.licenses="GNU GPL3.0"
-LABEL org.opencontainers.image.title="Setonix compatible MPICH base"
-LABEL org.opencontainers.image.description="Common base image providing mpi compatible with cray-mpich used on Setonix"
-LABEL org.opencontainers.image.base.name="pawsey/mpibase:ubuntu${OS_VERSION}-mpich-${MPICH_VERSION}.setonix"
+LABEL org.opencontainers.image.name="mpich-base"
+LABEL org.opencontainers.image.branch="${MPICH_VERSION}-ubuntu${OS_VERSION}"
+LABEL org.opencontainers.image.dockerfile-internal-backup="${DOCKER_RECIPES_DIR}"
+LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawsey-containers"
 
 # syntax=docker/dockerfile:1 
 # run apt-get install on a few packages
-ENV DEBIAN_FRONTEND="noninteractive"
-RUN apt-get update -qq \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
     && apt-get -y --no-install-recommends install \
         build-essential \
         ca-certificates \
@@ -34,7 +31,7 @@ RUN apt-get update -qq \
         git \
         python3-six python3-setuptools \
         patchelf strace ltrace \
-        libcrypt-dev \ 
+        libcrypt-dev \
         libcurl4-openssl-dev \
         libpython3-dev \
         libreadline-dev \
@@ -46,7 +43,6 @@ RUN apt-get update -qq \
         curl \
         flex \
         gcovr \
-        gdb \
         libtool \
         m4 \
         make \
@@ -59,7 +55,6 @@ RUN apt-get update -qq \
         tzdata \
         valgrind \
         vim \
-        wget \
         xsltproc \
         zlib1g-dev \
     && apt-get clean all \
@@ -67,8 +62,8 @@ RUN apt-get update -qq \
     && echo "Finished apt-get installs"
 
 # Build MPICH
-ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=all,O3 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FC=gfortran FFLAGS=-fallow-argument-mismatch FCFLAGS=-fallow-argument-mismatch"
-ARG MPICH_MAKE_OPTIONS="-j4"
+ARG MPICH_CONFIGURE_OPTIONS="--enable-fast=O2 --enable-fortran --enable-romio --prefix=/usr --with-device=ch4:ofi CC=gcc CXX=g++ FC=gfortran FFLAGS=-fallow-argument-mismatch FCFLAGS=-fallow-argument-mismatch"
+ARG MPICH_MAKE_OPTIONS="-j16"
 RUN mkdir -p /tmp/mpich-build \
       && cd /tmp/mpich-build \
       && wget http://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz \
@@ -82,9 +77,9 @@ RUN mkdir -p /tmp/mpich-build \
       && rm -rf /tmp/mpich-build
 
 # Build OSU Benchmarks
-ARG OSU_VERSION="6.2"
+ARG OSU_VERSION="7.3"
 ARG OSU_CONFIGURE_OPTIONS="--prefix=/usr/local CC=mpicc CXX=mpicxx CFLAGS=-O3"
-ARG OSU_MAKE_OPTIONS="-j4"
+ARG OSU_MAKE_OPTIONS="-j8"
 RUN mkdir -p /tmp/osu-benchmark-build \
       && cd /tmp/osu-benchmark-build \
       && wget https://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
@@ -113,10 +108,11 @@ RUN mkdir -p /opt/ \
 
 # add mpi4py in the container 
 # CMEYER: --breaks-system-packages needed with python/3.12 + ubuntu24.04
-RUN pip install --break-system-packages mpi4py
+# RUN pip install --break-system-packages mpi4py
+RUN MPICC=/usr/bin/mpicc pip install --no-binary=mpi4py --break-system-packages mpi4py
 
 RUN mkdir -p /container-scratch/
 
 # and copy the recipe into the docker recipes directory
-RUN mkdir -p /opt/docker-recipes/
-COPY buildmpich.dockerfile /opt/docker-recipes/
+RUN mkdir -p $DOCKER_RECIPES_DIR
+COPY buildmpich.dockerfile $DOCKER_RECIPES_DIR
