@@ -1,22 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=ctnr-vs-native
+#SBATCH --job-name=T03_ctnr-vs-native
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=00:20:00
-#SBATCH --output=test_03_%j.out
-#SBATCH --error=test_03_%j.err
+##SBATCH --partition=work
+#SBATCH --partition=debug
+#SBATCH --output=slurm-test_03-%j.out
 
 set -euo pipefail
 
-SINGULARITY_IMAGE=${SINGULARITY_IMAGE:-/path/to/mpich-base_3.4.3.sif}
+MPICH_VERSION="3.4.3"
+#MPICH_VERSION="4.2.2"
+SINGULARITY_IMAGE="${MYSCRATCH}/pawsey-containers/setonix/mpi/mpich-base/mpich-base_${MPICH_VERSION}.sif"
+echo "Using image: $SINGULARITY_IMAGE"
 
 module load singularity/4.1.0-mpi
-
-WORKDIR="${SLURM_SUBMIT_DIR}/test_03_${SLURM_JOB_ID}"
-mkdir -p "${WORKDIR}"
-cd "${WORKDIR}"
-
-cp "${SLURM_SUBMIT_DIR}/mpi_perf_compare.c" .
+module list
 
 echo "=== Build native binary with Cray wrapper cc ==="
 cc -O3 mpi_perf_compare.c -o mpi_perf_native

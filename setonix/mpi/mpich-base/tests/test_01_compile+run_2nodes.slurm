@@ -4,6 +4,8 @@
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=00:10:00
 #SBATCH --partition=work
+##SBATCH --partition=work
+#SBATCH --partition=debug
 #SBATCH --output=slurm-test_01-%j.out
 
 set -euo pipefail

@@ -3,7 +3,8 @@
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=00:15:00
-#SBATCH --partition=work
+##SBATCH --partition=work
+#SBATCH --partition=debug
 #SBATCH --output=slurm-test_02-%j.out
 
 set -euo pipefail
@@ -36,6 +37,7 @@ echo
 echo "=== OSU latency: 2 nodes, 1 rank per node ==="
 srun -N 2 --ntasks-per-node=1 \
     singularity exec "${SINGULARITY_IMAGE}" osu_latency | tee out.test_02.osu_latency.txt
+echo
 
 grep -q "# OSU MPI Latency Test" out.test_02.osu_latency.txt
 grep -q "^0[[:space:]]" out.test_02.osu_latency.txt
@@ -55,7 +57,7 @@ srun -N 2 --ntasks-per-node="${SLURM_NTASKS_PER_NODE}" \
     singularity exec "${SINGULARITY_IMAGE}" osu_allreduce | tee out.test_02.osu_allreduce.txt
 
 grep -q "# OSU MPI Allreduce Latency Test" out.test_02.osu_allreduce.txt
-grep -q "^0[[:space:]]" out.test_02.osu_allreduce.txt
+grep -q "^4[[:space:]]" out.test_02.osu_allreduce.txt
 grep -q "^1048576[[:space:]]" out.test_02.osu_allreduce.txt
 
 echo
