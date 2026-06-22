@@ -9,6 +9,8 @@ out.*
 log.*
 *.log
 *.exe
+ignore/
+
 
 # Virtualenv
 /.venv/
