@@ -3,10 +3,12 @@
 .vscode
 *.sif
 out_*
-nohup.out
+out.*
+*.out
 *.tgz
 log.*
 *.log
+*.exe
 
 # Virtualenv
 /.venv/
