@@ -1,5 +1,5 @@
 # This Dockerfile builds an Ubuntu-based MPICH container image ABI compatible
-# with Cray-MPICH (native in Setonix).
+# with Cray-MPICH to enable MPI computation on HPE Cray EX systems.
 # It installs a minimal build/runtime environment,
 # compiles MPICH from source with OFI support, adds mpi4py, builds the OSU
 # Micro-Benchmarks, and includes additional Pawsey MPI/OpenMP test utilities.
