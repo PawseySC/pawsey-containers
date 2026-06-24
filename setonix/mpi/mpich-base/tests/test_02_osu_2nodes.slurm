@@ -10,6 +10,10 @@
 # Focus:
 # This test focuses on proper execution of some OSU tests
 
+# Note:
+# This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
+# This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.s
+
 #--- Strict mode
 set -euo pipefail
 

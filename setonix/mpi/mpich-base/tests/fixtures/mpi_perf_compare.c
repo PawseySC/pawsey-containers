@@ -1,3 +1,16 @@
+/*
+ * mpi_perf_compare.c
+ * MPI performance smoke test: prints rank-to-host mapping and MPI runtime details,
+ * then measures rank 0/1 ping-pong latency/bandwidth for selected message sizes.
+ * Also times repeated MPI_Allreduce calls and prints a success marker on completion.
+ */
+
+ /* 
+ * Note:
+ * This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
+ * This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.
+ */
+
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+
+# Basic mpi4py acceptance test: verifies communicator collectives, ring sendrecv,
+# broadcast, hostname gathering, and optional NumPy typed-buffer Allreduce.
+# Rank 0 reports MPI/mpi4py runtime details, node distribution, and a success marker.
+
+# Note:
+# This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
+# This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.
+
 from mpi4py import MPI
 import socket
 import sys

@@ -11,6 +11,10 @@
 # This test focuses on comparing the execution of bare-metal compiled binary
 # vs compiled&run from the container
 
+# Note:
+# This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
+# This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.
+
 #--- Strict mode
 set -euo pipefail
 
@@ -173,7 +177,7 @@ SETONIX_DIR="$(realpath "${MPI_DIR}/..")"
 REPO_ROOT="$(realpath "${SETONIX_DIR}/..")"
 
 #--- Test directories
-FIXTURE_DIR="${TESTS_DIR}/fixtures"
+FIXTURES_DIR="${TESTS_DIR}/fixtures"
 ARTIFACTS_DIR="${TESTS_DIR}/artifacts"
 BUILD_DIR="${ARTIFACTS_DIR}/build"
 OUTPUT_DIR="${ARTIFACTS_DIR}/output"
@@ -196,7 +200,7 @@ IMAGE_DIR="${IMAGE_DIR:-${ARTIFACTS_DIR}/singularityImages}"
 AUX_DIR="${AUX_DIR:-${MPI_DIR}/auxiliary}"
 
 #--- Canonical paths
-FIXTURE_DIR="$(realpath "${FIXTURE_DIR}")"
+FIXTURES_DIR="$(realpath "${FIXTURES_DIR}")"
 ARTIFACTS_DIR="$(realpath "${ARTIFACTS_DIR}")"
 BUILD_DIR="$(realpath "${BUILD_DIR}")"
 OUTPUT_DIR="$(realpath "${OUTPUT_DIR}")"
@@ -215,7 +219,7 @@ fi
 echo "Using image: ${SINGULARITY_IMAGE}"
 echo "Repository root: ${REPO_ROOT}"
 echo "Tests directory: ${TESTS_DIR}"
-echo "Fixtures directory: ${FIXTURE_DIR}"
+echo "Fixtures directory: ${FIXTURES_DIR}"
 echo "Artifacts directory: ${ARTIFACTS_DIR}"
 echo "Build directory: ${BUILD_DIR}"
 echo "Output directory: ${OUTPUT_DIR}"
@@ -230,7 +234,7 @@ fi
 module list
 
 #--- Input/output files
-src="${FIXTURE_DIR}/mpi_perf_compare.c"
+src="${FIXTURES_DIR}/mpi_perf_compare.c"
 
 theMetalExe="${BUILD_DIR}/mpi_perf_compare.metal.exe"
 theImageExe="${BUILD_DIR}/mpi_perf_compare.image.exe"
