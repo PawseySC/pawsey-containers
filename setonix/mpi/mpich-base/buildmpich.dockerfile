@@ -70,6 +70,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
         libtool \
         m4 \
         make \
+        cmake \
         openssh-server \
         patch \
         python3-numpy \
@@ -164,16 +165,17 @@ FROM build_osu AS other_tests
 #---------------------------------------------------------------
 # E.1 Add a more complex set of tests for MPI as well
 RUN mkdir -p /opt/ \
-      && cd /opt/ \
-      && git clone https://github.com/PawseySC/profile_util \
-      && cd profile_util  \
-      && sed -i "s:CXX=CC:CXX=g++:g" ./build_cpu.sh \
-      && sed -i "s:MPICXX=CC:MPICXX=mpic++:g" ./build_cpu.sh \
-      && ./build_cpu.sh \
-      && cd examples/mpi/ \
-      && make MPICXX=mpic++ \
-      && cd ../../examples/openmp \
-      && make CXX=g++ bin/openmpvec_cpp
+    && cd /opt/ \
+    && git clone https://github.com/PawseySC/profile_util \
+    && cd profile_util \
+    && cmake -S . -B build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER=mpic++ \
+        -DPU_ENABLE_MPI=ON \
+        -DPU_ENABLE_OPENMP=OFF \
+        -DPU_ENABLE_CUDA=OFF \
+        -DPU_ENABLE_HIP=OFF \
+    && cmake --build build --parallel
 
 
 #---------------------------------------------------------------
