@@ -9,8 +9,8 @@
 #SBATCH --output=artifacts/output/slurm-test_05-%j.out
 
 # Focus:
-# This test validates execution of selected MPI programs from the profile_util repository
-# inside the mpich-base container.
+# This test validates execution of selected MPI communication tests from the
+# profile_util repository inside the mpich-base container.
 
 # Note:
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
@@ -53,6 +53,31 @@ compare_float_gt() {
     awk -v lhs="${lhs}" -v rhs="${rhs}" 'BEGIN { exit !(lhs > rhs) }'
 }
 
+extract_max_tag_world_average_usec() {
+    local test_name="$1"
+    local input_file="$2"
+
+    awk -v test_name="${test_name}" '
+        /MPI Comm=Tag_world/ && $0 ~ test_name && /timing \[ave,std,min,max\]/ {
+            if (match($0, /timing \[ave,std,min,max\]=\[[^]]+\]/)) {
+                metric = substr($0, RSTART, RLENGTH)
+                gsub(/^timing \[ave,std,min,max\]=\[/, "", metric)
+                gsub(/\]$/, "", metric)
+                split(metric, values, ",")
+                ave = values[1] + 0
+                if (ave > max_ave) {
+                    max_ave = ave
+                }
+                count++
+            }
+        }
+        END {
+            if (count > 0) {
+                print max_ave
+            }
+        }
+    ' "${input_file}"
+}
 
 pass() {
     echo
@@ -137,12 +162,35 @@ fi
 module list
 
 #--- ProfileUtil test configuration
-PROFILEUTIL_MPI_COMPUTE_EXE="${PROFILEUTIL_MPI_COMPUTE_EXE:-/opt/profile_util/examples/mpi/bin/mpi-compute}"
-PROFILEUTIL_MPI_COMPUTE_ARGS="${PROFILEUTIL_MPI_COMPUTE_ARGS:-512 10}"
-PROFILEUTIL_WARN_TIME_MIN="${PROFILEUTIL_WARN_TIME_MIN:-6.0}"
-PROFILEUTIL_FAIL_TIME_MIN="${PROFILEUTIL_FAIL_TIME_MIN:-10.0}"
+PROFILEUTIL_MPI_COMM_EXE="${PROFILEUTIL_MPI_COMM_EXE:-/opt/profile_util/build/src/tests/test_mpi_comm}"
 
-read -r -a mpi_compute_args <<< "${PROFILEUTIL_MPI_COMPUTE_ARGS}"
+# Important:
+# -s 0.001: keeps messages small and CI-safe.
+# -i 1: one iteration.
+# -d 1 -m 1000: harmless safety values if longdelay is ever re-enabled.
+# -D 0: disables longdelay.
+# -C 0: disables correct-values test.
+# -G 0 -S 0: disables empty gather/scatter tests.
+# -R 1: enables allreduce.
+# -B 1: enables Bcast test.
+# -P 1: enables sendrecv.
+# -p 1: enables sendrecv_singlerank.
+PROFILEUTIL_MPI_COMM_ARGS="${PROFILEUTIL_MPI_COMM_ARGS:--s 0.001 -i 1 -d 1 -m 1000 -D 0 -C 0 -G 0 -S 0 -R 1 -B 1 -P 1 -p 1}"
+
+# Whole-job wall-clock thresholds.
+PROFILEUTIL_WARN_TIME_SEC="${PROFILEUTIL_WARN_TIME_SEC:-600}"
+PROFILEUTIL_FAIL_TIME_SEC="${PROFILEUTIL_FAIL_TIME_SEC:-840}"
+
+# MPI operation timing thresholds.
+# test_mpi_comm reports these timings in microseconds.
+# Defaults are broad regression guards, not tight benchmark targets.
+PROFILEUTIL_ALLREDUCE_WARN_USEC="${PROFILEUTIL_ALLREDUCE_WARN_USEC:-8000000}"
+PROFILEUTIL_ALLREDUCE_FAIL_USEC="${PROFILEUTIL_ALLREDUCE_FAIL_USEC:-12000000}"
+
+PROFILEUTIL_SENDRECV_WARN_USEC="${PROFILEUTIL_SENDRECV_WARN_USEC:-80000000}"
+PROFILEUTIL_SENDRECV_FAIL_USEC="${PROFILEUTIL_SENDRECV_FAIL_USEC:-120000000}"
+
+read -r -a mpi_comm_args <<< "${PROFILEUTIL_MPI_COMM_ARGS}"
 
 TOTAL_TASKS=$((SLURM_JOB_NUM_NODES * SLURM_NTASKS_PER_NODE))
 
@@ -150,8 +198,8 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 #--- Output files
 fileOutBinaryCheck="${OUTPUT_DIR}/res_test_05.profileUtil_binaries.out"
-fileOutLinkage="${OUTPUT_DIR}/res_test_05.mpi_compute_linkage.out"
-fileOutRun="${OUTPUT_DIR}/res_test_05.mpi_compute_run.out"
+fileOutLinkage="${OUTPUT_DIR}/res_test_05.test_mpi_comm_linkage.out"
+fileOutRun="${OUTPUT_DIR}/res_test_05.test_mpi_comm_run.out"
 fileOutPerf="${OUTPUT_DIR}/res_test_05.performance.out"
 fileOutSummary="${OUTPUT_DIR}/res_test_05.summary.out"
 
@@ -159,13 +207,13 @@ fileOutSummary="${OUTPUT_DIR}/res_test_05.summary.out"
 echo
 echo "=== ProfileUtil binary availability check ==="
 
-if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
-    "test -x '${PROFILEUTIL_MPI_COMPUTE_EXE}' && echo '${PROFILEUTIL_MPI_COMPUTE_EXE}'" \
-    | tee "${fileOutBinaryCheck}"; then
-    fail "ProfileUtil executable not found or not executable: ${PROFILEUTIL_MPI_COMPUTE_EXE}. See: ${fileOutBinaryCheck}"
+if ! singularity exec "${SINGULARITY_IMAGE}" test -x "${PROFILEUTIL_MPI_COMM_EXE}"; then
+    fail "ProfileUtil executable not found or not executable: ${PROFILEUTIL_MPI_COMM_EXE}. See: ${fileOutBinaryCheck}"
 fi
 
-if ! grep -q "${PROFILEUTIL_MPI_COMPUTE_EXE}" "${fileOutBinaryCheck}"; then
+echo "${PROFILEUTIL_MPI_COMM_EXE}" | tee "${fileOutBinaryCheck}"
+
+if ! grep -aq "${PROFILEUTIL_MPI_COMM_EXE}" "${fileOutBinaryCheck}"; then
     fail "ProfileUtil executable path was not reported correctly. See: ${fileOutBinaryCheck}"
 fi
 
@@ -173,153 +221,214 @@ echo "ProfileUtil binary check passed"
 
 #--- Linkage check
 echo
-echo "=== ProfileUtil mpi-compute linkage check ==="
+echo "=== ProfileUtil test_mpi_comm linkage check ==="
 
-if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
-    "ldd '${PROFILEUTIL_MPI_COMPUTE_EXE}' | grep -E 'profile_util|mpi|fabric|cxi|pmi|pmix|pals|xpmem' || true" \
+if ! singularity exec "${SINGULARITY_IMAGE}" ldd "${PROFILEUTIL_MPI_COMM_EXE}" \
+    | grep -aE 'profile_util|mpi|fabric|cxi|pmi|pmix|pals|xpmem' \
     | tee "${fileOutLinkage}"; then
-    fail "Linkage command failed for ${PROFILEUTIL_MPI_COMPUTE_EXE}. See: ${fileOutLinkage}"
+    fail "Linkage command failed for ${PROFILEUTIL_MPI_COMM_EXE}. See: ${fileOutLinkage}"
 fi
 
-if ! grep -q "libprofile_util" "${fileOutLinkage}"; then
-    fail "Expected mpi-compute to link against libprofile_util. See: ${fileOutLinkage}"
+if ! grep -aq "libprofile_util" "${fileOutLinkage}"; then
+    fail "Expected test_mpi_comm to link against libprofile_util. See: ${fileOutLinkage}"
 fi
 
-if ! grep -q "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
-    fail "Expected mpi-compute to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
+if ! grep -aq "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
+    fail "Expected test_mpi_comm to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
 fi
 
-if ! grep -q "/opt/cray/libfabric" "${fileOutLinkage}"; then
-    fail "Expected mpi-compute to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
+if ! grep -aq "/opt/cray/libfabric" "${fileOutLinkage}"; then
+    fail "Expected test_mpi_comm to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
 fi
 
 echo "ProfileUtil linkage check passed"
 
 #--- Runtime test
 echo
-echo "=== ProfileUtil mpi-compute runtime test ==="
-echo "Executable: ${PROFILEUTIL_MPI_COMPUTE_EXE}"
-echo "Arguments : ${PROFILEUTIL_MPI_COMPUTE_ARGS}"
+echo "=== ProfileUtil test_mpi_comm runtime test ==="
+echo "Executable: ${PROFILEUTIL_MPI_COMM_EXE}"
+echo "Arguments : ${PROFILEUTIL_MPI_COMM_ARGS}"
 echo "Ranks     : ${TOTAL_TASKS}"
 echo "OMP_NUM_THREADS=${OMP_NUM_THREADS}"
 date -Iseconds
 
+START_TIME_SEC="$(date +%s)"
+
 if ! srun -N "${SLURM_JOB_NUM_NODES}" \
      --ntasks-per-node="${SLURM_NTASKS_PER_NODE}" \
      singularity exec "${SINGULARITY_IMAGE}" \
-     "${PROFILEUTIL_MPI_COMPUTE_EXE}" "${mpi_compute_args[@]}" \
+     "${PROFILEUTIL_MPI_COMM_EXE}" "${mpi_comm_args[@]}" \
      2>&1 | tee "${fileOutRun}"; then
-    fail "ProfileUtil mpi-compute run failed. See: ${fileOutRun}"
+    fail "ProfileUtil test_mpi_comm run failed. See: ${fileOutRun}"
 fi
+
+END_TIME_SEC="$(date +%s)"
+ELAPSED_TIME_SEC=$((END_TIME_SEC - START_TIME_SEC))
 
 date -Iseconds
 
 #--- Runtime validation
 echo
-echo "=== Validate ProfileUtil mpi-compute output ==="
+echo "=== Validate ProfileUtil test_mpi_comm output ==="
 
-if ! grep -q "Starting job" "${fileOutRun}"; then
-    fail "mpi-compute output missing 'Starting job'. See: ${fileOutRun}"
+if grep -aqE "MPICH ERROR|Fatal error|MPI_Abort|Invalid root|srun: error" "${fileOutRun}"; then
+    fail "test_mpi_comm output contains MPI/runtime error diagnostics. See: ${fileOutRun}"
 fi
 
-if ! grep -q "MPI Comm world size ${TOTAL_TASKS}" "${fileOutRun}"; then
-    fail "mpi-compute output missing expected MPI world size ${TOTAL_TASKS}. See: ${fileOutRun}"
+if ! grep -aq "Starting job" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing 'Starting job'. See: ${fileOutRun}"
 fi
 
-if ! grep -q "OpenMP version" "${fileOutRun}"; then
-    fail "mpi-compute output missing OpenMP runtime information. See: ${fileOutRun}"
+if ! grep -aq "Version:" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing profile_util version information. See: ${fileOutRun}"
 fi
 
-if ! grep -q "Producing" "${fileOutRun}"; then
-    fail "mpi-compute output missing data generation phase. See: ${fileOutRun}"
+if ! grep -aq "MPI Comm world size ${TOTAL_TASKS}" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing expected MPI world size ${TOTAL_TASKS}. See: ${fileOutRun}"
 fi
 
-if ! grep -q "redistributing" "${fileOutRun}"; then
-    fail "mpi-compute output missing redistribution phase. See: ${fileOutRun}"
+if ! grep -aq "Core Binding" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing core binding information. See: ${fileOutRun}"
 fi
 
-if ! grep -q "Transforming data" "${fileOutRun}"; then
-    fail "mpi-compute output missing transform phase. See: ${fileOutRun}"
+if ! grep -aq "Node system memory report" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing node system memory report. See: ${fileOutRun}"
 fi
 
-if ! grep -q "gridding" "${fileOutRun}"; then
-    fail "mpi-compute output missing gridding phase. See: ${fileOutRun}"
+if ! grep -aq "running sendrecv_singlerank test" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing sendrecv_singlerank test. See: ${fileOutRun}"
 fi
 
-if ! grep -q "computing" "${fileOutRun}"; then
-    fail "mpi-compute output missing compute phase. See: ${fileOutRun}"
+if ! grep -aq "running allreduce test" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing allreduce test. See: ${fileOutRun}"
 fi
 
-if ! grep -q "Ending job" "${fileOutRun}"; then
-    fail "mpi-compute output missing 'Ending job'. See: ${fileOutRun}"
+if ! grep -aq "running sendrecv test" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing sendrecv test. See: ${fileOutRun}"
 fi
 
-# With default args "512 10", expected iteration labels are 0..9.
-# If users override PROFILEUTIL_MPI_COMPUTE_ARGS, infer Niter from the second argument.
-EXPECTED_NITER="${mpi_compute_args[1]:-10}"
-LAST_ITER=$((EXPECTED_NITER - 1))
-
-if [[ "${EXPECTED_NITER}" -gt 0 ]]; then
-    if ! grep -q "At iteration ${LAST_ITER}" "${fileOutRun}"; then
-        fail "mpi-compute output missing expected final iteration ${LAST_ITER}. See: ${fileOutRun}"
-    fi
+if ! grep -aq "running Bcast test" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing Bcast test. See: ${fileOutRun}"
 fi
 
-# Check rank-distributed logging. The program should report at least one line per rank
-# during data generation.
-PRODUCING_COUNT="$(awk '/Producing / {c++} END {print c+0}' "${fileOutRun}")"
-
-if [[ "${PRODUCING_COUNT}" -lt "${TOTAL_TASKS}" ]]; then
-    fail "Expected at least ${TOTAL_TASKS} 'Producing' lines, got ${PRODUCING_COUNT}. See: ${fileOutRun}"
+if ! grep -aq "MPI Comm=Tag_world" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing Tag_world communicator timing/reporting. See: ${fileOutRun}"
 fi
 
-#--- Performance validation
+if ! grep -aq "MPI Comm=Tag_world @MPITestBcast" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing Tag_world Bcast timing. See: ${fileOutRun}"
+fi
+
+if ! grep -aq "timing \[ave,std,min,max\]" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing aggregate timing statistics. See: ${fileOutRun}"
+fi
+
+if ! grep -aq "Ending job" "${fileOutRun}"; then
+    fail "test_mpi_comm output missing 'Ending job'. See: ${fileOutRun}"
+fi
+
+#--- Timing/reporting validation
 echo
-echo "=== Validate ProfileUtil mpi-compute runtime performance ==="
+echo "=== Validate ProfileUtil test_mpi_comm reporting/performance ==="
 
-LOOP_TIME_MIN="$(
-    awk '
-        /Time taken between/ && /\[min\]/ {
-            for (i = 1; i <= NF; i++) {
-                if ($i == ":") {
-                    value = $(i + 1)
-                }
-            }
-        }
-        END {
-            if (value != "") print value
-        }
-    ' "${fileOutRun}"
+TIMING_LINE_COUNT="$(
+    awk '/timing \[ave,std,min,max\]/ {c++} END {print c+0}' "${fileOutRun}"
 )"
 
-if [[ -z "${LOOP_TIME_MIN}" ]]; then
-    fail "Could not extract total loop runtime in minutes from mpi-compute output. See: ${fileOutRun}"
-fi
+TAG_WORLD_TIMING_COUNT="$(
+    awk '/MPI Comm=Tag_world/ && /timing \[ave,std,min,max\]/ {c++} END {print c+0}' "${fileOutRun}"
+)"
+
+MEMORY_REPORT_COUNT="$(
+    awk '/Memory report/ {c++} END {print c+0}' "${fileOutRun}"
+)"
+
+ALLREDUCE_TAG_WORLD_MAX_AVE_USEC="$(
+    extract_max_tag_world_average_usec "MPITestAllReduce" "${fileOutRun}"
+)"
+
+SENDRECV_TAG_WORLD_MAX_AVE_USEC="$(
+    extract_max_tag_world_average_usec "MPITestSendRecv" "${fileOutRun}"
+)"
 
 {
-    echo "METRIC profileutil_mpi_compute_loop_time_min ${LOOP_TIME_MIN}"
-    echo "WARN_THRESHOLD_MIN ${PROFILEUTIL_WARN_TIME_MIN}"
-    echo "FAIL_THRESHOLD_MIN ${PROFILEUTIL_FAIL_TIME_MIN}"
+    echo "METRIC profileutil_test_mpi_comm_elapsed_time_sec ${ELAPSED_TIME_SEC}"
+    echo "METRIC profileutil_test_mpi_comm_timing_lines ${TIMING_LINE_COUNT}"
+    echo "METRIC profileutil_test_mpi_comm_tag_world_timing_lines ${TAG_WORLD_TIMING_COUNT}"
+    echo "METRIC profileutil_test_mpi_comm_memory_report_lines ${MEMORY_REPORT_COUNT}"
+    echo "METRIC profileutil_test_mpi_comm_allreduce_tag_world_max_average_usec ${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC}"
+    echo "METRIC profileutil_test_mpi_comm_sendrecv_tag_world_max_average_usec ${SENDRECV_TAG_WORLD_MAX_AVE_USEC}"
+    echo "WARN_THRESHOLD_SEC ${PROFILEUTIL_WARN_TIME_SEC}"
+    echo "FAIL_THRESHOLD_SEC ${PROFILEUTIL_FAIL_TIME_SEC}"
+    echo "ALLREDUCE_WARN_THRESHOLD_USEC ${PROFILEUTIL_ALLREDUCE_WARN_USEC}"
+    echo "ALLREDUCE_FAIL_THRESHOLD_USEC ${PROFILEUTIL_ALLREDUCE_FAIL_USEC}"
+    echo "SENDRECV_WARN_THRESHOLD_USEC ${PROFILEUTIL_SENDRECV_WARN_USEC}"
+    echo "SENDRECV_FAIL_THRESHOLD_USEC ${PROFILEUTIL_SENDRECV_FAIL_USEC}"
 } | tee "${fileOutPerf}"
 
-echo "Observed ProfileUtil loop runtime: ${LOOP_TIME_MIN} min"
-echo "Warning threshold             : ${PROFILEUTIL_WARN_TIME_MIN} min"
-echo "Failure threshold             : ${PROFILEUTIL_FAIL_TIME_MIN} min"
+echo "Observed ProfileUtil elapsed time                 : ${ELAPSED_TIME_SEC} sec"
+echo "Observed timing lines                             : ${TIMING_LINE_COUNT}"
+echo "Observed Tag_world timing lines                   : ${TAG_WORLD_TIMING_COUNT}"
+echo "Observed memory report lines                      : ${MEMORY_REPORT_COUNT}"
+echo "Observed allreduce Tag_world max average timing   : ${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC} usec"
+echo "Observed sendrecv Tag_world max average timing    : ${SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec"
+echo "Warning threshold, elapsed time                   : ${PROFILEUTIL_WARN_TIME_SEC} sec"
+echo "Failure threshold, elapsed time                   : ${PROFILEUTIL_FAIL_TIME_SEC} sec"
+echo "Warning threshold, allreduce Tag_world average    : ${PROFILEUTIL_ALLREDUCE_WARN_USEC} usec"
+echo "Failure threshold, allreduce Tag_world average    : ${PROFILEUTIL_ALLREDUCE_FAIL_USEC} usec"
+echo "Warning threshold, sendrecv Tag_world average     : ${PROFILEUTIL_SENDRECV_WARN_USEC} usec"
+echo "Failure threshold, sendrecv Tag_world average     : ${PROFILEUTIL_SENDRECV_FAIL_USEC} usec"
 
-if compare_float_gt "${LOOP_TIME_MIN}" "${PROFILEUTIL_FAIL_TIME_MIN}"; then
-    fail "ProfileUtil mpi-compute loop runtime ${LOOP_TIME_MIN} min exceeded failure threshold ${PROFILEUTIL_FAIL_TIME_MIN} min. See: ${fileOutPerf}"
+if [[ "${TIMING_LINE_COUNT}" -lt 1 ]]; then
+    fail "Expected at least one aggregate timing line, got ${TIMING_LINE_COUNT}. See: ${fileOutPerf}"
 fi
 
-if compare_float_gt "${LOOP_TIME_MIN}" "${PROFILEUTIL_WARN_TIME_MIN}"; then
-    warn "ProfileUtil mpi-compute loop runtime ${LOOP_TIME_MIN} min exceeded warning threshold ${PROFILEUTIL_WARN_TIME_MIN} min. See: ${fileOutPerf}"
+if [[ "${TAG_WORLD_TIMING_COUNT}" -lt 1 ]]; then
+    fail "Expected at least one Tag_world timing line, got ${TAG_WORLD_TIMING_COUNT}. See: ${fileOutPerf}"
 fi
 
-echo "ProfileUtil runtime performance check passed"
+if [[ "${MEMORY_REPORT_COUNT}" -lt 1 ]]; then
+    fail "Expected at least one memory report line, got ${MEMORY_REPORT_COUNT}. See: ${fileOutPerf}"
+fi
+
+if [[ -z "${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC}" ]]; then
+    fail "Could not extract MPITestAllReduce Tag_world average timing. See: ${fileOutRun}"
+fi
+
+if [[ -z "${SENDRECV_TAG_WORLD_MAX_AVE_USEC}" ]]; then
+    fail "Could not extract MPITestSendRecv Tag_world average timing. See: ${fileOutRun}"
+fi
+
+if compare_float_gt "${ELAPSED_TIME_SEC}" "${PROFILEUTIL_FAIL_TIME_SEC}"; then
+    fail "ProfileUtil test_mpi_comm elapsed time ${ELAPSED_TIME_SEC} sec exceeded failure threshold ${PROFILEUTIL_FAIL_TIME_SEC} sec. See: ${fileOutPerf}"
+fi
+
+if compare_float_gt "${ELAPSED_TIME_SEC}" "${PROFILEUTIL_WARN_TIME_SEC}"; then
+    warn "ProfileUtil test_mpi_comm elapsed time ${ELAPSED_TIME_SEC} sec exceeded warning threshold ${PROFILEUTIL_WARN_TIME_SEC} sec. See: ${fileOutPerf}"
+fi
+
+if compare_float_gt "${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC}" "${PROFILEUTIL_ALLREDUCE_FAIL_USEC}"; then
+    fail "MPITestAllReduce Tag_world max average ${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC} usec exceeded failure threshold ${PROFILEUTIL_ALLREDUCE_FAIL_USEC} usec. See: ${fileOutPerf}"
+fi
+
+if compare_float_gt "${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC}" "${PROFILEUTIL_ALLREDUCE_WARN_USEC}"; then
+    warn "MPITestAllReduce Tag_world max average ${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC} usec exceeded warning threshold ${PROFILEUTIL_ALLREDUCE_WARN_USEC} usec. See: ${fileOutPerf}"
+fi
+
+if compare_float_gt "${SENDRECV_TAG_WORLD_MAX_AVE_USEC}" "${PROFILEUTIL_SENDRECV_FAIL_USEC}"; then
+    fail "MPITestSendRecv Tag_world max average ${SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec exceeded failure threshold ${PROFILEUTIL_SENDRECV_FAIL_USEC} usec. See: ${fileOutPerf}"
+fi
+
+if compare_float_gt "${SENDRECV_TAG_WORLD_MAX_AVE_USEC}" "${PROFILEUTIL_SENDRECV_WARN_USEC}"; then
+    warn "MPITestSendRecv Tag_world max average ${SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec exceeded warning threshold ${PROFILEUTIL_SENDRECV_WARN_USEC} usec. See: ${fileOutPerf}"
+fi
+
+echo "ProfileUtil runtime reporting/performance check passed"
 
 # The current program can emit MPICH communicator-reference diagnostics at shutdown.
 # Treat those as warnings for now: they are visible, but they do not fail CI.
-if grep -q "MPICH: Builtin communicator .* pending .* references" "${fileOutRun}"; then
-    warn "mpi-compute emitted MPICH pending communicator reference diagnostics at shutdown. See: ${fileOutRun}"
+if grep -aq "MPICH: Builtin communicator .* pending .* references" "${fileOutRun}"; then
+    warn "test_mpi_comm emitted MPICH pending communicator reference diagnostics at shutdown. See: ${fileOutRun}"
 fi
 
 #--- Summary
@@ -327,21 +436,25 @@ echo
 echo "=== Summary ==="
 
 {
-    echo "ProfileUtil mpi-compute summary"
-    echo "Executable: ${PROFILEUTIL_MPI_COMPUTE_EXE}"
-    echo "Arguments : ${PROFILEUTIL_MPI_COMPUTE_ARGS}"
+    echo "ProfileUtil test_mpi_comm summary"
+    echo "Executable: ${PROFILEUTIL_MPI_COMM_EXE}"
+    echo "Arguments : ${PROFILEUTIL_MPI_COMM_ARGS}"
     echo "Ranks     : ${TOTAL_TASKS}"
     echo "OMP_NUM_THREADS=${OMP_NUM_THREADS}"
+    echo "Elapsed time: ${ELAPSED_TIME_SEC} sec"
+    echo
+    echo "--- Metrics ---"
+    cat "${fileOutPerf}"
     echo
     echo "--- Key runtime lines ---"
-    grep -E "Starting job|MPI Comm world size|OpenMP version|At iteration|Ending job|Time taken between" "${fileOutRun}" || true
+    grep -aE "Starting job|Version:|MPI Comm world size|Core Binding|running .* test|MPI Comm=Tag_world|timing \[ave,std,min,max\]|Ending job" "${fileOutRun}" || true
     echo
-    echo "--- Warning lines ---"
-    grep -E "WARNING|MPICH: Builtin communicator" "${fileOutRun}" || true
+    echo "--- Warning/error diagnostic lines ---"
+    grep -aE "WARNING|MPICH: Builtin communicator|MPICH ERROR|Fatal error|MPI_Abort|Invalid root|srun: error" "${fileOutRun}" || true
 } | tee "${fileOutSummary}"
 
 echo
-echo "ProfileUtil mpi-compute validation passed"
+echo "ProfileUtil test_mpi_comm validation passed"
 echo "Summary written to: ${fileOutSummary}"
 
 pass
