@@ -71,14 +71,14 @@ OS_VERSION="${OS_VERSION:-24.04}"
 IMAGE_NAME="${IMAGE_NAME:-mpich-base}"
 
 IMAGE_DIR="${IMAGE_DIR:-${ARTIFACTS_DIR}/singularityImages}"
-AUX_DIR="${AUX_DIR:-${MPI_DIR}/auxiliary}"
+TESTS_SUPPORT_DIR="${TESTS_SUPPORT_DIR:-${MPI_DIR}/repo-support/tests-support}"
 
 #--- Canonical paths
 ARTIFACTS_DIR="$(realpath "${ARTIFACTS_DIR}")"
 BUILD_DIR="$(realpath "${BUILD_DIR}")"
 OUTPUT_DIR="$(realpath "${OUTPUT_DIR}")"
 IMAGE_DIR="$(realpath "${IMAGE_DIR}")"
-AUX_DIR="$(realpath "${AUX_DIR}")"
+TESTS_SUPPORT_DIR="$(realpath "${TESTS_SUPPORT_DIR}")"
 
 #--- Defining image to use
 IMAGE_TAG="${MPICH_VERSION}-ubuntu${OS_VERSION}"
@@ -100,7 +100,7 @@ echo "Output directory: ${OUTPUT_DIR}"
 module load singularity/4.1.0-mpi
 
 if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-    source "${AUX_DIR}/common.Joey.settings.sh"
+    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
 fi
 
 module list

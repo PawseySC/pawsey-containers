@@ -6,7 +6,7 @@
 #SBATCH --time=00:15:00
 ##SBATCH --partition=work
 #SBATCH --partition=debug
-#SBATCH --output=artifacts/output/slurm-test_05-%j.out
+#SBATCH --output=artifacts/output/slurm-test_04-%j.out
 
 # Focus:
 # This test validates execution of selected MPI communication tests from the
@@ -22,12 +22,12 @@ set -euo pipefail
 #--- Helper functions
 fail() {
     echo
-    echo "TEST_05: FAIL"
+    echo "TEST_04: FAIL"
     echo "Reason: $*" >&2
 
     if [[ -n "${OUTPUT_DIR:-}" ]]; then
         mkdir -p "${ARTIFACTS_DIR:-${OUTPUT_DIR}/..}" "${OUTPUT_DIR}"
-        echo "$*" > "${OUTPUT_DIR}/test_05.FAIL"
+        echo "$*" > "${OUTPUT_DIR}/test_04.FAIL"
     fi
 
     exit 1
@@ -42,7 +42,7 @@ warn() {
 
     if [[ -n "${OUTPUT_DIR:-}" ]]; then
         mkdir -p "${ARTIFACTS_DIR}" "${OUTPUT_DIR}"
-        echo "WARNING: ${msg}" >> "${OUTPUT_DIR}/test_05.WARN"
+        echo "WARNING: ${msg}" >> "${OUTPUT_DIR}/test_04.WARN"
     fi
 }
 
@@ -83,11 +83,11 @@ pass() {
     echo
 
     if [[ "${WARN_COUNT}" -gt 0 ]]; then
-        echo "TEST_05: PASS with ${WARN_COUNT} warning(s)"
-        echo "PASS_WITH_WARNINGS" > "${OUTPUT_DIR}/test_05.PASS"
+        echo "TEST_04: PASS with ${WARN_COUNT} warning(s)"
+        echo "PASS_WITH_WARNINGS" > "${OUTPUT_DIR}/test_04.PASS"
     else
-        echo "TEST_05: PASS"
-        echo "PASS" > "${OUTPUT_DIR}/test_05.PASS"
+        echo "TEST_04: PASS"
+        echo "PASS" > "${OUTPUT_DIR}/test_04.PASS"
     fi
 
     exit 0
@@ -115,9 +115,9 @@ OUTPUT_DIR="${ARTIFACTS_DIR}/output"
 mkdir -p "${ARTIFACTS_DIR}" "${BUILD_DIR}" "${OUTPUT_DIR}"
 
 # Remove stale PASS/FAIL/WARN markers from previous runs
-rm -f "${OUTPUT_DIR}/test_05.PASS" \
-      "${OUTPUT_DIR}/test_05.FAIL" \
-      "${OUTPUT_DIR}/test_05.WARN"
+rm -f "${OUTPUT_DIR}/test_04.PASS" \
+      "${OUTPUT_DIR}/test_04.FAIL" \
+      "${OUTPUT_DIR}/test_04.WARN"
 
 WARN_COUNT=0
 
@@ -127,14 +127,14 @@ OS_VERSION="${OS_VERSION:-24.04}"
 IMAGE_NAME="${IMAGE_NAME:-mpich-base}"
 
 IMAGE_DIR="${IMAGE_DIR:-${ARTIFACTS_DIR}/singularityImages}"
-AUX_DIR="${AUX_DIR:-${MPI_DIR}/auxiliary}"
+TESTS_SUPPORT_DIR="${TESTS_SUPPORT_DIR:-${MPI_DIR}/repo-support/tests-support}"
 
 #--- Canonical paths
 ARTIFACTS_DIR="$(realpath "${ARTIFACTS_DIR}")"
 BUILD_DIR="$(realpath "${BUILD_DIR}")"
 OUTPUT_DIR="$(realpath "${OUTPUT_DIR}")"
 IMAGE_DIR="$(realpath "${IMAGE_DIR}")"
-AUX_DIR="$(realpath "${AUX_DIR}")"
+TESTS_SUPPORT_DIR="$(realpath "${TESTS_SUPPORT_DIR}")"
 
 #--- Defining image to use
 IMAGE_TAG="${MPICH_VERSION}-ubuntu${OS_VERSION}"
@@ -156,7 +156,7 @@ echo "Output directory: ${OUTPUT_DIR}"
 module load singularity/4.1.0-mpi
 
 if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-    source "${AUX_DIR}/common.Joey.settings.sh"
+    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
 fi
 
 module list
@@ -197,11 +197,11 @@ TOTAL_TASKS=$((SLURM_JOB_NUM_NODES * SLURM_NTASKS_PER_NODE))
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 #--- Output files
-fileOutBinaryCheck="${OUTPUT_DIR}/res_test_05.profileUtil_binaries.out"
-fileOutLinkage="${OUTPUT_DIR}/res_test_05.test_mpi_comm_linkage.out"
-fileOutRun="${OUTPUT_DIR}/res_test_05.test_mpi_comm_run.out"
-fileOutPerf="${OUTPUT_DIR}/res_test_05.performance.out"
-fileOutSummary="${OUTPUT_DIR}/res_test_05.summary.out"
+fileOutBinaryCheck="${OUTPUT_DIR}/res_test_04.profileUtil_binaries.out"
+fileOutLinkage="${OUTPUT_DIR}/res_test_04.test_mpi_comm_linkage.out"
+fileOutRun="${OUTPUT_DIR}/res_test_04.test_mpi_comm_run.out"
+fileOutPerf="${OUTPUT_DIR}/res_test_04.performance.out"
+fileOutSummary="${OUTPUT_DIR}/res_test_04.summary.out"
 
 #--- Binary availability check
 echo

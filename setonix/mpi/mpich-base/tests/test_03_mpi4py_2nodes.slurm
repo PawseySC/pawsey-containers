@@ -5,7 +5,7 @@
 #SBATCH --time=00:15:00
 ##SBATCH --partition=work
 #SBATCH --partition=debug
-#SBATCH --output=artifacts/output/slurm-test_04-%j.out
+#SBATCH --output=artifacts/output/slurm-test_03-%j.out
 
 # Focus:
 # This test focuses on mpi4py functionality
@@ -20,12 +20,12 @@ set -euo pipefail
 #--- Helper functions
 fail() {
     echo
-    echo "TEST_04: FAIL"
+    echo "TEST_03: FAIL"
     echo "Reason: $*" >&2
 
     if [[ -n "${OUTPUT_DIR:-}" ]]; then
         mkdir -p "${ARTIFACTS_DIR:-${OUTPUT_DIR}/..}" "${OUTPUT_DIR}"
-        echo "$*" > "${OUTPUT_DIR}/test_04.FAIL"
+        echo "$*" > "${OUTPUT_DIR}/test_03.FAIL"
     fi
 
     exit 1
@@ -33,10 +33,10 @@ fail() {
 
 pass() {
     echo
-    echo "TEST_04: PASS"
+    echo "TEST_03: PASS"
 
     mkdir -p "${ARTIFACTS_DIR}" "${OUTPUT_DIR}"
-    echo "PASS" > "${OUTPUT_DIR}/test_04.PASS"
+    echo "PASS" > "${OUTPUT_DIR}/test_03.PASS"
 
     exit 0
 }
@@ -64,7 +64,7 @@ OUTPUT_DIR="${ARTIFACTS_DIR}/output"
 mkdir -p "${ARTIFACTS_DIR}" "${BUILD_DIR}" "${OUTPUT_DIR}"
 
 # Remove stale PASS/FAIL markers from previous runs
-rm -f "${OUTPUT_DIR}/test_04.PASS" "${OUTPUT_DIR}/test_04.FAIL"
+rm -f "${OUTPUT_DIR}/test_03.PASS" "${OUTPUT_DIR}/test_03.FAIL"
 
 #--- Names and version settings
 MPICH_VERSION="${MPICH_VERSION:-4.2.2}"
@@ -72,7 +72,7 @@ OS_VERSION="${OS_VERSION:-24.04}"
 IMAGE_NAME="${IMAGE_NAME:-mpich-base}"
 
 IMAGE_DIR="${IMAGE_DIR:-${ARTIFACTS_DIR}/singularityImages}"
-AUX_DIR="${AUX_DIR:-${MPI_DIR}/auxiliary}"
+TESTS_SUPPORT_DIR="${TESTS_SUPPORT_DIR:-${MPI_DIR}/repo-support/tests-support}"
 
 #--- Canonical paths
 FIXTURES_DIR="$(realpath "${FIXTURES_DIR}")"
@@ -80,7 +80,7 @@ ARTIFACTS_DIR="$(realpath "${ARTIFACTS_DIR}")"
 BUILD_DIR="$(realpath "${BUILD_DIR}")"
 OUTPUT_DIR="$(realpath "${OUTPUT_DIR}")"
 IMAGE_DIR="$(realpath "${IMAGE_DIR}")"
-AUX_DIR="$(realpath "${AUX_DIR}")"
+TESTS_SUPPORT_DIR="$(realpath "${TESTS_SUPPORT_DIR}")"
 
 #--- Defining image to use
 IMAGE_TAG="${MPICH_VERSION}-ubuntu${OS_VERSION}"
@@ -103,7 +103,7 @@ echo "Output directory: ${OUTPUT_DIR}"
 module load singularity/4.1.0-mpi
 
 if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-    source "${AUX_DIR}/common.Joey.settings.sh"
+    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
 fi
 
 module list
@@ -111,9 +111,9 @@ module list
 #--- Input/output files
 testScript="${FIXTURES_DIR}/mpi4py_acceptance.py"
 
-fileOutImport="${OUTPUT_DIR}/res_test_04.mpi4py_import.out"
-fileOutLinkage="${OUTPUT_DIR}/res_test_04.mpi4py_linkage.out"
-fileOutRun="${OUTPUT_DIR}/res_test_04.mpi4py_acceptance.out"
+fileOutImport="${OUTPUT_DIR}/res_test_03.mpi4py_import.out"
+fileOutLinkage="${OUTPUT_DIR}/res_test_03.mpi4py_linkage.out"
+fileOutRun="${OUTPUT_DIR}/res_test_03.mpi4py_acceptance.out"
 
 if [[ ! -f "${testScript}" ]]; then
     fail "mpi4py test script not found: ${testScript}"

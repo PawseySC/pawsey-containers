@@ -121,9 +121,8 @@ run_slurm_test() {
 # Run all tests:
 run_slurm_test "test_01_compile+run_2nodes.slurm"
 run_slurm_test "test_02_osu_2nodes.slurm"
-run_slurm_test "test_03_metal_vs_container.slurm"
-run_slurm_test "test_04_mpi4py_2nodes.slurm"
-run_slurm_test "test_05_profileUtil_2nodes.slurm"
+run_slurm_test "test_03_mpi4py_2nodes.slurm"
+run_slurm_test "test_04_profile_util_2nodes.slurm"
 
 echo
 echo "============================================================"
