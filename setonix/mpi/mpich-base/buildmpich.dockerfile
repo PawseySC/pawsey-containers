@@ -21,7 +21,8 @@ ARG MPICH_VERSION="4.2.2"
 ARG MPICH_SHA256="883f5bb3aeabf627cb8492ca02a03b191d09836bbe0f599d8508351179781d41"
 ARG MPI4PY_VERSION="4.1.2"
 ARG OSU_BENCHMARKS_VERSION="7.3"
-ARG PROFILE_UTIL_VERSION="v1.0"
+#ARG PROFILE_UTIL_VERSION="v1.0"
+ARG PROFILE_UTIL_VERSION="main"
 
 # 0.2 Other auxiliary variables to ease building
 ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
@@ -32,7 +33,6 @@ ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
 #---------------------------------------------------------------
 # A. Basic Stage.
 FROM ${BASE_IMAGE_FULL} AS basic_stage
-
 #---------------------------------------------------------------
 # A.0 Recall global definitions made at the top
 ARG MPICH_VERSION
@@ -96,7 +96,6 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 #---------------------------------------------------------------
 # B. Build MPICH
 FROM basic_stage AS build_mpich
-
 #---------------------------------------------------------------
 # B.0 Recall global definitions made at the top
 ARG MPICH_VERSION
@@ -127,7 +126,6 @@ RUN mkdir -p /tmp/mpich-build \
 #---------------------------------------------------------------
 # C. Install mpi4py
 FROM build_mpich AS install_mpi4py
-
 #---------------------------------------------------------------
 # C.0 Recall global definitions made at the top
 ARG MPI4PY_VERSION
@@ -146,7 +144,6 @@ RUN MPICC=/usr/bin/mpicc python3 -m pip install \
 #---------------------------------------------------------------
 # D. Install OSU benchmarks
 FROM install_mpi4py AS build_osu
-
 #---------------------------------------------------------------
 # D.0 Recall global definitions made at the top
 ARG OSU_BENCHMARKS_VERSION
@@ -175,7 +172,6 @@ ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libe
 #---------------------------------------------------------------
 # E. Install other tests
 FROM build_osu AS other_tests
-
 #---------------------------------------------------------------
 # E.0 Recall global definitions made at the top
 ARG PROFILE_UTIL_VERSION
@@ -201,7 +197,6 @@ RUN mkdir -p /opt/ \
 #---------------------------------------------------------------
 # H. Final settings
 FROM other_tests AS final_settings
-
 #---------------------------------------------------------------
 # H.0 Recall global definitions made at the top
 ARG DOCKER_RECIPES_DIR
