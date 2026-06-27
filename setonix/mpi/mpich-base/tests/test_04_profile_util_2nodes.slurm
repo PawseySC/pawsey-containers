@@ -175,7 +175,8 @@ PROFILEUTIL_MPI_COMM_EXE="${PROFILEUTIL_MPI_COMM_EXE:-/opt/profile_util/build/sr
 # -B 1: enables Bcast test.
 # -P 1: enables sendrecv.
 # -p 1: enables sendrecv_singlerank.
-PROFILEUTIL_MPI_COMM_ARGS="${PROFILEUTIL_MPI_COMM_ARGS:--s 0.001 -i 1 -d 1 -m 1000 -D 0 -C 0 -G 0 -S 0 -R 1 -B 1 -P 1 -p 1}"
+# -M 0: disables memory-footprint mode.
+PROFILEUTIL_MPI_COMM_ARGS="${PROFILEUTIL_MPI_COMM_ARGS:--s 0.001 -i 1 -d 1 -j 1 -m 1000 -D 0 -C 0 -G 0 -S 0 -R 1 -B 1 -P 1 -p 1 -M 0}"
 
 # Whole-job wall-clock thresholds.
 PROFILEUTIL_WARN_TIME_SEC="${PROFILEUTIL_WARN_TIME_SEC:-600}"
