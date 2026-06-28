@@ -178,9 +178,9 @@ ARG PROFILE_UTIL_VERSION
 
 #---------------------------------------------------------------
 # E.1 Add a more complex set of tests for MPI as well
-# Cache invalidation helper: Helps to neglect cache use in the RUN..cmake instruction if the repository has changed
+# Cache invalidation helper to neglect cache use in the RUN..cmake instruction if the repository has changed:
 ADD "https://api.github.com/repos/PawseySC/profile_util/commits/${PROFILE_UTIL_VERSION}" /tmp/profile_util_commit.json
-
+# Compilation:
 RUN mkdir -p /opt/ \
     && cd /opt/ \
     && git clone --branch "${PROFILE_UTIL_VERSION}" --depth 1 https://github.com/PawseySC/profile_util \

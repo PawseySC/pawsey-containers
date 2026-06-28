@@ -9,8 +9,8 @@
 #SBATCH --output=artifacts/output/slurm-test_04-%j.out
 
 # Focus:
-# This test validates execution of selected MPI communication tests from the
-# profile_util repository inside the mpich-base container.
+# This test validates execution of profile_util tests. Currently:
+# - test_mpi_comm: MPI communication tests.
 
 # Note:
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.

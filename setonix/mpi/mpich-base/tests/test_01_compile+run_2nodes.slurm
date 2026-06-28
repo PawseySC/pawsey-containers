@@ -9,7 +9,7 @@
 
 # Focus:
 # This test focuses on allowing compilation of code using container machinery
-# and prober execution of the resulting binary.
+# and proper execution of the resulting binary.
 
 # Note:
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
