@@ -164,19 +164,28 @@ module list
 #--- ProfileUtil test configuration
 PROFILEUTIL_MPI_COMM_EXE="${PROFILEUTIL_MPI_COMM_EXE:-/opt/profile_util/build/src/tests/test_mpi_comm}"
 
-# Important:
-# -s 0.001: keeps messages small and CI-safe.
-# -i 1: one iteration.
-# -d 1 -m 1000: harmless safety values if longdelay is ever re-enabled.
-# -D 0: disables longdelay.
-# -C 0: disables correct-values test.
-# -G 0 -S 0: disables empty gather/scatter tests.
-# -R 1: enables allreduce.
-# -B 1: enables Bcast test.
-# -P 1: enables sendrecv.
-# -p 1: enables sendrecv_singlerank.
-# -M 0: disables memory-footprint mode.
-PROFILEUTIL_MPI_COMM_ARGS="${PROFILEUTIL_MPI_COMM_ARGS:--s 0.001 -i 1 -d 1 -j 1 -m 1000 -D 0 -C 0 -G 0 -S 0 -R 1 -B 1 -P 1 -p 1 -M 0}"
+# ProfileUtil test_mpi_comm configuration:
+# -s 0.001: maximum message size in GB.
+# -i 1    : one iteration per communication test.
+# -d 1    : harmless long-delay value; long-delay test is disabled by -D 0.
+# -j 1    : short memory-sampling delay used between repeated tests.
+# -m 1000 : harmless long-delay message size; long-delay test is disabled by -D 0.
+# -r 0    : root task for root-based tests, including sendrecv_singlerank.
+# -D 0    : disables long-delay send/receive test.
+# -C 0    : disables correct-values send/receive test.
+# -G 0    : disables gather test.
+# -S 0    : disables scatter test.
+# -R 1    : enables allreduce test.
+# -B 1    : enables Bcast test.
+# -P 1    : enables all-to-all-style sendrecv test.
+# -p 1    : enables root-to-single-rank sendrecv test.
+# -M 0    : disables memory-footprint mode; avoids intentional allocation sleeps
+#           and ensures the run focuses on MPI communication/reporting.
+# -N 0    : keeps real MPI communication enabled; do not use NOMPI memory mode.
+#
+# Not set:
+# -o      : only used by the long-delay test, which is disabled with -D 0.
+PROFILEUTIL_MPI_COMM_ARGS="${PROFILEUTIL_MPI_COMM_ARGS:--s 0.001 -i 1 -d 1 -j 1 -m 1000 -r 0 -D 0 -C 0 -G 0 -S 0 -R 1 -B 1 -P 1 -p 1 -M 0 -N 0}"
 
 # Whole-job wall-clock thresholds.
 PROFILEUTIL_WARN_TIME_SEC="${PROFILEUTIL_WARN_TIME_SEC:-600}"
