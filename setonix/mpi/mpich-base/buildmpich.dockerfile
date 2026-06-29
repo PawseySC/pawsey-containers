@@ -86,7 +86,8 @@ RUN set -eux; \
         valgrind \
         vim \
         xsltproc \
-        zlib1g-dev; \
+        zlib1g-dev \
+        ; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
