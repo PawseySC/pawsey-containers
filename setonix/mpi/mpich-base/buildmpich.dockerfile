@@ -2,7 +2,7 @@
 # with Cray-MPICH (native in Setonix).
 # It installs a minimal build/runtime environment,
 # compiles MPICH from source with OFI support, adds mpi4py, builds the OSU
-# Micro-Benchmarks, and includes additional Pawsey MPI/OpenMP test utilities.
+# Micro-Benchmarks, and includes additional Pawsey MPI test utilities.
 # Build-time arguments allow the Ubuntu, MPICH, and benchmark versions to be
 # overridden without modifying the recipe.
 # (When updating this image, don't forget to double check that labels are also updated accordingly)
@@ -45,7 +45,7 @@ LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawse
 
 #---------------------------------------------------------------
 # A.2 Installing basic requirements
-RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && apt-get -y --no-install-recommends install \
         build-essential \
         ca-certificates \
@@ -82,8 +82,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
         xsltproc \
         zlib1g-dev \
     && apt-get clean all \
-    && rm -r /var/lib/apt/lists/* \
-    && echo "Finished apt-get installs"
+    && rm -r /var/lib/apt/lists/*
 
 
 #---------------------------------------------------------------
