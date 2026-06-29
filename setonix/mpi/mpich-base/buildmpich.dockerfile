@@ -118,7 +118,6 @@ RUN set -eux; \
     make install; \
     ldconfig; \
     cp -p "/tmp/mpich-build/mpich-${MPICH_VERSION}/examples/cpi" /usr/bin/; \
-    cd /; \
     rm -rf /tmp/mpich-build
 
 
@@ -164,7 +163,6 @@ RUN set -eux; \
     ./configure ${OSU_CONFIGURE_OPTIONS}; \
     make ${OSU_MAKE_OPTIONS}; \
     make install; \
-    cd /; \
     rm -rf /tmp/osu-benchmark-build
 
 ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:${PATH}"
