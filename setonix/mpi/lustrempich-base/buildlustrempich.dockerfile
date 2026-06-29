@@ -294,4 +294,4 @@ ARG DOCKER_RECIPES_DIR
 # H.1 Copy the recipe into the docker recipes directory
 RUN set -eux; \
     mkdir -p "${DOCKER_RECIPES_DIR}"
-COPY buildmpich.dockerfile "${DOCKER_RECIPES_DIR}"
+COPY buildlustrempich.dockerfile "${DOCKER_RECIPES_DIR}"
