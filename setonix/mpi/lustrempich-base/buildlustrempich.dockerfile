@@ -28,6 +28,7 @@ ARG OSU_BENCHMARKS_VERSION="7.3"
 ARG PROFILE_UTIL_VERSION="main"
 ARG GCC_VERSION="12"
 ARG LINUX_KERNEL="6.8.0-31"
+#ARG LUSTRE_VERSION="2.15"
 
 # 0.2 Other auxiliary variables to ease building
 ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
@@ -64,9 +65,9 @@ RUN set -eux; \
     gnupg2 \
     ca-certificates \
     gdb \
-    gcc-12 \
-    g++-12 \
-    gfortran-12 \
+    gcc-${GCC_VERSION} \
+    g++-${GCC_VERSION} \
+    gfortran-${GCC_VERSION} \
     wget \
     git \
     python3-six \
@@ -128,6 +129,7 @@ FROM basic_stage AS build_lustre
 #---------------------------------------------------------------
 # B.0 Recall global definitions made at the top
 ARG LINUX_KERNEL
+#ARG LUSTRE_VERSION
 
 #---------------------------------------------------------------
 # B.1 Build LUSTRE
