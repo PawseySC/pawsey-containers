@@ -2,14 +2,13 @@
 # with Cray-MPICH to enable MPI computation on HPE Cray EX systems.
 # It installs a minimal build/runtime environment,
 # compiles MPICH from source with OFI support, adds mpi4py, builds the OSU
-# Micro-Benchmarks, and includes additional Pawsey MPI/OpenMP test utilities.
+# Micro-Benchmarks, and includes additional Pawsey MPI test utilities.
 # It also installs Lustre libraries to allow correct MPI/IO.
 # The recipe does not start FROM mpich-base:<tag> image because Lustre libraries
 # need to be installed before the MPI installation.
 # Build-time arguments allow the Ubuntu, MPICH, and benchmark versions to be
 # overridden without modifying the recipe.
 # (When updating this image, don't forget to double check that labels are also updated accordingly)
-
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -38,7 +37,7 @@ ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # A. Basic Stage.
-FROM $BASE_IMAGE_FULL AS basic_stage
+FROM ${BASE_IMAGE_FULL} AS basic_stage
 #---------------------------------------------------------------
 # A.0 Recall global definitions made at the top
 ARG MPICH_VERSION
@@ -49,7 +48,6 @@ ARG LINUX_KERNEL
 
 #---------------------------------------------------------------
 # A.1 Defining documented labels
-# Labels:
 LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
 LABEL org.opencontainers.image.name="lustrempich-base"
 LABEL org.opencontainers.image.branch="${MPICH_VERSION}-ubuntu${OS_VERSION}"
@@ -58,8 +56,9 @@ LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawse
 
 #---------------------------------------------------------------
 # A.2 Installing basic requirements
-RUN DEBIAN_FRONTEND=noninteractive apt-get update \
-    && apt-get -y --no-install-recommends install \
+RUN set -eux; \
+    DEBIAN_FRONTEND=noninteractive apt-get update; \
+    apt-get -y --no-install-recommends install \
         build-essential \
         gnupg gnupg2 \
         ca-certificates \
@@ -84,6 +83,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
         libtool \
         m4 \
         make \
+        cmake \
         openssh-server \
         patch \
         python3-numpy \
@@ -105,8 +105,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
         libkeyutils-dev libnl-genl-3-dev libyaml-dev \
         linux-headers-${LINUX_KERNEL}-generic linux-headers-${LINUX_KERNEL} \
         libmount-dev pkg-config \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+        ;
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 
 #---------------------------------------------------------------
