@@ -1,28 +1,38 @@
-# This Dockerfile builds an Ubuntu-based Lustre-aware MPICH container image ABI compatible
-# with Cray-MPICH (native in Setonix).
-# It installs a minimal build/runtime environment, installs Lustre, 
+# This Dockerfile builds an Ubuntu-based MPICH container image ABI compatible
+# with Cray-MPICH to enable MPI computation on HPE Cray EX systems.
+# It installs a minimal build/runtime environment,
 # compiles MPICH from source with OFI support, adds mpi4py, builds the OSU
 # Micro-Benchmarks, and includes additional Pawsey MPI/OpenMP test utilities.
+# It also installs Lustre libraries to allow correct MPI/IO.
+# The recipe does not start FROM mpich-base:<tag> image because Lustre libraries
+# need to be installed before the MPI installation.
 # Build-time arguments allow the Ubuntu, MPICH, and benchmark versions to be
 # overridden without modifying the recipe.
 # (When updating this image, don't forget to double check that labels are also updated accordingly)
+
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # 0. Initial main definition of global parameters
-# IMPORTANT: All these settings can be overriden with the use of `--build-arg <Name>=<Value>`
+# IMPORTANT: All these settings can be overridden with the use of `--build-arg <Name>=<Value>`
 # IMPORTANT: Recipe needs to re-call them at each stage to recover their values
-# 0.1 Main global arguments (related to version used)
+
+# 0.1 Main global arguments related to versions used
 ARG OS_VERSION="24.04"
-ARG MPICH_VERSION="4.2.2"
 ARG BASE_IMAGE_FULL="ubuntu:${OS_VERSION}"
+ARG MPICH_VERSION="4.2.2"
+ARG MPICH_SHA256="883f5bb3aeabf627cb8492ca02a03b191d09836bbe0f599d8508351179781d41"
+ARG MPI4PY_VERSION="4.1.2"
 ARG OSU_BENCHMARKS_VERSION="7.3"
+#ARG PROFILE_UTIL_VERSION="v1.0"
+ARG PROFILE_UTIL_VERSION="main"
 ARG GCC_VERSION="12"
 ARG LINUX_KERNEL="6.8.0-31"
 
 # 0.2 Other auxiliary variables to ease building
 ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
+
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -34,11 +44,13 @@ FROM $BASE_IMAGE_FULL AS basic_stage
 ARG MPICH_VERSION
 ARG OS_VERSION
 ARG DOCKER_RECIPES_DIR
+ARG GCC_VERSION
+ARG LINUX_KERNEL
 
 #---------------------------------------------------------------
 # A.1 Defining documented labels
 # Labels:
-LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
+LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
 LABEL org.opencontainers.image.name="lustrempich-base"
 LABEL org.opencontainers.image.branch="${MPICH_VERSION}-ubuntu${OS_VERSION}"
 LABEL org.opencontainers.image.dockerfile-internal-backup="${DOCKER_RECIPES_DIR}"
@@ -46,11 +58,7 @@ LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawse
 
 #---------------------------------------------------------------
 # A.2 Installing basic requirements
-ARG GCC_VERSION
-ARG LINUX_KERNEL
-ENV DEBIAN_FRONTEND="noninteractive"
-RUN echo "Install apt packages" \
-    && apt-get -y update  \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && apt-get -y --no-install-recommends install \
         build-essential \
         gnupg gnupg2 \
@@ -97,9 +105,9 @@ RUN echo "Install apt packages" \
         libkeyutils-dev libnl-genl-3-dev libyaml-dev \
         linux-headers-${LINUX_KERNEL}-generic linux-headers-${LINUX_KERNEL} \
         libmount-dev pkg-config \
-    && apt-get clean all \
-    && rm -r /var/lib/apt/lists/* \
-    && echo "Finished apt-get installs"
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -118,7 +126,7 @@ RUN echo "Building lustre" \
     && cd /tmp/lustre-build \
     && git clone https://github.com/lustre/lustre-release.git \
     && cd lustre-release \
-    # there appears to be an odd error with some release not being able to configure. 
+    # there appears to be an odd error with some release not being able to configure.
     # for the moment, just use the main branch rather than a particular version.
     # && git fetch --tags && git checkout ${LUSTRE_VERSION} \
     && chmod +x ./autogen.sh && ./autogen.sh \
@@ -163,7 +171,7 @@ RUN echo "Building MPICH ... " \
     && cp -p /tmp/mpich-build/mpich-${MPICH_VERSION}/examples/cpi /usr/bin/ \
     && cd / \
     && rm -rf /tmp/mpich-build \
-    && echo "Finished building MPICH" 
+    && echo "Finished building MPICH"
 
 
 
@@ -176,7 +184,7 @@ FROM build_mpich AS install_mpi4py
 # D.0 Recall global definitions made at the top
 
 #---------------------------------------------------------------
-# D.1 Add mpi4py in the container 
+# D.1 Add mpi4py in the container
 # CMEYER: --breaks-system-packages needed with python/3.12 + ubuntu24.04
 RUN MPICC=/usr/bin/mpicc pip install --no-binary=mpi4py --break-system-packages mpi4py
 
