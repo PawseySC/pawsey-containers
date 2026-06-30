@@ -84,7 +84,7 @@ IMAGE_DIR="$(realpath "${IMAGE_DIR}")"
 TESTS_SUPPORT_DIR="$(realpath "${TESTS_SUPPORT_DIR}")"
 
 #--- Defining image to use
-IMAGE_TAG="${MPICH_VERSION}-ubuntu${OS_VERSION}"
+IMAGE_TAG="mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
 IMAGE_FULL="${IMAGE_NAME}--${IMAGE_TAG}.sif"
 SINGULARITY_IMAGE="${IMAGE_DIR}/${IMAGE_FULL}"
 
