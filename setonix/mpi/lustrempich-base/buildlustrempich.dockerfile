@@ -51,7 +51,7 @@ ARG LINUX_KERNEL
 # A.1 Defining documented labels
 LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
 LABEL org.opencontainers.image.name="lustrempich-base"
-LABEL org.opencontainers.image.branch="${MPICH_VERSION}-ubuntu${OS_VERSION}"
+LABEL org.opencontainers.image.branch="mpich${MPICH_VERSION}-lustrerelease-ubuntu${OS_VERSION}"
 LABEL org.opencontainers.image.dockerfile-internal-backup="${DOCKER_RECIPES_DIR}"
 LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawsey-containers"
 
