@@ -145,28 +145,29 @@ RUN set -eux; \
 #---------------------------------------------------------------
 # B. Build CMake to make sure it will work with ROCm
 # 4.x breaks stuff
-FROM basic_stage AS build_cmake
+# We can build ROCm without this CMake step
+#FROM basic_stage AS build_cmake
 #---------------------------------------------------------------
 # B.0 Recall global definitions made at the top
-ARG CMAKE_VERSION
+#ARG CMAKE_VERSION
 
 #---------------------------------------------------------------
 # B.1 Build CMake
 
-ENV PATH=/usr/cmake-${CMAKE_VERSION}-linux-x86_64/bin:$PATH
+#ENV PATH=/usr/cmake-${CMAKE_VERSION}-linux-x86_64/bin:$PATH
 
-RUN set -eux; \
-    apt -y remove --purge --auto-remove cmake; \
-    wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh; \
-    chmod a+x cmake-${CMAKE_VERSION}-linux-x86_64.sh && yes | ./cmake-${CMAKE_VERSION}-linux-x86_64.sh --prefix=/usr; \
-    cmake --version 
+#RUN set -eux; \
+#    apt -y remove --purge --auto-remove cmake; \
+#    wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh; \
+#    chmod a+x cmake-${CMAKE_VERSION}-linux-x86_64.sh && yes | ./cmake-${CMAKE_VERSION}-linux-x86_64.sh --prefix=/usr; \
+#    cmake --version 
 
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # C. Generate a Kernel config for building Lustre
-FROM build_cmake AS build_lustre_config
+FROM basic_stage AS build_lustre_config
 #---------------------------------------------------------------
 # C.0 Recall global definitions made at the top
 ARG LINUX_KERNEL_MAJOR
@@ -483,24 +484,23 @@ ARG PROFILE_UTIL_VERSION
 #---------------------------------------------------------------
 # K.1 Add a more complex set of tests for MPI as well
 # Cache invalidation helper to neglect cache use in the RUN..cmake instruction if the repository has changed:
-
-#ADD "https://api.github.com/repos/PawseySC/profile_util/commits/${PROFILE_UTIL_VERSION}" /tmp/profile_util_commit.json
-#RUN set -eux; \
-#    mkdir -p /opt/; \
-#    cd /opt/; \
-#    git clone --branch "${PROFILE_UTIL_VERSION}" --depth 1 https://github.com/PawseySC/profile_util; \
-#    cd profile_util; \
-#    sed -i "s:CXX=CC:CXX=g++:g" ./build_cpu.sh; \
-#    sed -i "s:MPICXX=CC:MPICXX=mpic++:g" ./build_cpu.sh; \
-#    sed -i "s:MPICXX=CC:MPICXX=mpic++:g" ./build_hip.sh; \
-#    ./build_hip.sh; \
-#    cd examples/mpi/; \
-#    make MPICXX=mpic++; \
-#    cd ../../examples/openmp; \
-#    make CXX=g++ bin/openmpvec_cpp; \
-#    cd ../../examples/gpu-mpi/; \
-#    make 
-
+ADD "https://api.github.com/repos/PawseySC/profile_util/commits/${PROFILE_UTIL_VERSION}" /tmp/profile_util_commit.json
+# Compilation:
+RUN set -eux; \
+    mkdir -p /opt/; \
+    cd /opt/; \
+    git clone --branch "${PROFILE_UTIL_VERSION}" --depth 1 https://github.com/PawseySC/profile_util; \
+    cd profile_util; \
+    cmake -S . -B build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER=hipcc \
+        -DPU_ENABLE_MPI=ON \
+        -DPU_ENABLE_OPENMP=OFF \
+        -DPU_ENABLE_CUDA=OFF \
+        -DPU_ENABLE_HIP=ON \
+	-DHIP_DIR=/opt/rocm/lib/cmake/hip; \
+    cmake --build build --parallel -v; \
+    rm -f /tmp/profile_util_commit.json
 
 
 #---------------------------------------------------------------
