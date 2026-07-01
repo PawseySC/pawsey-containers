@@ -10,6 +10,7 @@ log.*
 *.log
 *.exe
 ignore/
+artifacts/
 
 
 # Virtualenv

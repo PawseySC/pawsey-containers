@@ -1,3 +1,16 @@
+/*
+ * mpi_compile_acceptance.c
+ * Basic MPI smoke test: verifies all ranks participate correctly in an Allreduce
+ * and a ring Sendrecv exchange, then reports each rank and host.
+ * Rank 0 also prints the MPI runtime version and a success marker for container/build validation.
+ */
+
+/* 
+ * Note:
+ * This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
+ * This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.
+ */
+
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
