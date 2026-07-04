@@ -1,12 +1,12 @@
 #!/bin/bash --login
-#SBATCH --job-name=T04-mpi_comm-2nodes
+#SBATCH --job-name=test_04_mpi-comm_2nodes
 #SBATCH --nodes=2
 #SBATCH --ntasks=16
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=00:15:00
 ##SBATCH --partition=work
 #SBATCH --partition=debug
-#SBATCH --output=artifacts/output/slurm-test_04-%j.out
+#SBATCH --output=slurm-%x-%j.out
 
 # Focus:
 # This test validates execution of the test:
@@ -17,34 +17,94 @@
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
 # This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.
 
+# Normally this script is submitted by one of the product-specific launchers:
+#
+#   pawsey-containers/setonix/mpi/mpich-base/testing/run_tests.sh
+#   pawsey-containers/setonix/mpi/lustrempich-base/testing/run_tests.sh
+#   pawsey-containers/setonix/mpi/rocm-mpich-base/testing/run_tests.sh
+#
+# Those launchers define the required environment variables and submit this
+# script with sbatch.
+#
+# Manual submission example, from the relevant product testing directory:
+#
+#   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
+#   export SINGULARITY_IMAGE="/path/to/image.sif"
+#   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE \
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_04_mpi-comm_2nodes.slurm
+#
+# REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
+# SINGULARITY_IMAGE must point to the container image being tested.
+
 #--- Strict mode
 set -euo pipefail
 
+#--- Name used for output files and markers
+: "${SLURM_JOB_NAME:?SLURM_JOB_NAME is not set}"
+TEST_NAME="${SLURM_JOB_NAME}"
+
+#--- Important variables to be provided as environment variable
+# The singularity image to use:
+: "${SINGULARITY_IMAGE:?SINGULARITY_IMAGE is not set}"
+# The path of the mpi subdirectory in the repository (needed as reference to find the rest of the stuff):
+: "${REPO_MPI_DIR:?REPO_MPI_DIR is not set. Submit this test through a run_tests.sh script or export REPO_MPI_DIR manually.}"
+
+#--- Basic path setup
+LAUNCH_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
+SHARED_TESTS_DIR="$REPO_MPI_DIR/tests"
+FIXTURES_DIR="$SHARED_TESTS_DIR/fixtures"
+TESTS_SUPPORT_DIR="$SHARED_TESTS_DIR/tests-support"
+ARTIFACTS_DIR="$LAUNCH_DIR/artifacts"
+BUILD_DIR="$ARTIFACTS_DIR/build"
+OUTPUT_DIR="$ARTIFACTS_DIR/output"
+PASS_MARKER="$OUTPUT_DIR/${TEST_NAME}.PASS"
+FAIL_MARKER="$OUTPUT_DIR/${TEST_NAME}.FAIL"
+WARN_MARKER="$OUTPUT_DIR/${TEST_NAME}.WARN"
+WARN_COUNT=0
+
+mkdir -p "$BUILD_DIR" "$OUTPUT_DIR"
+
+rm -f "$PASS_MARKER" "$FAIL_MARKER" "$WARN_MARKER"
+
 #--- Helper functions
 fail() {
+    local reason="$*"
     echo
-    echo "TEST_04: FAIL"
-    echo "Reason: $*" >&2
-
-    if [[ -n "${OUTPUT_DIR:-}" ]]; then
-        mkdir -p "${ARTIFACTS_DIR:-${OUTPUT_DIR}/..}" "${OUTPUT_DIR}"
-        echo "$*" > "${OUTPUT_DIR}/test_04.FAIL"
-    fi
-
+    echo "${TEST_NAME}: FAIL"
+    echo "Reason: ${reason}" >&2
+    {
+        echo "${TEST_NAME}: FAIL"
+        echo "Reason: ${reason}"
+    } > "${FAIL_MARKER}"
     exit 1
 }
 
 warn() {
     local msg="$*"
-
+    echo
     echo "WARNING: ${msg}" >&2
-
     WARN_COUNT=$((WARN_COUNT + 1))
+    {
+        echo "WARNING: ${msg}"
+    } >> "${WARN_MARKER}"
+}
 
-    if [[ -n "${OUTPUT_DIR:-}" ]]; then
-        mkdir -p "${ARTIFACTS_DIR}" "${OUTPUT_DIR}"
-        echo "WARNING: ${msg}" >> "${OUTPUT_DIR}/test_04.WARN"
+pass() {
+    echo
+    if [[ "${WARN_COUNT}" -gt 0 ]]; then
+        echo "${TEST_NAME}: PASS with ${WARN_COUNT} warning(s)"
+        {
+            echo "PASS_WITH_WARNINGS"
+            echo "Warnings: ${WARN_COUNT}"
+            echo "Warning marker: ${WARN_MARKER}"
+        } > "${PASS_MARKER}"
+    else
+        echo "${TEST_NAME}: PASS"
+        {
+            echo "PASS"
+        } > "${PASS_MARKER}"
     fi
+    exit 0
 }
 
 compare_float_gt() {
@@ -80,78 +140,22 @@ extract_max_tag_world_average_usec() {
     ' "${input_file}"
 }
 
-pass() {
-    echo
-
-    if [[ "${WARN_COUNT}" -gt 0 ]]; then
-        echo "TEST_04: PASS with ${WARN_COUNT} warning(s)"
-        echo "PASS_WITH_WARNINGS" > "${OUTPUT_DIR}/test_04.PASS"
-    else
-        echo "TEST_04: PASS"
-        echo "PASS" > "${OUTPUT_DIR}/test_04.PASS"
-    fi
-
-    exit 0
-}
-
-#--- Basic path setup
-# This script is expected to be submitted from:
-#   pawsey-containers/setonix/mpi/mpich-base/tests
-TESTS_DIR="$(realpath "${SLURM_SUBMIT_DIR:-$PWD}")"
-
-if [[ "$(basename "${TESTS_DIR}")" != "tests" ]]; then
-    fail "This test must be submitted from the tests directory. Current submit directory: ${TESTS_DIR}"
+#--- Resolve absolute path for REPO_MPI_DIR
+if ! REPO_MPI_DIR="$(cd "${REPO_MPI_DIR}" && pwd)"; then
+    fail "REPO_MPI_DIR does not exist or is not accessible: ${REPO_MPI_DIR}"
 fi
 
-MPICH_BASE_DIR="$(realpath "${TESTS_DIR}/..")"
-MPI_DIR="$(realpath "${MPICH_BASE_DIR}/..")"
-SETONIX_DIR="$(realpath "${MPI_DIR}/..")"
-REPO_ROOT="$(realpath "${SETONIX_DIR}/..")"
-
-#--- Test directories
-ARTIFACTS_DIR="${TESTS_DIR}/artifacts"
-BUILD_DIR="${ARTIFACTS_DIR}/build"
-OUTPUT_DIR="${ARTIFACTS_DIR}/output"
-
-mkdir -p "${ARTIFACTS_DIR}" "${BUILD_DIR}" "${OUTPUT_DIR}"
-
-# Remove stale PASS/FAIL/WARN markers from previous runs
-rm -f "${OUTPUT_DIR}/test_04.PASS" \
-      "${OUTPUT_DIR}/test_04.FAIL" \
-      "${OUTPUT_DIR}/test_04.WARN"
-
-WARN_COUNT=0
-
-#--- Names and version settings
-MPICH_VERSION="${MPICH_VERSION:-4.2.2}"
-OS_VERSION="${OS_VERSION:-24.04}"
-IMAGE_NAME="${IMAGE_NAME:-mpich-base}"
-
-IMAGE_DIR="${IMAGE_DIR:-${ARTIFACTS_DIR}/singularityImages}"
-TESTS_SUPPORT_DIR="${TESTS_SUPPORT_DIR:-${MPI_DIR}/repo-support/tests-support}"
-
-#--- Canonical paths
-ARTIFACTS_DIR="$(realpath "${ARTIFACTS_DIR}")"
-BUILD_DIR="$(realpath "${BUILD_DIR}")"
-OUTPUT_DIR="$(realpath "${OUTPUT_DIR}")"
-IMAGE_DIR="$(realpath "${IMAGE_DIR}")"
-TESTS_SUPPORT_DIR="$(realpath "${TESTS_SUPPORT_DIR}")"
-
-#--- Defining image to use
-IMAGE_TAG="mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
-IMAGE_FULL="${IMAGE_NAME}--${IMAGE_TAG}.sif"
-SINGULARITY_IMAGE="${IMAGE_DIR}/${IMAGE_FULL}"
-
+#--- Image selected by launcher
 if [[ ! -f "${SINGULARITY_IMAGE}" ]]; then
     fail "Singularity image not found: ${SINGULARITY_IMAGE}"
 fi
-
-echo "Using image: ${SINGULARITY_IMAGE}"
-echo "Repository root: ${REPO_ROOT}"
-echo "Tests directory: ${TESTS_DIR}"
-echo "Artifacts directory: ${ARTIFACTS_DIR}"
-echo "Build directory: ${BUILD_DIR}"
-echo "Output directory: ${OUTPUT_DIR}"
+echo "Using image: $SINGULARITY_IMAGE"
+echo "Launch directory: $LAUNCH_DIR"
+echo "MPI directory: $REPO_MPI_DIR"
+echo "Shared tests directory: $SHARED_TESTS_DIR"
+echo "Fixtures directory: $FIXTURES_DIR"
+echo "Build directory: $BUILD_DIR"
+echo "Output directory: $OUTPUT_DIR"
 
 #--- Modules and settings
 module load singularity/4.1.0-mpi
@@ -208,15 +212,15 @@ TOTAL_TASKS=$((SLURM_JOB_NUM_NODES * SLURM_NTASKS_PER_NODE))
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 #--- Output files
-fileOutBinaryCheck="${OUTPUT_DIR}/res_test_04.test_mpi_comm_binaries.out"
-fileOutLinkage="${OUTPUT_DIR}/res_test_04.test_mpi_comm_linkage.out"
-fileOutRun="${OUTPUT_DIR}/res_test_04.test_mpi_comm_run.out"
-fileOutPerf="${OUTPUT_DIR}/res_test_04.performance.out"
-fileOutSummary="${OUTPUT_DIR}/res_test_04.summary.out"
+fileOutBinaryCheck="${OUTPUT_DIR}/res_${TEST_NAME}.test_mpi_comm_binaries.out"
+fileOutLinkage="${OUTPUT_DIR}/res_${TEST_NAME}.test_mpi_comm_linkage.out"
+fileOutRun="${OUTPUT_DIR}/res_${TEST_NAME}.test_mpi_comm_run.out"
+fileOutPerf="${OUTPUT_DIR}/res_${TEST_NAME}.performance.out"
+fileOutSummary="${OUTPUT_DIR}/res_${TEST_NAME}.summary.out"
 
 #--- Binary availability check
 echo
-echo "=== Cinary availability check ==="
+echo "=== Binary availability check ==="
 
 if ! singularity exec "${SINGULARITY_IMAGE}" test -x "${MPI_COMM_EXE}"; then
     fail "Executable not found or not executable: ${MPI_COMM_EXE}. See: ${fileOutBinaryCheck}"
@@ -224,7 +228,7 @@ fi
 
 echo "${MPI_COMM_EXE}" | tee "${fileOutBinaryCheck}"
 
-if ! grep -aq "${MPI_COMM_EXE}" "${fileOutBinaryCheck}"; then
+if ! grep -Fq "${MPI_COMM_EXE}" "${fileOutBinaryCheck}"; then
     fail "Executable path was not reported correctly. See: ${fileOutBinaryCheck}"
 fi
 
@@ -235,20 +239,20 @@ echo
 echo "=== test_mpi_comm linkage check ==="
 
 if ! singularity exec "${SINGULARITY_IMAGE}" ldd "${MPI_COMM_EXE}" \
-    | grep -aE 'profile_util|mpi|fabric|cxi|pmi|pmix|pals|xpmem' \
+    | grep -E 'profile_util|mpi|fabric|cxi|pmi|pmix|pals|xpmem' \
     | tee "${fileOutLinkage}"; then
     fail "Linkage command failed for ${MPI_COMM_EXE}. See: ${fileOutLinkage}"
 fi
 
-if ! grep -aq "libprofile_util" "${fileOutLinkage}"; then
+if ! grep -Fq "libprofile_util" "${fileOutLinkage}"; then
     fail "Expected test_mpi_comm to link against libprofile_util. See: ${fileOutLinkage}"
 fi
 
-if ! grep -aq "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
+if ! grep -Fq "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
     fail "Expected test_mpi_comm to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
 fi
 
-if ! grep -aq "/opt/cray/libfabric" "${fileOutLinkage}"; then
+if ! grep -Fq "/opt/cray/libfabric" "${fileOutLinkage}"; then
     fail "Expected test_mpi_comm to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
 fi
 
@@ -282,59 +286,59 @@ date -Iseconds
 echo
 echo "=== Validate test_mpi_comm output ==="
 
-if grep -aqE "MPICH ERROR|Fatal error|MPI_Abort|Invalid root|srun: error" "${fileOutRun}"; then
+if grep -Eq "MPICH ERROR|Fatal error|MPI_Abort|Invalid root|srun: error" "${fileOutRun}"; then
     fail "test_mpi_comm output contains MPI/runtime error diagnostics. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "Starting job" "${fileOutRun}"; then
+if ! grep -Fq "Starting job" "${fileOutRun}"; then
     fail "test_mpi_comm output missing 'Starting job'. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "Version:" "${fileOutRun}"; then
+if ! grep -Fq "Version:" "${fileOutRun}"; then
     fail "test_mpi_comm output missing profile_util version information. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "MPI Comm world size ${TOTAL_TASKS}" "${fileOutRun}"; then
+if ! grep -Fq "MPI Comm world size ${TOTAL_TASKS}" "${fileOutRun}"; then
     fail "test_mpi_comm output missing expected MPI world size ${TOTAL_TASKS}. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "Core Binding" "${fileOutRun}"; then
+if ! grep -Fq "Core Binding" "${fileOutRun}"; then
     fail "test_mpi_comm output missing core binding information. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "Node system memory report" "${fileOutRun}"; then
+if ! grep -Fq "Node system memory report" "${fileOutRun}"; then
     fail "test_mpi_comm output missing node system memory report. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "running sendrecv_singlerank test" "${fileOutRun}"; then
+if ! grep -Fq "running sendrecv_singlerank test" "${fileOutRun}"; then
     fail "test_mpi_comm output missing sendrecv_singlerank test. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "running allreduce test" "${fileOutRun}"; then
+if ! grep -Fq "running allreduce test" "${fileOutRun}"; then
     fail "test_mpi_comm output missing allreduce test. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "running sendrecv test" "${fileOutRun}"; then
+if ! grep -Fq "running sendrecv test" "${fileOutRun}"; then
     fail "test_mpi_comm output missing sendrecv test. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "running Bcast test" "${fileOutRun}"; then
+if ! grep -Fq "running Bcast test" "${fileOutRun}"; then
     fail "test_mpi_comm output missing Bcast test. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "MPI Comm=Tag_world" "${fileOutRun}"; then
+if ! grep -Fq "MPI Comm=Tag_world" "${fileOutRun}"; then
     fail "test_mpi_comm output missing Tag_world communicator timing/reporting. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "MPI Comm=Tag_world @MPITestBcast" "${fileOutRun}"; then
+if ! grep -Fq "MPI Comm=Tag_world @MPITestBcast" "${fileOutRun}"; then
     fail "test_mpi_comm output missing Tag_world Bcast timing. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "timing \[ave,std,min,max\]" "${fileOutRun}"; then
+if ! grep -Fq "timing [ave,std,min,max]" "${fileOutRun}"; then
     fail "test_mpi_comm output missing aggregate timing statistics. See: ${fileOutRun}"
 fi
 
-if ! grep -aq "Ending job" "${fileOutRun}"; then
+if ! grep -Fq "Ending job" "${fileOutRun}"; then
     fail "test_mpi_comm output missing 'Ending job'. See: ${fileOutRun}"
 fi
 
@@ -438,7 +442,7 @@ echo "Runtime reporting/performance check passed"
 
 # The current program can emit MPICH communicator-reference diagnostics at shutdown.
 # Treat those as warnings for now: they are visible, but they do not fail CI.
-if grep -aq "MPICH: Builtin communicator .* pending .* references" "${fileOutRun}"; then
+if grep -Eq "MPICH: Builtin communicator .* pending .* references" "${fileOutRun}"; then
     warn "test_mpi_comm emitted MPICH pending communicator reference diagnostics at shutdown. See: ${fileOutRun}"
 fi
 
@@ -458,10 +462,10 @@ echo "=== Summary ==="
     cat "${fileOutPerf}"
     echo
     echo "--- Key runtime lines ---"
-    grep -aE "Starting job|Version:|MPI Comm world size|Core Binding|running .* test|MPI Comm=Tag_world|timing \[ave,std,min,max\]|Ending job" "${fileOutRun}" || true
+    grep -E "Starting job|Version:|MPI Comm world size|Core Binding|running .* test|MPI Comm=Tag_world|timing \[ave,std,min,max\]|Ending job" "${fileOutRun}" || true
     echo
     echo "--- Warning/error diagnostic lines ---"
-    grep -aE "WARNING|MPICH: Builtin communicator|MPICH ERROR|Fatal error|MPI_Abort|Invalid root|srun: error" "${fileOutRun}" || true
+    grep -E "WARNING|MPICH: Builtin communicator|MPICH ERROR|Fatal error|MPI_Abort|Invalid root|srun: error" "${fileOutRun}" || true
 } | tee "${fileOutSummary}"
 
 echo
