@@ -50,48 +50,49 @@ LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawse
 #---------------------------------------------------------------
 # A.2 Installing basic requirements
 RUN set -eux; \
-    DEBIAN_FRONTEND=noninteractive apt-get update; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update; \
     apt-get -y --no-install-recommends install \
-    build-essential \
-    ca-certificates \
-    gdb \
-    gcc \
-    g++ \
-    gfortran \
-    wget \
-    git \
-    python3-six \
-    python3-setuptools \
-    patchelf \
-    strace \
-    ltrace \
-    libcrypt-dev \
-    libcurl4-openssl-dev \
-    libpython3-dev \
-    libreadline-dev \
-    libssl-dev \
-    sudo \
-    autoconf \
-    automake \
-    bison \
-    curl \
-    flex \
-    gcovr \
-    libtool \
-    m4 \
-    make \
-    cmake \
-    openssh-server \
-    patch \
-    python3-numpy \
-    python3-pip \
-    python3-scipy \
-    subversion \
-    tzdata \
-    valgrind \
-    vim \
-    xsltproc \
-    zlib1g-dev \
+        build-essential \
+        ca-certificates \
+        gdb \
+        gcc \
+        g++ \
+        gfortran \
+        wget \
+        git \
+        python3-six \
+        python3-setuptools \
+        patchelf \
+        strace \
+        ltrace \
+        libcrypt-dev \
+        libcurl4-openssl-dev \
+        libpython3-dev \
+        libreadline-dev \
+        libssl-dev \
+        sudo \
+        autoconf \
+        automake \
+        bison \
+        curl \
+        flex \
+        gcovr \
+        libtool \
+        m4 \
+        make \
+        cmake \
+        openssh-server \
+        patch \
+        python3-numpy \
+        python3-pip \
+        python3-scipy \
+        subversion \
+        tzdata \
+        valgrind \
+        vim \
+        xsltproc \
+        zlib1g-dev \
     ; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
