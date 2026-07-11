@@ -1,22 +1,22 @@
-# This Dockerfile builds an Ubuntu-based container image with MPICH and ROCm, 
+# This Dockerfile builds an Ubuntu-based container image with MPICH and ROCm,
 # ABI compatible with Cray-MPICH, enabling MPI applications to run on AMD GPUs on HPE Cray EX systems.
 # It installs a minimal build/runtime environment,
-# compiles: 
-#    - CMake requred for ROCm, 
+# compiles:
+#    - CMake requred for ROCm,
 #    - Lustre libraries to allow correct MPI I/O,
 #    - Libfabric required for adding RCCL,
-#    - MPICH from source with OFI support, 
+#    - MPICH from source with OFI support,
 #    - rocm,
-#    - mpi4py, 
+#    - mpi4py,
 #    - aws-ofi-rccl,
-#    - OSU Micro-Benchmarks, and 
+#    - OSU Micro-Benchmarks, and
 #    - additional Pawsey MPI test utilities.
 # The recipe does not start FROM mpich-base:<tag> image because Lustre libraries
 # need to be installed before the MPI installation.
 # Build-time arguments allow the Ubuntu, MPICH, and benchmark versions to be
 # overridden without modifying the recipe.
 # (When updating this image, don't forget to double check that labels are also updated accordingly)
-    
+
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -42,7 +42,7 @@ ARG LUSTRE_VERSION="release"
 ARG ROCM_VERSION="7.0.1"
 ARG CMAKE_VERSION="3.31.7"
 ARG ARCH="amd64"
-ARG GFX_ARCH=gfx90a
+ARG GFX_ARCH="gfx90a"
 
 # 0.2 Other auxiliary variables to ease building
 ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
@@ -52,9 +52,7 @@ ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # A. Basic Stage
-
 FROM ${BASE_IMAGE_FULL} AS basic_stage
-
 #---------------------------------------------------------------
 # A.0 Recall global definitions made at the top
 ARG MPICH_VERSION
@@ -75,92 +73,91 @@ LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawse
 
 #---------------------------------------------------------------
 # A.2 Installing basic requirements
-
 RUN set -eux; \
-    DEBIAN_FRONTEND=noninteractive apt-get update; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update; \
     apt-get -y --no-install-recommends install \
-    build-essential \
-    gnupg \
-    gnupg2 \
-    ca-certificates \
-    gdb \
-    gcc-${GCC_VERSION} \
-    g++-${GCC_VERSION} \
-    gfortran-${GCC_VERSION} \
-    wget \
-    git \
-    python3-six \
-    python3-setuptools \
-    patchelf \
-    strace \
-    ltrace \
-    libcrypt-dev \ 
-    libcurl4-openssl-dev \
-    libpython3-dev \
-    libreadline-dev \
-    libssl-dev \
-    sudo \
-    autoconf \
-    automake \
-    bison \
-    curl \
-    flex \
-    gcovr \
-    libtool \
-    m4 \
-    make \
-    openssh-server \
-    patch \
-    python3-numpy \
-    python3-pip \
-    python3-scipy \
-    python3-venv \
-    subversion \
-    tzdata \
-    valgrind \
-    vim \
-    xsltproc \
-    zlib1g-dev \
-    ninja-build \
-    libnuma-dev \
-    swig \
-    linux-tools-generic \
-    linux-source \
-    software-properties-common \
-    libkeyutils-dev \
-    libnl-genl-3-dev \
-    libyaml-dev \
-    linux-headers-${LINUX_KERNEL}-generic \
-    linux-headers-${LINUX_KERNEL} \
-    libmount-dev \
-    pkg-config \
-    cmake \
+        build-essential \
+        gnupg \
+        gnupg2 \
+        ca-certificates \
+        gdb \
+        gcc-${GCC_VERSION} \
+        g++-${GCC_VERSION} \
+        gfortran-${GCC_VERSION} \
+        wget \
+        git \
+        python3-six \
+        python3-setuptools \
+        patchelf \
+        strace \
+        ltrace \
+        libcrypt-dev \
+        libcurl4-openssl-dev \
+        libpython3-dev \
+        libreadline-dev \
+        libssl-dev \
+        sudo \
+        autoconf \
+        automake \
+        bison \
+        curl \
+        flex \
+        gcovr \
+        libtool \
+        m4 \
+        make \
+        openssh-server \
+        patch \
+        python3-numpy \
+        python3-pip \
+        python3-scipy \
+        python3-venv \
+        subversion \
+        tzdata \
+        valgrind \
+        vim \
+        xsltproc \
+        zlib1g-dev \
+        ninja-build \
+        libnuma-dev \
+        swig \
+        linux-tools-generic \
+        linux-source \
+        software-properties-common \
+        libkeyutils-dev \
+        libnl-genl-3-dev \
+        libyaml-dev \
+        linux-headers-${LINUX_KERNEL}-generic \
+        linux-headers-${LINUX_KERNEL} \
+        libmount-dev \
+        pkg-config \
+        cmake \
     ; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
 
-#---------------------------------------------------------------
-#---------------------------------------------------------------
-#---------------------------------------------------------------
-# B. Build CMake to make sure it will work with ROCm
-# 4.x breaks stuff
-# We can build ROCm without this CMake step
+##---------------------------------------------------------------
+##---------------------------------------------------------------
+##---------------------------------------------------------------
+## B. Build CMake to make sure it will work with ROCm
+## 4.x breaks stuff
+## We can build ROCm without this CMake step
 #FROM basic_stage AS build_cmake
-#---------------------------------------------------------------
-# B.0 Recall global definitions made at the top
+##---------------------------------------------------------------
+## B.0 Recall global definitions made at the top
 #ARG CMAKE_VERSION
-
-#---------------------------------------------------------------
-# B.1 Build CMake
-
+#
+##---------------------------------------------------------------
+## B.1 Build CMake
 #ENV PATH=/usr/cmake-${CMAKE_VERSION}-linux-x86_64/bin:$PATH
-
+#
 #RUN set -eux; \
 #    apt -y remove --purge --auto-remove cmake; \
 #    wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.sh; \
 #    chmod a+x cmake-${CMAKE_VERSION}-linux-x86_64.sh && yes | ./cmake-${CMAKE_VERSION}-linux-x86_64.sh --prefix=/usr; \
-#    cmake --version 
+#    cmake --version
 
 
 #---------------------------------------------------------------
@@ -174,19 +171,28 @@ ARG LINUX_KERNEL_MAJOR
 ARG ARCH
 
 #---------------------------------------------------------------
-# C.1 Ggenerate a kernel config file
-
+# C.1 Generate a kernel config file
 # CMEYER: ./debian/scripts/misc/annotations not present in ubuntu24.04 by default, this is workaround
 RUN set -eux; \
-    echo "deb-src http://archive.ubuntu.com/ubuntu noble main restricted" >> /etc/apt/sources.list; \
-    apt-get update -qq;\
-    apt-get install -y --no-install-recommends build-essential fakeroot devscripts dpkg-dev;\
+    export DEBIAN_FRONTEND=noninteractive; \
+    echo "deb-src http://archive.ubuntu.com/ubuntu noble main restricted" > /etc/apt/sources.list.d/noble-src.list; \
+    apt-get update; \
+    apt-get -y --no-install-recommends install \
+        build-essential \
+        devscripts \
+        dpkg-dev \
+        fakeroot \
+    ; \
     apt-get source linux; \
-    cd linux-${LINUX_KERNEL_MAJOR}; \
+    rm -f /etc/apt/sources.list.d/noble-src.list; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*; \
+    cd "linux-${LINUX_KERNEL_MAJOR}"; \
     chmod +x ./debian/scripts/misc/annotations; \
     ./debian/scripts/misc/annotations \
-        --arch ${ARCH} --flavour generic --export > .config 
-
+        --arch "${ARCH}" \
+        --flavour generic \
+        --export > .config
 
 
 #---------------------------------------------------------------
@@ -200,7 +206,6 @@ ARG LIBFABRIC_VERSION
 
 #---------------------------------------------------------------
 # D.1 Ggenerate a kernel config file
-
 # Build and install libfabric, required for adding rccl
 RUN set -eux; \
     (if [ -e /tmp/build ]; then rm -rf /tmp/build; fi;); \
@@ -208,14 +213,13 @@ RUN set -eux; \
     cd /tmp/build; \
     wget https://github.com/ofiwg/libfabric/archive/refs/tags/v${LIBFABRIC_VERSION}.tar.gz; \
     tar xf v${LIBFABRIC_VERSION}.tar.gz; \
-    cd libfabric-${LIBFABRIC_VERSION}; \ 
+    cd libfabric-${LIBFABRIC_VERSION}; \
     ./autogen.sh; \
     ./configure; \
-    make -j 16; \ 
+    make -j 16; \
     make install; \
     rm -rf /tmp/build/v${LIBFABRIC_VERSION}.tar.gz; \
-    rm -rf /tmp/build/libfabric-${LIBFABRIC_VERSION} 
-
+    rm -rf /tmp/build/libfabric-${LIBFABRIC_VERSION}
 
 
 #---------------------------------------------------------------
@@ -259,6 +263,7 @@ FROM build_lustre AS build_mpich
 ARG MPICH_VERSION
 ARG MPICH_SHA256
 ARG GCC_VERSION
+
 #---------------------------------------------------------------
 # F.1 Build MPICH
 ARG MPICH_CONFIGURE_OPTIONS="\
@@ -300,7 +305,6 @@ RUN set -eux; \
     rm -rf /tmp/mpich-build
 
 
-
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -320,7 +324,6 @@ RUN set -eux; \
         "mpi4py==${MPI4PY_VERSION}"
 
 
-
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -331,29 +334,34 @@ RUN set -eux; \
 # libncurses5 / libpython3.10, none of which exist on noble (24.04). They are
 # satisfied from the jammy repo, which is the same repo amdgpu-install pulls rocm
 # from for rocm 5.x and rocm 6.x < 6.2 — so install the compat libs in those cases.
-
 FROM install_mpi4py AS build_rocm
 #---------------------------------------------------------------
 # H.0 Recall global definitions made at the top
 ARG ROCM_VERSION
 ARG GFX_ARCH
-#---------------------------------------------------------------
-# H.1 Install ROCm 
 
-RUN apt -y update
-RUN apt -y upgrade
-RUN apt -y install rsync
+#---------------------------------------------------------------
+# H.1 Install ROCm
 RUN set -eux; \
-    rocm_major=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $1}'); \
-    rocm_minor=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $2}'); \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update; \
+    apt-get -y --no-install-recommends install \
+        rsync \
+    ; \
+    rocm_major=$(echo "${ROCM_VERSION}" | sed "s/\./ /g" | awk '{print $1}'); \
+    rocm_minor=$(echo "${ROCM_VERSION}" | sed "s/\./ /g" | awk '{print $2}'); \
     if [ "$rocm_major" -eq 5 ] || { [ "$rocm_major" -eq 6 ] && [ "$rocm_minor" -lt 2 ]; }; then \
-       { \
-            echo "deb http://archive.ubuntu.com/ubuntu jammy main universe" > /etc/apt/sources.list.d/jammy.list \
-            apt-get update -qq \
-            apt-get -y --no-install-recommends install \
-                libtinfo5 libncurses5 libpython3.10; \
-        }; \
-     fi
+        echo "deb http://archive.ubuntu.com/ubuntu jammy main universe" > /etc/apt/sources.list.d/jammy.list; \
+        apt-get update; \
+        apt-get -y --no-install-recommends install \
+            libtinfo5 \
+            libncurses5 \
+            libpython3.10 \
+        ; \
+        rm -f /etc/apt/sources.list.d/jammy.list; \
+    fi; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
     rocm_major=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $1}'); \
@@ -371,34 +379,42 @@ RUN set -eux; \
     # CMEYER: Need jammy for < rocm6.2, noble for > rocm6.2
     if [ "$rocm_major" -lt 6 ] || { [ "$rocm_major" -eq 6 ] && [ "$rocm_minor" -lt 2 ]; }; then \
         roc_url="https://repo.radeon.com/amdgpu-install/"${ROCM_VERSION}"/ubuntu/jammy/amdgpu-install_"${ROCM_INSTALLER_VERSION}"_all.deb"; \
-       else \
+    else \
         roc_url="https://repo.radeon.com/amdgpu-install/"${ROCM_VERSION}"/ubuntu/noble/amdgpu-install_"${ROCM_INSTALLER_VERSION}"_all.deb"; \
-       fi; \
+    fi; \
     # roc_url="https://repo.radeon.com/amdgpu-install/7.0.1/ubuntu/noble/amdgpu-install_7.0.1.70001-1_all.deb" \
     echo ${roc_url}; \
     wget ${roc_url}; \
-    apt -y install ./amdgpu-install_*_all.deb; \
+    apt-get update; \
+    apt-get -y --no-install-recommends install \
+        ./amdgpu-install_*_all.deb \
+    ; \
     # CMEYER: Adding --no-dkms - older rocm versions fail without it and seems to be recommended by amd
     # CMEYER: See https://rocmdocs.amd.com/projects/install-on-linux/en/latest/install/install-methods/amdgpu-installer/amdgpu-installer-ubuntu.html and https://github.com/amd/InfinityHub-CI/blob/55ffdd622595cf678fb55fce7681792390173f3d/base-mpich-rocm-docker/Dockerfile#L47
     amdgpu-install -y --usecase=hiplibsdk,rocm,hip,opencl --no-dkms; \
-    cd /tmp/build; \
-    rm -rf amdgpu-install_*_all.deb 
-
+    rm -rf /tmp/build/amdgpu-install_*_all.deb; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 # modify the rocm_agent_enumerator and andgpu-arch executables to detect the gfx90a architecture regardless of whether it is present on
 # the system or not. This is useful to build containers optimised for the gfx90a architecture on machines with no GPUs.
 RUN set -eux; \
     cd /opt/rocm/bin; \
     mv rocm_agent_enumerator rocm_agent_enumerator_old; \
-    echo "echo ${GFX_ARCH}" >> rocm_agent_enumerator; \
-    chmod 0777 rocm_agent_enumerator;
+    { \
+        echo '#!/bin/sh'; \
+        echo "echo ${GFX_ARCH}"; \
+    } > rocm_agent_enumerator; \
+    chmod 0755 rocm_agent_enumerator
 
 RUN set -eux; \
     cd /opt/rocm/lib/llvm/bin; \
-    mv amdgpu-arch amdgpu-arch.old;  \
-    echo "echo ${GFX_ARCH}" >> amdgpu-arch; \
-    chmod 0777 amdgpu-arch;
-
+    mv amdgpu-arch amdgpu-arch.old; \
+    { \
+        echo '#!/bin/sh'; \
+        echo "echo ${GFX_ARCH}"; \
+    } > amdgpu-arch; \
+    chmod 0755 amdgpu-arch
 
 
 #---------------------------------------------------------------
@@ -413,13 +429,12 @@ ARG GCC_VERSION
 
 #---------------------------------------------------------------
 # I.1 Install aws-ofi-rccl
-
 ARG RCCL_CONFIGURE_OPTIONS="--prefix=/usr --with-mpi=/usr --with-libfabric=/usr --with-hip=/opt/rocm --with-rccl=/opt/rocm CC=gcc-${GCC_VERSION} CXX=g++-${GCC_VERSION}"
 
 RUN set -eux; \
     rocm_major=$(echo ${ROCM_VERSION} | sed "s/\./ /g" | awk '{print $1}'); \
     gitrepo=https://github.com/ROCmSoftwarePlatform/aws-ofi-rccl.git; \
-    # before rccl was not compatible with 6.0.2 till there was a PR that was merged. 
+    # before rccl was not compatible with 6.0.2 till there was a PR that was merged.
     #Leaving this to document that something similar could be ncessary in the future
     # if [ "${rocm_major}" = "6" ]; then gitrepo=https://github.com/teojgo/aws-ofi-rccl.git; RCCL_CONFIGURE_OPTIONS=${RCCL_CONFIGURE_OPTIONS}" CFLAGS=-D__HIP_PLATFORM_AMD__ CXXFLAGS=-D__HIP_PLATFORM_AMD__"; fi \
     # now just need to ensure that adding __HIP_PLATFORM_AMD__ to compilation as that was not being set in the 6.0.2 installation
@@ -427,14 +442,14 @@ RUN set -eux; \
     if [ "${rocm_major}" -ge "6" ]; then RCCL_CONFIGURE_OPTIONS=${RCCL_CONFIGURE_OPTIONS}" CFLAGS=-D__HIP_PLATFORM_AMD__ CXXFLAGS=-D__HIP_PLATFORM_AMD__"; fi; \
     git clone ${gitrepo}; \
     cd aws-ofi-rccl; \
-    # this is only valid when was grabbing a fork for a fix. 
+    # this is only valid when was grabbing a fork for a fix.
     # if [ "${rocm_major}" = "6" ]; then git checkout rocm60_memorytype_fix; fi \
     ./autogen.sh; \
     ./configure ${RCCL_CONFIGURE_OPTIONS}; \
     make -j 16; \
     make install; \
     cd /tmp; \
-    rm -rf /tmp/build 
+    rm -rf /tmp/build
 
 
 #---------------------------------------------------------------
@@ -467,7 +482,7 @@ RUN set -eux; \
 	./configure ${OSU_CONFIGURE_OPTIONS}; \
 	make ${OSU_MAKE_OPTIONS}; \
 	make install; \
-	rm -rf /tmp/osu-benchmark-build 
+	rm -rf /tmp/osu-benchmark-build
 
 ENV PATH="/usr/local/libexec/osu-micro-benchmarks/mpi/collective:/usr/local/libexec/osu-micro-benchmarks/mpi/one-sided:/usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt:/usr/local/libexec/osu-micro-benchmarks/mpi/startup:$PATH"
 
@@ -515,18 +530,18 @@ ARG DOCKER_RECIPES_DIR
 #---------------------------------------------------------------
 # L.1 Set some environment variables related to gpu communication and libfabric
 ENV NCCL_SOCKET_IFNAME=hsn
+ENV ROCM_PATH=/opt/rocm
 ENV HSA_FORCE_FINE_GRAIN_PCIE=1
 ENV FI_CXI_DISABLE_CQ_HUGETLB=1
-ENV ROCM_PATH=/opt/rocm
 
 # L.2 Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
 #              Standard naming of "environment" scripts is 9X-environment.sh
 RUN mkdir -p /.singularity.d/env/
-RUN echo "export NCCL_SOCKET_IFNAME=hsn"  >> /.singularity.d/env/91-environment.sh \
-    echo "export ROCM_PATH=/opt/rocm"  >> /.singularity.d/env/91-environment.sh \
-    echo "export HSA_FORCE_FINE_GRAIN_PCIE=1" >> /.singularity.d/env/91-environment.sh \
-    echo "export FI_CXI_DISABLE_CQ_HUGETLB=1" >> /.singularity.d/env/91-environment.sh
-
+RUN set -eux; \
+    echo "export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME}"  >> /.singularity.d/env/91-environment.sh; \
+    echo "export ROCM_PATH=${ROCM_PATH}"  >> /.singularity.d/env/91-environment.sh; \
+    echo "export HSA_FORCE_FINE_GRAIN_PCIE=${HSA_FORCE_FINE_GRAIN_PCIE}" >> /.singularity.d/env/91-environment.sh; \
+    echo "export FI_CXI_DISABLE_CQ_HUGETLB=${FI_CXI_DISABLE_CQ_HUGETLB}" >> /.singularity.d/env/91-environment.sh
 
 # L.3 Copy the recipe into the docker recipes directory
 RUN set -eux; \
