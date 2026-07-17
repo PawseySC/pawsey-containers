@@ -164,6 +164,7 @@ FROM build_lustre AS build_mpich
 # C.0 Recall global definitions made at the top
 ARG MPICH_VERSION
 ARG MPICH_SHA256
+ARG GCC_VERSION
 
 #---------------------------------------------------------------
 # C.1 Build MPICH
@@ -184,9 +185,9 @@ ARG MPICH_CONFIGURE_OPTIONS="\
     --enable-threads=runtime \
     --enable-fast=O2 \
     --enable-thread-cs=global \
-    CC=gcc-12 \
-    CXX=g++-12 \
-    FC=gfortran-12 \
+    CC=gcc-${GCC_VERSION} \
+    CXX=g++-${GCC_VERSION} \
+    FC=gfortran-${GCC_VERSION} \
     FFLAGS=-fallow-argument-mismatch"
 ARG MPICH_MAKE_OPTIONS="-j16"
 
@@ -287,14 +288,14 @@ RUN set -eux; \
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# H. Final settings
+# G. Final settings
 FROM other_tests AS final_settings
 #---------------------------------------------------------------
-# H.0 Recall global definitions made at the top
+# G.0 Recall global definitions made at the top
 ARG DOCKER_RECIPES_DIR
 
 #---------------------------------------------------------------
-# H.1 Copy the recipe into the docker recipes directory
+# G.1 Copy the recipe into the docker recipes directory
 RUN set -eux; \
     mkdir -p "${DOCKER_RECIPES_DIR}"
 COPY buildlustrempich.dockerfile "${DOCKER_RECIPES_DIR}"
