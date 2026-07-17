@@ -1,100 +1,105 @@
 #!/bin/bash --login
-#SBATCH --job-name=T02-osu-2nodes
+#SBATCH --job-name=test_02_osu_2nodes
 #SBATCH --nodes=2
+#SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=00:15:00
 ##SBATCH --partition=work
 #SBATCH --partition=debug
-#SBATCH --output=artifacts/output/slurm-test_02-%j.out
+#SBATCH --output=slurm-%x-%j.out
 
 # Focus:
-# This test focuses on proper execution of some OSU tests
+# This test checks that selected OSU MPI benchmarks are available,
+# correctly linked, and runnable across two nodes.
 
 # Note:
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
-# This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.s
+# This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.
+
+# Normally this script is submitted by one of the product-specific launchers:
+#
+#   pawsey-containers/setonix/mpi/mpich-base/testing/run_tests.sh
+#   pawsey-containers/setonix/mpi/lustrempich-base/testing/run_tests.sh
+#   pawsey-containers/setonix/mpi/rocm-mpich-base/testing/run_tests.sh
+#
+# Those launchers define the required environment variables and submit this
+# script with sbatch.
+#
+# Manual submission example, from the relevant product testing directory:
+#
+#   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
+#   export SINGULARITY_IMAGE="/path/to/image.sif"
+#   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE \
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_02_osu_2nodes.slurm
+#
+# REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
+# SINGULARITY_IMAGE must point to the container image being tested.
 
 #--- Strict mode
 set -euo pipefail
 
+#--- Name used for output files and markers
+: "${SLURM_JOB_NAME:?SLURM_JOB_NAME is not set}"
+TEST_NAME="${SLURM_JOB_NAME}"
+
+#--- Important variables to be provided as environment variable
+# The singularity image to use:
+: "${SINGULARITY_IMAGE:?SINGULARITY_IMAGE is not set}"
+# The path of the mpi subdirectory in the repository (needed as reference to find the rest of the stuff):
+: "${REPO_MPI_DIR:?REPO_MPI_DIR is not set. Submit this test through a run_tests.sh script or export REPO_MPI_DIR manually.}"
+
+#--- Basic path setup
+LAUNCH_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
+SHARED_TESTS_DIR="$REPO_MPI_DIR/tests"
+FIXTURES_DIR="$SHARED_TESTS_DIR/fixtures"
+TESTS_SUPPORT_DIR="$SHARED_TESTS_DIR/tests-support"
+ARTIFACTS_DIR="$LAUNCH_DIR/artifacts"
+BUILD_DIR="$ARTIFACTS_DIR/build"
+OUTPUT_DIR="$ARTIFACTS_DIR/output"
+PASS_MARKER="$OUTPUT_DIR/${TEST_NAME}.PASS"
+FAIL_MARKER="$OUTPUT_DIR/${TEST_NAME}.FAIL"
+
+mkdir -p "$BUILD_DIR" "$OUTPUT_DIR"
+
+rm -f "$PASS_MARKER" "$FAIL_MARKER"
+
 #--- Helper functions
 fail() {
+    local reason="$*"
     echo
-    echo "TEST_02: FAIL"
-    echo "Reason: $*" >&2
-
-    if [[ -n "${OUTPUT_DIR:-}" ]]; then
-        mkdir -p "${OUTPUT_DIR}"
-        echo "$*" > "${OUTPUT_DIR}/test_02.FAIL"
-    fi
-
+    echo "${TEST_NAME}: FAIL"
+    echo "Reason: ${reason}" >&2
+    {
+        echo "${TEST_NAME}: FAIL"
+        echo "Reason: ${reason}"
+    } > "${FAIL_MARKER}"
     exit 1
 }
 
 pass() {
     echo
-    echo "TEST_02: PASS"
-
-    mkdir -p "${OUTPUT_DIR}"
-    echo "PASS" > "${OUTPUT_DIR}/test_02.PASS"
-
-    exit 0
+    echo "${TEST_NAME}: PASS"
+    {
+        echo "${TEST_NAME}: PASS"
+    } > "${PASS_MARKER}"
 }
 
-#--- Basic path setup
-# This script is expected to be submitted from:
-#   pawsey-containers/setonix/mpi/mpich-base/tests
-TESTS_DIR="$(realpath "${SLURM_SUBMIT_DIR:-$PWD}")"
-
-if [[ "$(basename "${TESTS_DIR}")" != "tests" ]]; then
-    fail "This test must be submitted from the tests directory. Current submit directory: ${TESTS_DIR}"
+#--- Resolve absolute path for REPO_MPI_DIR
+if ! REPO_MPI_DIR="$(cd "${REPO_MPI_DIR}" && pwd)"; then
+    fail "REPO_MPI_DIR does not exist or is not accessible: ${REPO_MPI_DIR}"
 fi
 
-MPICH_BASE_DIR="$(realpath "${TESTS_DIR}/..")"
-MPI_DIR="$(realpath "${MPICH_BASE_DIR}/..")"
-SETONIX_DIR="$(realpath "${MPI_DIR}/..")"
-REPO_ROOT="$(realpath "${SETONIX_DIR}/..")"
-
-#--- Test directories
-ARTIFACTS_DIR="${TESTS_DIR}/artifacts"
-BUILD_DIR="${ARTIFACTS_DIR}/build"
-OUTPUT_DIR="${ARTIFACTS_DIR}/output"
-
-mkdir -p "${ARTIFACTS_DIR}" "${BUILD_DIR}" "${OUTPUT_DIR}"
-
-# Remove stale PASS/FAIL markers from previous runs
-rm -f "${OUTPUT_DIR}/test_02.PASS" "${OUTPUT_DIR}/test_02.FAIL"
-
-#--- Names and version settings
-MPICH_VERSION="${MPICH_VERSION:-4.2.2}"
-OS_VERSION="${OS_VERSION:-24.04}"
-IMAGE_NAME="${IMAGE_NAME:-mpich-base}"
-
-IMAGE_DIR="${IMAGE_DIR:-${ARTIFACTS_DIR}/singularityImages}"
-TESTS_SUPPORT_DIR="${TESTS_SUPPORT_DIR:-${MPI_DIR}/repo-support/tests-support}"
-
-#--- Canonical paths
-ARTIFACTS_DIR="$(realpath "${ARTIFACTS_DIR}")"
-BUILD_DIR="$(realpath "${BUILD_DIR}")"
-OUTPUT_DIR="$(realpath "${OUTPUT_DIR}")"
-IMAGE_DIR="$(realpath "${IMAGE_DIR}")"
-TESTS_SUPPORT_DIR="$(realpath "${TESTS_SUPPORT_DIR}")"
-
-#--- Defining image to use
-IMAGE_TAG="mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
-IMAGE_FULL="${IMAGE_NAME}--${IMAGE_TAG}.sif"
-SINGULARITY_IMAGE="${IMAGE_DIR}/${IMAGE_FULL}"
-
+#--- Image selected by launcher
 if [[ ! -f "${SINGULARITY_IMAGE}" ]]; then
     fail "Singularity image not found: ${SINGULARITY_IMAGE}"
 fi
-
-echo "Using image: ${SINGULARITY_IMAGE}"
-echo "Repository root: ${REPO_ROOT}"
-echo "Tests directory: ${TESTS_DIR}"
-echo "Artifacts directory: ${ARTIFACTS_DIR}"
-echo "Build directory: ${BUILD_DIR}"
-echo "Output directory: ${OUTPUT_DIR}"
+echo "Using image: $SINGULARITY_IMAGE"
+echo "Launch directory: $LAUNCH_DIR"
+echo "MPI directory: $REPO_MPI_DIR"
+echo "Shared tests directory: $SHARED_TESTS_DIR"
+echo "Fixtures directory: $FIXTURES_DIR"
+echo "Build directory: $BUILD_DIR"
+echo "Output directory: $OUTPUT_DIR"
 
 #--- Modules and settings
 module load singularity/4.1.0-mpi
@@ -106,11 +111,11 @@ fi
 module list
 
 #--- Output files
-fileOutBinaries="${OUTPUT_DIR}/res_test_02.osu_binaries.out"
-fileOutLinkage="${OUTPUT_DIR}/res_test_02.linkage.out"
-fileOutLatency="${OUTPUT_DIR}/res_test_02.osu_latency.out"
-fileOutBW="${OUTPUT_DIR}/res_test_02.osu_bw.out"
-fileOutReduce="${OUTPUT_DIR}/res_test_02.osu_allreduce.out"
+fileOutBinaries="${OUTPUT_DIR}/res_${TEST_NAME}.osu_binaries.out"
+fileOutLinkage="${OUTPUT_DIR}/res_${TEST_NAME}.linkage.out"
+fileOutLatency="${OUTPUT_DIR}/res_${TEST_NAME}.osu_latency.out"
+fileOutBW="${OUTPUT_DIR}/res_${TEST_NAME}.osu_bw.out"
+fileOutReduce="${OUTPUT_DIR}/res_${TEST_NAME}.osu_allreduce.out"
 
 #--- OSU binary availability test
 echo
@@ -125,15 +130,15 @@ if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc '
     fail "One or more OSU binaries were not found in the container. See: ${fileOutBinaries}"
 fi
 
-if ! grep -q "osu_latency" "${fileOutBinaries}"; then
+if ! grep -Fq "osu_latency" "${fileOutBinaries}"; then
     fail "osu_latency was not found in OSU binary check output. See: ${fileOutBinaries}"
 fi
 
-if ! grep -q "osu_bw" "${fileOutBinaries}"; then
+if ! grep -Fq "osu_bw" "${fileOutBinaries}"; then
     fail "osu_bw was not found in OSU binary check output. See: ${fileOutBinaries}"
 fi
 
-if ! grep -q "osu_allreduce" "${fileOutBinaries}"; then
+if ! grep -Fq "osu_allreduce" "${fileOutBinaries}"; then
     fail "osu_allreduce was not found in OSU binary check output. See: ${fileOutBinaries}"
 fi
 
@@ -149,11 +154,11 @@ if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
     fail "Linkage command failed. See: ${fileOutLinkage}"
 fi
 
-if ! grep -q "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
+if ! grep -Fq "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
     fail "Expected osu_latency to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
 fi
 
-if ! grep -q "/opt/cray/libfabric" "${fileOutLinkage}"; then
+if ! grep -Fq "/opt/cray/libfabric" "${fileOutLinkage}"; then
     fail "Expected osu_latency to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
 fi
 
@@ -169,7 +174,7 @@ if ! srun -N 2 -n 2 --ntasks-per-node=1 \
     fail "osu_latency failed. See: ${fileOutLatency}"
 fi
 
-if ! grep -q "# OSU MPI Latency Test" "${fileOutLatency}"; then
+if ! grep -Fq "# OSU MPI Latency Test" "${fileOutLatency}"; then
     fail "osu_latency output did not contain expected header. See: ${fileOutLatency}"
 fi
 
@@ -193,7 +198,7 @@ if ! srun -N 2 -n 2 --ntasks-per-node=1 \
     fail "osu_bw failed. See: ${fileOutBW}"
 fi
 
-if ! grep -q "# OSU MPI Bandwidth Test" "${fileOutBW}"; then
+if ! grep -Fq "# OSU MPI Bandwidth Test" "${fileOutBW}"; then
     fail "osu_bw output did not contain expected header. See: ${fileOutBW}"
 fi
 
@@ -214,7 +219,7 @@ if ! srun -N "${SLURM_JOB_NUM_NODES}" \
     fail "osu_allreduce failed. See: ${fileOutReduce}"
 fi
 
-if ! grep -q "# OSU MPI Allreduce Latency Test" "${fileOutReduce}"; then
+if ! grep -Fq "# OSU MPI Allreduce Latency Test" "${fileOutReduce}"; then
     fail "osu_allreduce output did not contain expected header. See: ${fileOutReduce}"
 fi
 

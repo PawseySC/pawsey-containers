@@ -12,7 +12,7 @@ then
         echo "Clearing singularity environment and doing specific bind mounting and other things"
         #bindpath=$(echo $SINGULARITY_BINDPATH | sed "s:,/scratch::g" | sed "s:,/software::g")
         #export SINGULARITY_BINDPATH=${bindpath}
-export SINGULARITY_BINDPATH=,/scratch,/software,/var/opt/cray/pe,/opt/cray,/opt/xpmem,\
+export SINGULARITY_BINDPATH=,/lus/joey/scratch,/scratch,/software,/var/opt/cray/pe,/opt/cray,/opt/xpmem,\
 /usr/lib64/libcxi.so.1,/usr/lib64/libcurl.so.4,/usr/lib64/libjson-c.so.3,/usr/lib64/libnghttp2.so.14,/usr/lib64/libidn2.so.0,\
 /usr/lib64/libssh.so.4,/usr/lib64/libpsl.so.5,/usr/lib64/libssl.so.3,/usr/lib64/libcrypto.so.3,/usr/lib64/libgssapi_krb5.so.2,\
 /usr/lib64/libldap_r-2.4.so.2,/usr/lib64/liblber-2.4.so.2,/usr/lib64/libunistring.so.2,/usr/lib64/libkrb5.so.3,/usr/lib64/libk5crypto.so.3,\
