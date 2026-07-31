@@ -30,7 +30,10 @@ SHARED_TESTS_DIR="${REPO_MPI_DIR}/tests"
 FIXTURES_DIR="${SHARED_TESTS_DIR}/fixtures"
 TESTS_SUPPORT_DIR="${SHARED_TESTS_DIR}/tests-support"
 
-ARTIFACTS_DIR="${TESTING_DIR}/artifacts"
+RUN_ID="${CI_PIPELINE_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+
+ARTIFACTS_ROOT_DIR="${TESTING_DIR}/artifacts"
+ARTIFACTS_DIR="${ARTIFACTS_ROOT_DIR}/runs/${RUN_ID}"
 BUILD_DIR="${ARTIFACTS_DIR}/build"
 OUTPUT_DIR="${ARTIFACTS_DIR}/output"
 
@@ -42,7 +45,14 @@ IMAGE_NAME="mpich-base"
 IMAGE_TAG="mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
 SINGULARITY_IMAGE="${IMAGE_DIR}/${IMAGE_NAME}--${IMAGE_TAG}.sif"
 
+SINGULARITY_MODULE="singularity/4.1.0-mpi"
+#PARTITION="debug"
+PARTITION="work"
+#RESERVATION="PAWSEY_XXX_TEST"
+RESERVATION=""
+
 mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}"
+printf '%s\n' "${ARTIFACTS_DIR}" > "${ARTIFACTS_ROOT_DIR}/latest_run.txt"
 
 if [[ ! -d "${SHARED_TESTS_DIR}" ]]; then
     echo "ERROR: Shared MPI tests directory not found: ${SHARED_TESTS_DIR}" >&2
@@ -68,12 +78,21 @@ echo "============================================================"
 echo "mpich-base Slurm test launcher"
 echo "============================================================"
 echo "Repository root      : ${REPO_ROOT}"
+echo "Run ID               : ${RUN_ID}"
+echo "Artifacts directory  : ${ARTIFACTS_DIR}"
 echo "MPI directory        : ${REPO_MPI_DIR}"
 echo "Launcher directory   : ${TESTING_DIR}"
 echo "Shared tests directory: ${SHARED_TESTS_DIR}"
 echo "Fixtures directory   : ${FIXTURES_DIR}"
 echo "Tests support dir    : ${TESTS_SUPPORT_DIR}"
 echo "Image                : ${SINGULARITY_IMAGE}"
+echo "Singularity module   : ${SINGULARITY_MODULE}"
+echo "Partition            : ${PARTITION}"
+if [[ -n "${RESERVATION:-}" ]]; then
+    echo "Reservation          : ${RESERVATION}"
+else
+    echo "Reservation          : none"
+fi
 echo "Build directory      : ${BUILD_DIR}"
 echo "Output directory     : ${OUTPUT_DIR}"
 echo ""
@@ -86,8 +105,13 @@ fi
 cd "${TESTING_DIR}"
 export SINGULARITY_IMAGE="${SINGULARITY_IMAGE}"
 export REPO_MPI_DIR="${REPO_MPI_DIR}"
+export SINGULARITY_MODULE="${SINGULARITY_MODULE}"
+export ARTIFACTS_DIR="${ARTIFACTS_DIR}"
+export BUILD_DIR="${BUILD_DIR}"
+export OUTPUT_DIR="${OUTPUT_DIR}"
 
 FAILED=0
+declare -a TEST_JOB_IDS=()
 
 print_test_warnings() {
     local before_file="$1"
@@ -106,6 +130,8 @@ print_test_warnings() {
 
 run_slurm_test() {
     local test_script="$1"
+    local number_of_nodes="$2"
+    local tasks_per_node="$3"
     local test_script_abs
     local test_file
     local test_name
@@ -114,6 +140,18 @@ run_slurm_test() {
     local marker_fail
     local marker_warn
     local slurm_output
+
+    if ! [[ "${number_of_nodes}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: Number of nodes must be a positive integer: ${number_of_nodes}" >&2
+        FAILED=1
+        return
+    fi
+
+    if ! [[ "${tasks_per_node}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: Tasks per node must be a positive integer: ${tasks_per_node}" >&2
+        FAILED=1
+        return
+    fi
 
     test_script_abs="$(realpath "${test_script}")"
     test_file="$(basename "${test_script_abs}")"
@@ -135,24 +173,66 @@ run_slurm_test() {
     echo ""
     echo "Submitting: ${test_script_abs}"
     echo "Test name : ${test_name}"
+    echo "Nodes     : ${number_of_nodes}"
+    echo "Tasks/node: ${tasks_per_node}"
+
+    local -a reservation_args=()
+    if [[ -n "${RESERVATION:-}" ]]; then
+        reservation_args+=(--reservation="${RESERVATION}")
+    fi
 
     job_id="$(sbatch --parsable \
         --job-name="${test_name}" \
+        --nodes="${number_of_nodes}" \
+        --ntasks-per-node="${tasks_per_node}" \
+        --partition="${PARTITION}" \
+        "${reservation_args[@]}" \
         --output="${slurm_output}" \
-        --export=SINGULARITY_IMAGE,REPO_MPI_DIR \
+        --export=SINGULARITY_IMAGE,REPO_MPI_DIR,SINGULARITY_MODULE,ARTIFACTS_DIR,BUILD_DIR,OUTPUT_DIR \
         "${test_script_abs}")"
+
+    IFS=';' read -r job_id _ <<< "${job_id}"
+    TEST_JOB_IDS+=("${job_id}")
 
     echo "Submitted job: ${job_id}"
     echo "Output directory: ${OUTPUT_DIR}"
     echo "Slurm output file: ${OUTPUT_DIR}/slurm-${test_name}-${job_id}.out"
-    echo "Waiting for job completion..."
+}
 
-    while squeue -j "${job_id}" -h >/dev/null 2>&1 && [[ -n "$(squeue -j "${job_id}" -h)" ]]; do
-        sleep 5
-    done
+
+# Run all tests:
+# Use: run_slurm_test <test_script> <number_of_nodes> <tasks_per_node>
+run_slurm_test "${SHARED_TESTS_DIR}/test_01_compile+run.slurm" 2 4
+run_slurm_test "${SHARED_TESTS_DIR}/test_02_osu.slurm" 2 4
+run_slurm_test "${SHARED_TESTS_DIR}/test_03_mpi4py.slurm" 2 4
+run_slurm_test "${SHARED_TESTS_DIR}/test_04_mpi-comm.slurm" 2 8
+
+job_id_list="$(IFS=,; echo "${TEST_JOB_IDS[@]}")"
+
+echo
+echo "Waiting for all submitted tests to finish..."
+echo "Job IDs: ${job_id_list}"
+
+while [[ -n "$(squeue --noheader --jobs="${job_id_list}")" ]]; do
+    sleep 5
+done
+
+echo "All submitted tests have finished."
+
+for test_name in \
+    "test_01_compile+run" \
+    "test_02_osu" \
+    "test_03_mpi4py" \
+    "test_04_mpi-comm"
+do
+    marker_pass="${OUTPUT_DIR}/${test_name}.PASS"
+    marker_fail="${OUTPUT_DIR}/${test_name}.FAIL"
+    marker_warn="${OUTPUT_DIR}/${test_name}.WARN"
+
+    echo
 
     if [[ -f "${marker_pass}" ]]; then
-        echo "PASS: ${test_file}"
+        echo "PASS: ${test_name}"
 
         if [[ -f "${marker_warn}" ]]; then
             echo "Warnings:"
@@ -160,10 +240,11 @@ run_slurm_test() {
             cat "${marker_warn}"
             echo "------------------------------------------------------------"
         fi
-        return
+
+        continue
     fi
 
-    echo "FAIL: ${test_file}" >&2
+    echo "FAIL: ${test_name}" >&2
 
     if [[ -f "${marker_fail}" ]]; then
         echo "Failure marker: ${marker_fail}" >&2
@@ -174,14 +255,7 @@ run_slurm_test() {
     fi
 
     FAILED=1
-}
-
-
-# Run all tests:
-run_slurm_test "${SHARED_TESTS_DIR}/test_01_compile+run_2nodes.slurm"
-run_slurm_test "${SHARED_TESTS_DIR}/test_02_osu_2nodes.slurm"
-run_slurm_test "${SHARED_TESTS_DIR}/test_03_mpi4py_2nodes.slurm"
-run_slurm_test "${SHARED_TESTS_DIR}/test_04_mpi-comm_2nodes.slurm"
+done
 
 echo
 echo "============================================================"

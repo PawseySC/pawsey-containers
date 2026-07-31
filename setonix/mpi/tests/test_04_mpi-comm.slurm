@@ -1,7 +1,6 @@
 #!/bin/bash --login
-#SBATCH --job-name=test_04_mpi-comm_2nodes
+#SBATCH --job-name=test_04_mpi-comm
 #SBATCH --nodes=2
-#SBATCH --ntasks=16
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=00:15:00
 ##SBATCH --partition=work
@@ -30,11 +29,13 @@
 #
 #   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
-#   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE \
-#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_04_mpi-comm_2nodes.slurm
+#   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
+#   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_04_mpi-comm.slurm
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
+# SINGULARITY_MODULE defaults to singularity/4.1.0-mpi when not exported.
 
 #--- Strict mode
 set -euo pipefail
@@ -46,6 +47,8 @@ TEST_NAME="${SLURM_JOB_NAME}"
 #--- Important variables to be provided as environment variable
 # The singularity image to use:
 : "${SINGULARITY_IMAGE:?SINGULARITY_IMAGE is not set}"
+# The Singularity module to load (default supports direct submission):
+SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi}"
 # The path of the mpi subdirectory in the repository (needed as reference to find the rest of the stuff):
 : "${REPO_MPI_DIR:?REPO_MPI_DIR is not set. Submit this test through a run_tests.sh script or export REPO_MPI_DIR manually.}"
 
@@ -54,9 +57,9 @@ LAUNCH_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 SHARED_TESTS_DIR="$REPO_MPI_DIR/tests"
 FIXTURES_DIR="$SHARED_TESTS_DIR/fixtures"
 TESTS_SUPPORT_DIR="$SHARED_TESTS_DIR/tests-support"
-ARTIFACTS_DIR="$LAUNCH_DIR/artifacts"
-BUILD_DIR="$ARTIFACTS_DIR/build"
-OUTPUT_DIR="$ARTIFACTS_DIR/output"
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-${LAUNCH_DIR}/artifacts}"
+BUILD_DIR="${BUILD_DIR:-${ARTIFACTS_DIR}/build}"
+OUTPUT_DIR="${OUTPUT_DIR:-${ARTIFACTS_DIR}/output}"
 PASS_MARKER="$OUTPUT_DIR/${TEST_NAME}.PASS"
 FAIL_MARKER="$OUTPUT_DIR/${TEST_NAME}.FAIL"
 WARN_MARKER="$OUTPUT_DIR/${TEST_NAME}.WARN"
@@ -150,6 +153,7 @@ if [[ ! -f "${SINGULARITY_IMAGE}" ]]; then
     fail "Singularity image not found: ${SINGULARITY_IMAGE}"
 fi
 echo "Using image: $SINGULARITY_IMAGE"
+echo "Using Singularity module: $SINGULARITY_MODULE"
 echo "Launch directory: $LAUNCH_DIR"
 echo "MPI directory: $REPO_MPI_DIR"
 echo "Shared tests directory: $SHARED_TESTS_DIR"
@@ -158,7 +162,7 @@ echo "Build directory: $BUILD_DIR"
 echo "Output directory: $OUTPUT_DIR"
 
 #--- Modules and settings
-module load singularity/4.1.0-mpi
+module load "${SINGULARITY_MODULE}"
 
 if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
     source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"

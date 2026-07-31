@@ -1,16 +1,14 @@
 #!/bin/bash --login
-#SBATCH --job-name=test_01_compile+run_2nodes
+#SBATCH --job-name=test_03_mpi4py
 #SBATCH --nodes=2
-#SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=4
-#SBATCH --time=00:10:00
+#SBATCH --time=00:15:00
 ##SBATCH --partition=work
 #SBATCH --partition=debug
 #SBATCH --output=slurm-%x-%j.out
 
 # Focus:
-# This test focuses on allowing compilation of code using container machinery
-# and proper execution of the resulting binary.
+# This test focuses on mpi4py functionality
 
 # Note:
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
@@ -29,11 +27,13 @@
 #
 #   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
-#   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE \
-#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_01_compile+run_2nodes.slurm
+#   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
+#   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_03_mpi4py.slurm
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
+# SINGULARITY_MODULE defaults to singularity/4.1.0-mpi when not exported.
 
 #--- Strict mode
 set -euo pipefail
@@ -45,6 +45,8 @@ TEST_NAME="${SLURM_JOB_NAME}"
 #--- Important variables to be provided as environment variable
 # The singularity image to use:
 : "${SINGULARITY_IMAGE:?SINGULARITY_IMAGE is not set}"
+# The Singularity module to load (default supports direct submission):
+SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi}"
 # The path of the mpi subdirectory in the repository (needed as reference to find the rest of the stuff):
 : "${REPO_MPI_DIR:?REPO_MPI_DIR is not set. Submit this test through a run_tests.sh script or export REPO_MPI_DIR manually.}"
 
@@ -53,9 +55,9 @@ LAUNCH_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 SHARED_TESTS_DIR="$REPO_MPI_DIR/tests"
 FIXTURES_DIR="$SHARED_TESTS_DIR/fixtures"
 TESTS_SUPPORT_DIR="$SHARED_TESTS_DIR/tests-support"
-ARTIFACTS_DIR="$LAUNCH_DIR/artifacts"
-BUILD_DIR="$ARTIFACTS_DIR/build"
-OUTPUT_DIR="$ARTIFACTS_DIR/output"
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-${LAUNCH_DIR}/artifacts}"
+BUILD_DIR="${BUILD_DIR:-${ARTIFACTS_DIR}/build}"
+OUTPUT_DIR="${OUTPUT_DIR:-${ARTIFACTS_DIR}/output}"
 PASS_MARKER="$OUTPUT_DIR/${TEST_NAME}.PASS"
 FAIL_MARKER="$OUTPUT_DIR/${TEST_NAME}.FAIL"
 
@@ -94,6 +96,7 @@ if [[ ! -f "${SINGULARITY_IMAGE}" ]]; then
     fail "Singularity image not found: ${SINGULARITY_IMAGE}"
 fi
 echo "Using image: $SINGULARITY_IMAGE"
+echo "Using Singularity module: $SINGULARITY_MODULE"
 echo "Launch directory: $LAUNCH_DIR"
 echo "MPI directory: $REPO_MPI_DIR"
 echo "Shared tests directory: $SHARED_TESTS_DIR"
@@ -102,7 +105,7 @@ echo "Build directory: $BUILD_DIR"
 echo "Output directory: $OUTPUT_DIR"
 
 #--- Modules and settings
-module load singularity/4.1.0-mpi
+module load "${SINGULARITY_MODULE}"
 
 if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
     source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
@@ -111,79 +114,113 @@ fi
 module list
 
 #--- Input/output files
-src="${FIXTURES_DIR}/mpi_compile_acceptance.c"
-theExe="${BUILD_DIR}/mpi_compile_acceptance.exe"
+testScript="${FIXTURES_DIR}/mpi4py_acceptance.py"
 
-fileOutCompile="${OUTPUT_DIR}/res_${TEST_NAME}.compile.out"
-fileOutLinkage="${OUTPUT_DIR}/res_${TEST_NAME}.linkage.out"
-fileOutRun="${OUTPUT_DIR}/res_${TEST_NAME}.run.out"
+fileOutImport="${OUTPUT_DIR}/res_${TEST_NAME}.mpi4py_import.out"
+fileOutLinkage="${OUTPUT_DIR}/res_${TEST_NAME}.mpi4py_linkage.out"
+fileOutRun="${OUTPUT_DIR}/res_${TEST_NAME}.mpi4py_acceptance.out"
 
-if [[ ! -f "${src}" ]]; then
-    fail "Fixture source file not found: ${src}"
+if [[ ! -f "${testScript}" ]]; then
+    fail "mpi4py test script not found: ${testScript}"
 fi
 
-#--- Compile test
+#--- Python and mpi4py import check
 echo
-echo "=== Building with container mpicc ==="
+echo "=== Python and mpi4py import check ==="
 
-if ! singularity exec "${SINGULARITY_IMAGE}" \
-    mpicc -O2 "${src}" -o "${theExe}" \
-    > "${fileOutCompile}" 2>&1; then
-    fail "Compilation failed. See: ${fileOutCompile}"
+if ! singularity exec "${SINGULARITY_IMAGE}" python3 - <<'PY' | tee "${fileOutImport}"
+import sys
+print("python_executable=", sys.executable)
+print("python_version=", sys.version.replace("\n", " "))
+
+from mpi4py import MPI
+import mpi4py
+
+print("mpi4py_package_version=", mpi4py.__version__)
+print("mpi4py_MPI_extension=", MPI.__file__)
+print("mpi_runtime_version_begin")
+print(MPI.Get_library_version(), end="")
+print("mpi_runtime_version_end")
+PY
+then
+    fail "Python/mpi4py import check failed. See: ${fileOutImport}"
 fi
 
-if [[ ! -x "${theExe}" ]]; then
-    fail "Expected executable was not created or is not executable: ${theExe}"
+if ! grep -Fq "mpi4py_package_version=" "${fileOutImport}"; then
+    fail "mpi4py package version was not reported. See: ${fileOutImport}"
 fi
 
-echo "Compilation succeeded: ${theExe}"
+if ! grep -Fq "mpi_runtime_version_begin" "${fileOutImport}"; then
+    fail "MPI runtime version was not reported during import check. See: ${fileOutImport}"
+fi
 
-#--- Linkage test
+echo "Python and mpi4py import check passed"
+
+#--- mpi4py linkage check
 echo
-echo "=== Linkage check ==="
+echo "=== mpi4py linkage check ==="
 
 if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
-    "ldd '${theExe}' | grep -E 'mpi|fabric|cxi|pmi|pmix|pals|xpmem' || true" \
+    "MPI_SO=\$(python3 -c 'import mpi4py.MPI as m; print(m.__file__)'); echo \"MPI_SO=\${MPI_SO}\"; ldd \"\${MPI_SO}\" | grep -E 'mpi|fabric|cxi|pmi|pmix|pals|xpmem' || true" \
     | tee "${fileOutLinkage}"; then
-    fail "Linkage check command failed. See: ${fileOutLinkage}"
+    fail "mpi4py linkage command failed. See: ${fileOutLinkage}"
 fi
 
 if ! grep -Fq "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
-    fail "Expected executable to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
+    fail "Expected mpi4py MPI extension to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
 fi
 
 if ! grep -Fq "/opt/cray/libfabric" "${fileOutLinkage}"; then
-    fail "Expected executable to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
+    fail "Expected mpi4py MPI extension to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
 fi
 
-echo "Linkage check passed"
+echo "mpi4py linkage check passed"
 
-#--- Runtime test
+#--- mpi4py acceptance test
 echo
-echo "=== Running on ${SLURM_JOB_NUM_NODES} nodes ==="
+echo "=== mpi4py acceptance: ${SLURM_JOB_NUM_NODES} nodes, ${SLURM_NTASKS_PER_NODE} ranks per node ==="
 
 TOTAL_TASKS=$((SLURM_JOB_NUM_NODES * SLURM_NTASKS_PER_NODE))
 
 if ! srun -N "${SLURM_JOB_NUM_NODES}" \
      --ntasks-per-node="${SLURM_NTASKS_PER_NODE}" \
-     singularity exec "${SINGULARITY_IMAGE}" "${theExe}" \
+     singularity exec "${SINGULARITY_IMAGE}" python3 "${testScript}" \
      | tee "${fileOutRun}"; then
-    fail "Runtime execution failed. See: ${fileOutRun}"
+    fail "mpi4py acceptance run failed. See: ${fileOutRun}"
 fi
 
-expected_success_line="TEST_01_MPI_CONTAINER_BUILD_RUN_SUCCESS size=${TOTAL_TASKS}"
+expected_success_line="MPI4PY_ACCEPTANCE_SUCCESS size=${TOTAL_TASKS}"
 
 if ! grep -Fq "${expected_success_line}" "${fileOutRun}"; then
     fail "Expected success line not found: ${expected_success_line}. See: ${fileOutRun}"
 fi
 
+if ! grep -Fq "numpy_buffer_test=PASSED" "${fileOutRun}"; then
+    fail "NumPy buffer test did not pass. See: ${fileOutRun}"
+fi
+
 RANK_COUNT="$(awk '/^RANK_OK / {c++} END {print c+0}' "${fileOutRun}")"
 
 if [[ "${RANK_COUNT}" -ne "${TOTAL_TASKS}" ]]; then
-    fail "Expected ${TOTAL_TASKS} RANK_OK lines, got ${RANK_COUNT}. See: ${fileOutRun}"
+    fail "Expected ${TOTAL_TASKS} RANK_OK lines, found ${RANK_COUNT}. See: ${fileOutRun}"
 fi
 
-echo "Runtime check passed"
+HOST_COUNT="$(awk -F= '/^unique_host_count=/ {print $2; found=1} END {if (!found) print ""}' "${fileOutRun}")"
+
+if [[ -z "${HOST_COUNT}" ]]; then
+    fail "Could not determine unique_host_count from mpi4py output. See: ${fileOutRun}"
+fi
+
+if ! [[ "${HOST_COUNT}" =~ ^[0-9]+$ ]]; then
+    fail "unique_host_count is not numeric: ${HOST_COUNT}. See: ${fileOutRun}"
+fi
+
+if [[ "${HOST_COUNT}" -ne "${SLURM_JOB_NUM_NODES}" ]]; then
+    fail "Expected ranks to run on ${SLURM_JOB_NUM_NODES} node(s), but unique_host_count=${HOST_COUNT}. See: ${fileOutRun}"
+fi
+
+echo "mpi4py acceptance check passed"
 echo "Observed ${RANK_COUNT}/${TOTAL_TASKS} expected MPI ranks"
+echo "Observed unique_host_count=${HOST_COUNT}"
 
 pass
