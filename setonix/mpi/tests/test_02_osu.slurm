@@ -56,7 +56,11 @@ LAUNCH_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 SHARED_TESTS_DIR="$REPO_MPI_DIR/tests"
 FIXTURES_DIR="$SHARED_TESTS_DIR/fixtures"
 TESTS_SUPPORT_DIR="$SHARED_TESTS_DIR/tests-support"
-ARTIFACTS_DIR="${ARTIFACTS_DIR:-${LAUNCH_DIR}/artifacts}"
+
+ARTIFACTS_ROOT_DIR="${LAUNCH_DIR}/artifacts"
+RUN_ID="${CI_PIPELINE_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-${ARTIFACTS_ROOT_DIR}/singleruns/${TEST_NAME}/${RUN_ID}}"
+
 BUILD_DIR="${BUILD_DIR:-${ARTIFACTS_DIR}/build}"
 OUTPUT_DIR="${OUTPUT_DIR:-${ARTIFACTS_DIR}/output}"
 PASS_MARKER="$OUTPUT_DIR/${TEST_NAME}.PASS"
@@ -113,6 +117,17 @@ if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
 fi
 
 module list
+
+#--- MPI and Slingshot settings
+export MPICH_OFI_STARTUP_CONNECT=1
+export MPICH_OFI_VERBOSE=1
+
+export FI_CXI_DEFAULT_VNI
+FI_CXI_DEFAULT_VNI="$(od -vAn -N4 -tu < /dev/urandom)"
+
+echo "MPICH_OFI_STARTUP_CONNECT=${MPICH_OFI_STARTUP_CONNECT}"
+echo "MPICH_OFI_VERBOSE=${MPICH_OFI_VERBOSE}"
+echo "FI_CXI_DEFAULT_VNI=${FI_CXI_DEFAULT_VNI}"
 
 #--- Output files
 fileOutBinaries="${OUTPUT_DIR}/res_${TEST_NAME}.osu_binaries.out"
