@@ -15,7 +15,7 @@
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
 # This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.
 
-# Normally this script is submitted by one of the product-specific launchers:
+# Normally this script is submitted by one of the product-specific launchers like:
 #
 #   pawsey-containers/setonix/mpi/mpich-base/testing/run_tests.sh
 #   pawsey-containers/setonix/mpi/lustrempich-base/testing/run_tests.sh
@@ -30,7 +30,7 @@
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
 #   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
 #   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
-#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_02_osu.slurm
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_02_osu.slurm.sh
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
@@ -119,9 +119,16 @@ fi
 module list
 
 #--- MPI and Slingshot settings
-export MPICH_OFI_STARTUP_CONNECT=1
-export MPICH_OFI_VERBOSE=1
+if [[ "${SLURM_JOB_NUM_NODES:-}" -gt 1 ]]; then
+    echo "Running on multiple nodes: ${SLURM_JOB_NUM_NODES}"
+    echo "Setting MPICH_OFI_STARTUP_CONNECT=1 and MPICH_OFI_VERBOSE=1 for multi-node runs"
+    export MPICH_OFI_STARTUP_CONNECT=1
+    export MPICH_OFI_VERBOSE=1
+else
+    echo "Running on a single node: ${SLURM_JOB_NUM_NODES:-1}"
+fi
 
+#Setting a random VNI for the test to avoid conflicts with other jobs on the same node
 export FI_CXI_DEFAULT_VNI
 FI_CXI_DEFAULT_VNI="$(od -vAn -N4 -tu < /dev/urandom)"
 

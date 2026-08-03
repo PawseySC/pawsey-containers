@@ -1,11 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Master test launcher for mpich-base.
+# Master Slurm test launcher for the mpich-base container image.
 #
-# Intended to be run by Git CI or manually from anywhere:
+# The launcher:
+#   1. Resolves the repository and shared MPI test directories.
+#   2. Selects the container image, Singularity module, partition, optional
+#      reservation, and test execution mode.
+#   3. Creates an isolated artifact directory for this suite run.
+#   4. Submits all enabled Slurm tests with their configured node and task counts.
+#   5. Runs tests sequentially by default using afterany dependencies, or allows
+#      concurrent execution when requested.
+#   6. Waits for every submitted job, evaluates PASS, FAIL, and WARN markers,
+#      and exits with the global suite result.
+#
+# Run from anywhere:
 #
 #   ./setonix/mpi/mpich-base/testing/run_tests.sh
+#
+# Configuration values can be overridden for one invocation. Examples:
+#
+#   PARTITION=debug ./setonix/mpi/mpich-base/testing/run_tests.sh
+#   RESERVATION=PAWSEY_XXX_TEST ./setonix/mpi/mpich-base/testing/run_tests.sh
+#   EXECUTION_MODE=concurrent ./setonix/mpi/mpich-base/testing/run_tests.sh
+#   SINGULARITY_IMAGE=/path/to/image.sif ./setonix/mpi/mpich-base/testing/run_tests.sh
+#
+# EXECUTION_MODE accepts sequential or concurrent. Sequential is the default.
+# Each run writes to testing/artifacts/runs/<run-id>. The latest run directory
+# is recorded in testing/artifacts/latest_run.txt.
 #
 # Note:
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
@@ -43,13 +65,22 @@ MPICH_VERSION="${MPICH_VERSION:-4.2.2}"
 OS_VERSION="${OS_VERSION:-24.04}"
 IMAGE_NAME="mpich-base"
 IMAGE_TAG="mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
-SINGULARITY_IMAGE="${IMAGE_DIR}/${IMAGE_NAME}--${IMAGE_TAG}.sif"
+SINGULARITY_IMAGE="${SINGULARITY_IMAGE:-${IMAGE_DIR}/${IMAGE_NAME}--${IMAGE_TAG}.sif}"
+SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi}"
 
-SINGULARITY_MODULE="singularity/4.1.0-mpi"
-#PARTITION="debug"
-PARTITION="work"
-#RESERVATION="PAWSEY_XXX_TEST"
-RESERVATION=""
+# Override with PARTITION=<name>; the default is work.
+PARTITION="${PARTITION:-work}"
+
+# Override with RESERVATION=<name>; empty means no reservation.
+RESERVATION="${RESERVATION:-}"
+
+# Override with EXECUTION_MODE=concurrent; valid values are sequential and concurrent.
+EXECUTION_MODE="${EXECUTION_MODE:-sequential}"
+
+if [[ "${EXECUTION_MODE}" != "sequential" && "${EXECUTION_MODE}" != "concurrent" ]]; then
+    echo "ERROR: EXECUTION_MODE must be sequential or concurrent." >&2
+    exit 1
+fi
 
 mkdir -p "${BUILD_DIR}" "${OUTPUT_DIR}"
 printf '%s\n' "${ARTIFACTS_DIR}" > "${ARTIFACTS_ROOT_DIR}/latest_run.txt"
@@ -88,6 +119,7 @@ echo "Tests support dir    : ${TESTS_SUPPORT_DIR}"
 echo "Image                : ${SINGULARITY_IMAGE}"
 echo "Singularity module   : ${SINGULARITY_MODULE}"
 echo "Partition            : ${PARTITION}"
+echo "Execution mode       : ${EXECUTION_MODE}"
 if [[ -n "${RESERVATION:-}" ]]; then
     echo "Reservation          : ${RESERVATION}"
 else
@@ -112,6 +144,7 @@ export OUTPUT_DIR="${OUTPUT_DIR}"
 
 FAILED=0
 declare -a TEST_JOB_IDS=()
+PREVIOUS_JOB_ID=""
 
 print_test_warnings() {
     local before_file="$1"
@@ -155,7 +188,7 @@ run_slurm_test() {
 
     test_script_abs="$(realpath "${test_script}")"
     test_file="$(basename "${test_script_abs}")"
-    test_name="${test_file%.slurm}"
+    test_name="${test_file%.slurm.sh}"
 
     marker_pass="${OUTPUT_DIR}/${test_name}.PASS"
     marker_fail="${OUTPUT_DIR}/${test_name}.FAIL"
@@ -177,8 +210,14 @@ run_slurm_test() {
     echo "Tasks/node: ${tasks_per_node}"
 
     local -a reservation_args=()
+    local -a dependency_args=()
+
     if [[ -n "${RESERVATION:-}" ]]; then
         reservation_args+=(--reservation="${RESERVATION}")
+    fi
+
+    if [[ "${EXECUTION_MODE}" == "sequential" && -n "${PREVIOUS_JOB_ID}" ]]; then
+        dependency_args+=(--dependency="afterany:${PREVIOUS_JOB_ID}")
     fi
 
     job_id="$(sbatch --parsable \
@@ -187,12 +226,14 @@ run_slurm_test() {
         --ntasks-per-node="${tasks_per_node}" \
         --partition="${PARTITION}" \
         "${reservation_args[@]}" \
+        "${dependency_args[@]}" \
         --output="${slurm_output}" \
         --export=SINGULARITY_IMAGE,REPO_MPI_DIR,SINGULARITY_MODULE,ARTIFACTS_DIR,BUILD_DIR,OUTPUT_DIR \
         "${test_script_abs}")"
 
     IFS=';' read -r job_id _ <<< "${job_id}"
     TEST_JOB_IDS+=("${job_id}")
+    PREVIOUS_JOB_ID="${job_id}"
 
     echo "Submitted job: ${job_id}"
     echo "Output directory: ${OUTPUT_DIR}"
@@ -202,10 +243,10 @@ run_slurm_test() {
 
 # Run all tests:
 # Use: run_slurm_test <test_script> <number_of_nodes> <tasks_per_node>
-run_slurm_test "${SHARED_TESTS_DIR}/test_01_compile+run.slurm" 2 4
-run_slurm_test "${SHARED_TESTS_DIR}/test_02_osu.slurm" 2 4
-run_slurm_test "${SHARED_TESTS_DIR}/test_03_mpi4py.slurm" 2 4
-run_slurm_test "${SHARED_TESTS_DIR}/test_04_mpi-comm.slurm" 2 8
+run_slurm_test "${SHARED_TESTS_DIR}/test_01_compile+run.slurm.sh" 2 4
+run_slurm_test "${SHARED_TESTS_DIR}/test_02_osu.slurm.sh" 2 4
+run_slurm_test "${SHARED_TESTS_DIR}/test_03_mpi4py.slurm.sh" 2 4
+run_slurm_test "${SHARED_TESTS_DIR}/test_04_mpi-comm.slurm.sh" 2 8
 
 job_id_list="$(IFS=,; echo "${TEST_JOB_IDS[@]}")"
 
@@ -213,7 +254,20 @@ echo
 echo "Waiting for all submitted tests to finish..."
 echo "Job IDs: ${job_id_list}"
 
-while [[ -n "$(squeue --noheader --jobs="${job_id_list}")" ]]; do
+while true; do
+    active_jobs=0
+
+    for job_id in "${TEST_JOB_IDS[@]}"; do
+        if [[ -n "$(squeue --noheader --jobs="${job_id}" 2>/dev/null)" ]]; then
+            active_jobs=$((active_jobs + 1))
+        fi
+    done
+
+    if [[ "${active_jobs}" -eq 0 ]]; then
+        break
+    fi
+
+    echo "Tests still pending or running: ${active_jobs}"
     sleep 5
 done
 
