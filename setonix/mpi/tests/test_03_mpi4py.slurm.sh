@@ -1,7 +1,6 @@
 #!/bin/bash --login
-#SBATCH --job-name=test_03_mpi4py_2nodes
+#SBATCH --job-name=test_03_mpi4py
 #SBATCH --nodes=2
-#SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=00:15:00
 ##SBATCH --partition=work
@@ -15,7 +14,7 @@
 # This script has been developed by Alexis Espinosa with the help of Microsoft 360 Copilot - GPT 5.5.
 # This script has been fully reviewed by Alexis Espinosa at Pawsey Supercomputing Centre.
 
-# Normally this script is submitted by one of the product-specific launchers:
+# Normally this script is submitted by one of the product-specific launchers like:
 #
 #   pawsey-containers/setonix/mpi/mpich-base/testing/run_tests.sh
 #   pawsey-containers/setonix/mpi/lustrempich-base/testing/run_tests.sh
@@ -28,11 +27,13 @@
 #
 #   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
-#   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE \
-#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_03_mpi4py_2nodes.slurm
+#   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
+#   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_03_mpi4py.slurm.sh
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
+# SINGULARITY_MODULE defaults to singularity/4.1.0-mpi when not exported.
 
 #--- Strict mode
 set -euo pipefail
@@ -44,6 +45,8 @@ TEST_NAME="${SLURM_JOB_NAME}"
 #--- Important variables to be provided as environment variable
 # The singularity image to use:
 : "${SINGULARITY_IMAGE:?SINGULARITY_IMAGE is not set}"
+# The Singularity module to load (default supports direct submission):
+SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi}"
 # The path of the mpi subdirectory in the repository (needed as reference to find the rest of the stuff):
 : "${REPO_MPI_DIR:?REPO_MPI_DIR is not set. Submit this test through a run_tests.sh script or export REPO_MPI_DIR manually.}"
 
@@ -52,9 +55,13 @@ LAUNCH_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 SHARED_TESTS_DIR="$REPO_MPI_DIR/tests"
 FIXTURES_DIR="$SHARED_TESTS_DIR/fixtures"
 TESTS_SUPPORT_DIR="$SHARED_TESTS_DIR/tests-support"
-ARTIFACTS_DIR="$LAUNCH_DIR/artifacts"
-BUILD_DIR="$ARTIFACTS_DIR/build"
-OUTPUT_DIR="$ARTIFACTS_DIR/output"
+
+ARTIFACTS_ROOT_DIR="${LAUNCH_DIR}/artifacts"
+RUN_ID="${CI_PIPELINE_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-${ARTIFACTS_ROOT_DIR}/singleruns/${TEST_NAME}/${RUN_ID}}"
+
+BUILD_DIR="${BUILD_DIR:-${ARTIFACTS_DIR}/build}"
+OUTPUT_DIR="${OUTPUT_DIR:-${ARTIFACTS_DIR}/output}"
 PASS_MARKER="$OUTPUT_DIR/${TEST_NAME}.PASS"
 FAIL_MARKER="$OUTPUT_DIR/${TEST_NAME}.FAIL"
 
@@ -93,6 +100,7 @@ if [[ ! -f "${SINGULARITY_IMAGE}" ]]; then
     fail "Singularity image not found: ${SINGULARITY_IMAGE}"
 fi
 echo "Using image: $SINGULARITY_IMAGE"
+echo "Using Singularity module: $SINGULARITY_MODULE"
 echo "Launch directory: $LAUNCH_DIR"
 echo "MPI directory: $REPO_MPI_DIR"
 echo "Shared tests directory: $SHARED_TESTS_DIR"
@@ -101,13 +109,31 @@ echo "Build directory: $BUILD_DIR"
 echo "Output directory: $OUTPUT_DIR"
 
 #--- Modules and settings
-module load singularity/4.1.0-mpi
+module load "${SINGULARITY_MODULE}"
 
 if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
     source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
 fi
 
 module list
+
+#--- MPI and Slingshot settings
+if [[ "${SLURM_JOB_NUM_NODES:-}" -gt 1 ]]; then
+    echo "Running on multiple nodes: ${SLURM_JOB_NUM_NODES}"
+    echo "Setting MPICH_OFI_STARTUP_CONNECT=1 and MPICH_OFI_VERBOSE=1 for multi-node runs"
+    export MPICH_OFI_STARTUP_CONNECT=1
+    export MPICH_OFI_VERBOSE=1
+else
+    echo "Running on a single node: ${SLURM_JOB_NUM_NODES:-1}"
+fi
+
+#Setting a random VNI for the test to avoid conflicts with other jobs on the same node
+export FI_CXI_DEFAULT_VNI
+FI_CXI_DEFAULT_VNI="$(od -vAn -N4 -tu < /dev/urandom)"
+
+echo "MPICH_OFI_STARTUP_CONNECT=${MPICH_OFI_STARTUP_CONNECT}"
+echo "MPICH_OFI_VERBOSE=${MPICH_OFI_VERBOSE}"
+echo "FI_CXI_DEFAULT_VNI=${FI_CXI_DEFAULT_VNI}"
 
 #--- Input/output files
 testScript="${FIXTURES_DIR}/mpi4py_acceptance.py"
@@ -211,8 +237,8 @@ if ! [[ "${HOST_COUNT}" =~ ^[0-9]+$ ]]; then
     fail "unique_host_count is not numeric: ${HOST_COUNT}. See: ${fileOutRun}"
 fi
 
-if [[ "${HOST_COUNT}" -lt 2 ]]; then
-    fail "Expected ranks to run on at least 2 nodes, but unique_host_count=${HOST_COUNT}. See: ${fileOutRun}"
+if [[ "${HOST_COUNT}" -ne "${SLURM_JOB_NUM_NODES}" ]]; then
+    fail "Expected ranks to run on ${SLURM_JOB_NUM_NODES} node(s), but unique_host_count=${HOST_COUNT}. See: ${fileOutRun}"
 fi
 
 echo "mpi4py acceptance check passed"
