@@ -58,11 +58,18 @@ RUN set -eux; \
         gcc \
         g++ \
         gfortran \
-        python3 \
-        wget \
         patchelf \
         strace \
         ltrace \
+        git \
+        curl \
+        wget \
+        cmake \
+        python3 \
+        python3-pip \
+        valgrind \
+        vim \
+        zlib1g-dev \
     ; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
