@@ -66,7 +66,6 @@ RUN set -eux; \
         wget \
         cmake \
         python3 \
-        python3-pip \
         valgrind \
         vim \
         zlib1g-dev \
