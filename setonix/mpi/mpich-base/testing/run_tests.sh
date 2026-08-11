@@ -144,6 +144,7 @@ export OUTPUT_DIR="${OUTPUT_DIR}"
 
 FAILED=0
 declare -a TEST_JOB_IDS=()
+declare -a TEST_NAMES=()
 PREVIOUS_JOB_ID=""
 
 print_test_warnings() {
@@ -189,6 +190,7 @@ run_slurm_test() {
     test_script_abs="$(realpath "${test_script}")"
     test_file="$(basename "${test_script_abs}")"
     test_name="${test_file%.slurm.sh}"
+    TEST_NAMES+=("${test_name}")
 
     marker_pass="${OUTPUT_DIR}/${test_name}.PASS"
     marker_fail="${OUTPUT_DIR}/${test_name}.FAIL"
@@ -240,13 +242,22 @@ run_slurm_test() {
     echo "Slurm output file: ${OUTPUT_DIR}/slurm-${test_name}-${job_id}.out"
 }
 
+# Test specification format:
+# <test_script>|<number_of_nodes>|<tasks_per_node>
+#
+# Comment out an entry to disable that test.
+declare -a TEST_SPECS=(
+    "${SHARED_TESTS_DIR}/test_01_compile+run.slurm.sh|2|4"
+    "${SHARED_TESTS_DIR}/test_02_osu.slurm.sh|2|4"
+    "${SHARED_TESTS_DIR}/test_03_mpi4py.slurm.sh|2|4"
+    "${SHARED_TESTS_DIR}/test_04_mpi-comm.slurm.sh|2|8"
+)
 
 # Run all tests:
-# Use: run_slurm_test <test_script> <number_of_nodes> <tasks_per_node>
-run_slurm_test "${SHARED_TESTS_DIR}/test_01_compile+run.slurm.sh" 2 4
-run_slurm_test "${SHARED_TESTS_DIR}/test_02_osu.slurm.sh" 2 4
-run_slurm_test "${SHARED_TESTS_DIR}/test_03_mpi4py.slurm.sh" 2 4
-run_slurm_test "${SHARED_TESTS_DIR}/test_04_mpi-comm.slurm.sh" 2 8
+for test_spec in "${TEST_SPECS[@]}"; do
+    IFS='|' read -r test_script number_of_nodes tasks_per_node <<< "${test_spec}"
+    run_slurm_test "${test_script}" "${number_of_nodes}" "${tasks_per_node}"
+done
 
 job_id_list="$(IFS=,; echo "${TEST_JOB_IDS[@]}")"
 
@@ -273,12 +284,7 @@ done
 
 echo "All submitted tests have finished."
 
-for test_name in \
-    "test_01_compile+run" \
-    "test_02_osu" \
-    "test_03_mpi4py" \
-    "test_04_mpi-comm"
-do
+for test_name in "${TEST_NAMES[@]}"; do
     marker_pass="${OUTPUT_DIR}/${test_name}.PASS"
     marker_fail="${OUTPUT_DIR}/${test_name}.FAIL"
     marker_warn="${OUTPUT_DIR}/${test_name}.WARN"
