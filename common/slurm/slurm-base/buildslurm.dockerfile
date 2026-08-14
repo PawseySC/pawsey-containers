@@ -7,7 +7,7 @@
 #define Ubuntu OS version
 ARG OS_VERSION="24.04"
 # define slurm version for meta data 
-ARG SLURM_VERSION="24-11-6-1"
+ARG SLURM_VERSION="25-11-6-1"
 # for builds in parallel 
 ARG NCPUS=8
 
