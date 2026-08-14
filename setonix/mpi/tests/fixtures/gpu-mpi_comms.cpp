@@ -83,11 +83,14 @@ void GetArgs(int argc, char *argv[], Options &opt)
 
 void MPITestGPUCopy(Options &opt){
 
+    std::string mpifunc = "GPU_GPU_copy";
+    LogMPITest();
     std::vector<double*> gpu_p1, gpu_p2;
     std::vector<float> mpitransfertimes;
     double nbytes = opt.msg_size * 1024.0 * 1024.0 * 1024.0;
     double nelements = nbytes / sizeof(double);
 
+    // Initialise data
     int nDevices;
     hipGetDeviceCount(&nDevices);
     std::vector<double> senddata;
@@ -95,12 +98,10 @@ void MPITestGPUCopy(Options &opt){
     gpu_p2.resize(nDevices);
     for (auto &x:gpu_p1) x=nullptr;
     for (auto &x:gpu_p2) x=nullptr;
-
-
-    std::string mpifunc = "GPU_GPU_copy";
-    LogMPITest();
     senddata.resize(nelements);
+
     float timetaken;
+    // Each device copies <nelements> doubles from p1 -> p2 <Niter> times
     for (auto idev=0;idev<nDevices;idev++) {
         hipSetDevice(idev);
         hipMalloc((void**)&gpu_p1[idev], nbytes);
@@ -127,13 +128,11 @@ void MPITestGPUCopy(Options &opt){
     }
     // Calculate avg time and effective bandwidth
     double avg_time = 0.0, total_time = 0.0;
-    for (auto &t:mpitransfertimes)
-    {
-        total_time += t;
-    }
+    for (auto &t:mpitransfertimes) total_time += t;
     avg_time = total_time / mpitransfertimes.size();
     double bw = opt.msg_size / avg_time;
-    // Report time, bw, and message size
+
+    // Report basic stats
     Rank0LocalLoggerWithTime()
         << "Test " << mpifunc << " finished with avg communication time of " << avg_time << " seconds"
         << ", with effective bandwidth " << bw << " GB/s " 
@@ -146,25 +145,22 @@ void MPITestGPUCopy(Options &opt){
 void MPITestGPUBandwidthSendRecv(Options &opt){
     if (NProcs<2) return;
     MPI_Status status;
-    std::string mpifunc;
+    std::string mpifunc = "GPU_bandwidth_sendrecv";
+    LogMPITest();
     std::vector<double> senddata, receivedata;
-    
     double * p1 = nullptr, *p2 = nullptr;
     std::vector<double*> gpu_p1, gpu_p2;
     std::vector<float> mpitransfertimes;
     double nbytes = opt.msg_size * 1024.0 * 1024.0 * 1024.0;
     double nelements = nbytes / sizeof(double);
 
+    // Initialise data
     int nDevices;
     hipGetDeviceCount(&nDevices);
     gpu_p1.resize(nDevices);
     gpu_p2.resize(nDevices);
     for (auto &x:gpu_p1) x=nullptr;
     for (auto &x:gpu_p2) x=nullptr;
-
-    // now bandwidth measurement for send receive 
-    mpifunc = "GPU_bandwidth_sendrecv";
-    LogMPITest();
     senddata.resize(nelements);
     receivedata.resize(nelements);
     for (auto idev=0;idev<nDevices;idev++) {
@@ -174,48 +170,49 @@ void MPITestGPUBandwidthSendRecv(Options &opt){
         hipMemcpy(gpu_p1[idev], senddata.data(), nbytes, hipMemcpyHostToDevice);
     }
     for (auto &d:senddata) d = pow(2.0,ThisTask);
-    float timetaken;
+
+    // Run one-way sendrecv
+    // For each non-root rank <itask>, each device has rank 0 send <nelements> doubles to rank <itask> <Niter> times
     for (auto idev=0; idev<nDevices;idev++) {
         hipSetDevice(idev);
-        timetaken=0.0;
-        hipEvent_t gpuEventStart, gpuEventStop;
-        hipEventCreate(&gpuEventStart);
-        hipEventCreate(&gpuEventStop);
         p1 = gpu_p1[idev];
         p2 = gpu_p2[idev];
         std::vector<float> times;
+        MPI_Barrier(MPI_COMM_WORLD);
         for (auto itask=0;itask<NProcs;itask++) {
             if (itask == 0) continue;
             if (!(ThisTask==0 or ThisTask==itask)) continue;
             int tag = 100;
             for (auto iter=0;iter<opt.Niter;iter++) {
-                hipEventRecord(gpuEventStart);
+                double start_time = MPI_Wtime();
                 if (ThisTask==0) {
                     MPI_Send(p1, nelements, MPI_DOUBLE, itask, tag, MPI_COMM_WORLD);
                 }
                 else if (ThisTask==itask) {
                     MPI_Recv(p2, nelements, MPI_DOUBLE, 0, tag, MPI_COMM_WORLD, &status);
                 }
-                hipEventRecord(gpuEventStop);
-                hipDeviceSynchronize();
-                hipEventElapsedTime(&timetaken, gpuEventStart, gpuEventStop);
-                mpitransfertimes.push_back(timetaken*_GPU_TO_SECONDS);
+                double end_time = MPI_Wtime();
+                double local_time = end_time - start_time;
+                mpitransfertimes.push_back(local_time);
             }
         }
+        MPI_Barrier(MPI_COMM_WORLD);
     }
+
+    // Report average time and effective bandwidth
     double avg_time = 0.0, total_time = 0.0;
-    for (auto &t:mpitransfertimes)
-    {
-        total_time += t;
-    }
+    for (auto &t:mpitransfertimes) total_time += t;
     avg_time = total_time / mpitransfertimes.size();
     double bw = opt.msg_size / avg_time;
+
+    // Report basic stats
     Rank0LocalLoggerWithTime()
         << "Test " << mpifunc << " finished with avg communication time of " << avg_time << " seconds"
         << ", with effective bandwidth " << bw << " GB/s " 
         << "and message size of " << opt.msg_size << " GB." << std::endl;
     mpitransfertimes.clear();
 
+    // Cleanup
     for (auto idev=0;idev<nDevices;idev++) {
         hipSetDevice(idev);
         hipFree(gpu_p1[idev]);
@@ -227,54 +224,48 @@ void MPITestGPUBandwidthSendRecv(Options &opt){
     receivedata.shrink_to_fit();
     gpu_p1.clear();
     gpu_p2.clear();
-    MPI_Barrier(MPI_COMM_WORLD);
 };
 
 /// @brief Test whether GPU-GPU Asynchronous communication works
 /// @param opt Options struct containing runtime information
 void MPITestGPUAsyncSendRecv(Options &opt){
     if (NProcs<2) return;
-    std::string mpifunc;
+    std::string mpifunc = "GPU_async_sendrecv";
+    LogMPITest();
     std::vector<double> senddata, receivedata;
-    
     double * p1 = nullptr, *p2 = nullptr;
     std::vector<double*> gpu_p1, gpu_p2;
     std::vector<float> mpitransfertimes;
     double nbytes = opt.msg_size * 1024.0 * 1024.0 * 1024.0;
     double nelements = nbytes / sizeof(double);
 
+    // Initialise data
     int nDevices;
     hipGetDeviceCount(&nDevices);
     gpu_p1.resize(nDevices);
     gpu_p2.resize(nDevices);
     for (auto &x:gpu_p1) x=nullptr;
     for (auto &x:gpu_p2) x=nullptr;
-
-    // now allreduce 
-    mpifunc = "GPU_async_sendrecv";
-    LogMPITest();
     senddata.resize(nelements);
     receivedata.resize(nelements);
     for (auto idev=0;idev<nDevices;idev++) {
         hipSetDevice(idev);
-        hipHostMalloc((void**)&gpu_p1[idev], nbytes);
-        hipHostMalloc((void**)&gpu_p2[idev], nbytes);
+        hipMalloc((void**)&gpu_p1[idev], nbytes);
+        hipMalloc((void**)&gpu_p2[idev], nbytes);
         hipMemcpy(gpu_p1[idev], senddata.data(), nbytes, hipMemcpyHostToDevice);
     }
     for (auto &d:senddata) d = pow(2.0,ThisTask);
-    float timetaken;
-    // need to move this to an async mpi test 
+
+    // Run async all-to-all sendrecv
+    // Each rank sends <nelements> doubles to every other rank and receives <nelements> doubles from each other rank
     for (auto idev=0; idev<nDevices;idev++) {
         hipSetDevice(idev);
         p1 = gpu_p1[idev];
         p2 = gpu_p2[idev];
-        timetaken=0.0;
-        hipEvent_t gpuEventStart, gpuEventStop;
-        hipEventCreate(&gpuEventStart);
-        hipEventCreate(&gpuEventStop);
+        MPI_Barrier(MPI_COMM_WORLD);
         for (auto iter=0;iter<opt.Niter;iter++) {
-            hipEventRecord(gpuEventStart);
             std::vector<MPI_Request> sendreqs, recvreqs;
+            double start_time = MPI_Wtime();
             for (auto isend=0;isend<NProcs;isend++) {
                 if (isend != ThisTask) 
                 {
@@ -295,29 +286,32 @@ void MPITestGPUAsyncSendRecv(Options &opt){
             }
             MPI_Waitall(sendreqs.size(), sendreqs.data(), MPI_STATUSES_IGNORE);
             MPI_Waitall(recvreqs.size(), recvreqs.data(), MPI_STATUSES_IGNORE);
-            hipEventRecord(gpuEventStop);
-            hipDeviceSynchronize();
-            hipEventElapsedTime(&timetaken, gpuEventStart, gpuEventStop);
-            mpitransfertimes.push_back(timetaken*_GPU_TO_SECONDS);
+            double end_time = MPI_Wtime();
+            double local_time = end_time - start_time;
+            mpitransfertimes.push_back(local_time);
         }
         MPI_Barrier(MPI_COMM_WORLD);
-        hipEventDestroy(gpuEventStart);
-        hipEventDestroy(gpuEventStop);
     }
+
+    // Record the maximum average time across all ranks
     double avg_time = 0.0, total_time = 0.0;
-    for (auto &t:mpitransfertimes)
-    {
-        total_time += t;
-    }
+    for (auto &t:mpitransfertimes) total_time += t;
     avg_time = total_time / mpitransfertimes.size();
-    double total_bytes = 2.0 * (NProcs - 1) * opt.msg_size;
-    double bw = total_bytes / avg_time;
+    double max_avg_time;
+    MPI_Allreduce(&avg_time, &max_avg_time, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+    // Record the effective bandwidth. Each sendrecv moves <Nprocs - 1> * 2 * <opt.msg_size> GB of data
+    double gbytes_per_sendrecv = 2.0 * (NProcs - 1) * opt.msg_size;
+    double bw = gbytes_per_sendrecv / max_avg_time;
+
+    // Report basic stats.
     Rank0LocalLoggerWithTime()
         << "Test " << mpifunc << " finished with avg communication time of " << avg_time << " seconds"
         << ", with effective bandwidth " << bw << " GB/s " 
         << "and message size of " << opt.msg_size << " GB." << std::endl;
     mpitransfertimes.clear();
 
+    // Cleanup
     for (auto idev=0;idev<nDevices;idev++) {
         hipSetDevice(idev);
         hipFree(gpu_p1[idev]);
@@ -329,14 +323,14 @@ void MPITestGPUAsyncSendRecv(Options &opt){
     receivedata.shrink_to_fit();
     gpu_p1.clear();
     gpu_p2.clear();
-    MPI_Barrier(MPI_COMM_WORLD);
 };
 
 /// @brief Test collective GPU-GPU communication works
 /// @param opt Options struct containing runtime information
 void MPITestGPUAllGather(Options &opt){
     if (NProcs<2) return;
-    std::string mpifunc;
+    std::string mpifunc = "GPU_allgather";
+    LogMPITest();
     std::vector<double> senddata, receivedata;
     
     double * p1 = nullptr, *p2 = nullptr;
@@ -345,15 +339,13 @@ void MPITestGPUAllGather(Options &opt){
     double nbytes = opt.msg_size * 1024.0 * 1024.0 * 1024.0;
     double nelements = nbytes / sizeof(double);
 
+    // Initialise date
     int nDevices;
     hipGetDeviceCount(&nDevices);
     gpu_p1.resize(nDevices);
     gpu_p2.resize(nDevices);
     for (auto &x:gpu_p1) x=nullptr;
     for (auto &x:gpu_p2) x=nullptr;
-
-    mpifunc = "GPU_allgather";
-    LogMPITest();
     senddata.resize(nelements);
     receivedata.resize(nelements * NProcs);
     for (auto &d:senddata) d = pow(2.0,ThisTask);
@@ -363,37 +355,43 @@ void MPITestGPUAllGather(Options &opt){
         hipMalloc((void**)&gpu_p2[idev], nbytes * NProcs);
         hipMemcpy(gpu_p1[idev], senddata.data(), nbytes, hipMemcpyHostToDevice);
     }
+
+    // Run allgather
+    // Each rank sends <nelements> doubles and receives <NProcs - 1> * <nelements> doubles
     float timetaken;
     for (auto idev=0; idev<nDevices;idev++) {
         hipSetDevice(idev);
         timetaken=0.0;
-        hipEvent_t gpuEventStart, gpuEventStop;
-        hipEventCreate(&gpuEventStart);
-        hipEventCreate(&gpuEventStop);
         p1 = gpu_p1[idev];
         p2 = gpu_p2[idev];
+        MPI_Barrier(MPI_COMM_WORLD);
         for (auto iter=0;iter<opt.Niter;iter++) {
-            hipEventRecord(gpuEventStart);
+            double start_time = MPI_Wtime();
             MPI_Allgather(p1, nelements, MPI_DOUBLE, p2, nelements, MPI_DOUBLE, MPI_COMM_WORLD);
-            hipEventRecord(gpuEventStop);
-            hipDeviceSynchronize();
-            hipEventElapsedTime(&timetaken, gpuEventStart, gpuEventStop);
-            mpitransfertimes.push_back(timetaken*_GPU_TO_SECONDS);
+            double end_time = MPI_Wtime();
+            double local_time = end_time - start_time;
+            mpitransfertimes.push_back(local_time);
         }
+        MPI_Barrier(MPI_COMM_WORLD);
     }
+
+    // Record the maximum average time across all ranks
     double avg_time = 0.0, total_time = 0.0;
-    for (auto &t:mpitransfertimes)
-    {
-        total_time += t;
-    }
+    for (auto &t:mpitransfertimes) total_time += t;
     avg_time = total_time / mpitransfertimes.size();
-    double bw = opt.msg_size / avg_time;
+    double max_avg_time;
+    MPI_Allreduce(&avg_time, &max_avg_time, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+
+    // Record the effective bandwidth. Each allgather moves <Nprocs> * <opt.msg_size> GB of data
+    double gbytes_per_allgather = NProcs * opt.msg_size;
+    double bw = gbytes_per_allgather / max_avg_time;
     Rank0LocalLoggerWithTime()
-        << "Test " << mpifunc << " finished with avg communication time of " << avg_time << " seconds"
+        << "Test " << mpifunc << " finished with avg communication time of " << max_avg_time << " seconds"
         << ", with effective bandwidth " << bw << " GB/s " 
         << "and message size of " << opt.msg_size << " GB." << std::endl;
     mpitransfertimes.clear();
 
+    // Cleanup
     for (auto idev=0;idev<nDevices;idev++) {
         hipSetDevice(idev);
         hipFree(gpu_p1[idev]);
