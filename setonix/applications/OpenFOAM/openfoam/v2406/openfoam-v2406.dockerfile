@@ -103,7 +103,6 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
     build-essential flex bison cmake ca-certificates wget \
     zlib1g-dev libboost-system-dev libboost-thread-dev \
     #NoOpenMPI as MPICH will be used: libopenmpi-dev openmpi-bin \
-    libopenmpi-dev openmpi-bin \
     gnuplot libreadline-dev libncurses-dev libxt-dev \
     qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
     libqt5opengl5-dev \
