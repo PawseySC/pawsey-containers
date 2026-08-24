@@ -84,3 +84,9 @@ Example/
 
 # Environmental variables
 .run/__init__.run.xml
+
+# Generated in building scripts
+**/image-build-info.txt
+**/image-build-info.host.txt
+**/tmp/
+**/artifacts/

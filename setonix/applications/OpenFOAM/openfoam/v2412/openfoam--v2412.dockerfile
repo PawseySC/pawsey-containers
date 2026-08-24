@@ -4,9 +4,10 @@
 # 0. Initial main definition of global parameters
 # IMPORTANT: All these settings can be overriden with the use of `--build-arg <Name>=<Value>`
 # IMPORTANT: Recipe needs to re-call them at each stage to recover their values
+# IMPORTANT: Developers should check that ALL the ARG definitions here are recalled in the "recording_arguments" section of the final stage.
 # 0.1 Main global arguments (related to the OpenFOAM version)
 ARG OF_FORK="openfoam"
-ARG OF_VERSION="v2406"
+ARG OF_VERSION="v2412"
 
 # 0.1 Main arguments related to the base container to use
 # Defining the base container to use
@@ -14,8 +15,8 @@ ARG OF_VERSION="v2406"
 ARG BASE_IMAGE_REGISTRY="quay.io/pawsey"
 ARG BASE_IMAGE_NAME="mpich-base"
 ARG BASE_IMAGE_OS_VERSION="24.04"
-ARG BASE_IMAGE_MPICH_VERSION="3.4.3"
-ARG BASE_IMAGE_TAG="${BASE_IMAGE_MPICH_VERSION}_ubuntu${BASE_IMAGE_OS_VERSION}"
+ARG BASE_IMAGE_MPICH_VERSION="4.2.2"
+ARG BASE_IMAGE_TAG="mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
 ARG BASE_IMAGE_FULL="${BASE_IMAGE_REGISTRY}/${BASE_IMAGE_NAME}:${BASE_IMAGE_TAG}"
 
 #---------------------------------------------------------------
@@ -27,10 +28,8 @@ ARG OF_BASHRC_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/bashrc"
 ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
 ARG OF_CONTROL_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/controlDict"
 
-# 0.3 Other auxiliary variables to ease building
-ARG COMPILE_TASKS="16"
-ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
-ARG OS_VERSION=$BASE_IMAGE_OS_VERSION
+# 0.3 Other auxiliary variables
+ARG BUILD_FILES_DIR="/opt/build-information-and-recipes"
 
 
 #---------------------------------------------------------------
@@ -39,22 +38,7 @@ ARG OS_VERSION=$BASE_IMAGE_OS_VERSION
 # A. Basic Stage.
 FROM $BASE_IMAGE_FULL AS basic_stage
 #---------------------------------------------------------------
-# A.1 Defining documented labels
-# Recall global definitions made at the top
-ARG OF_FORK
-ARG OF_VERSION
-ARG OS_VERSION
-ARG DOCKER_RECIPES_DIR
-
-# Labels:
-LABEL org.opencontainers.image.authors="Alexis Espinosa <Alexis.Espinosa@pawsey.org.au>"
-LABEL org.opencontainers.image.name="${OF_FORK}"
-LABEL org.opencontainers.image.branch="${OF_VERSION}-ubuntu${OS_VERSION}"
-LABEL org.opencontainers.image.dockerfile-internal-backup="${DOCKER_RECIPES_DIR}"
-LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawsey-containers"
-
-#---------------------------------------------------------------
-# A.2 Installing additional tools useful for interactive sessions
+# A.1 Installing additional tools useful for interactive sessions
 #     and the check of bashisms in scripts
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  &&  apt-get -y --no-install-recommends install \
@@ -65,9 +49,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 # cleaning at the end:
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
-             
+
 #---------------------------------------------------------------
-# A.3 Setting a user for interactive sessions and development of own tools
+# A.2 Setting a user for interactive sessions and development of own tools
 # Recent native developers' containers are not using this "ofuser" anymore, although it is still useful to have it for Pawsey purposes.
 # Then, some directory within a Pawsey cluster file system could be mounted to WM_PROJECT_USER_DIR path and
 #  perform interactive testing or development of own tools.
@@ -90,11 +74,11 @@ RUN mkdir -p ${OF_USER_DIR} \
 FROM basic_stage AS install_dependencies
 #---------------------------------------------------------------
 # B.1 Install OpenFOAM dependencies
-# OpenFOAM v2406+ dependencies for Ubuntu 24.04 LTS
+# OpenFOAM v2412+ dependencies for Ubuntu 24.04 LTS
 # Aggregated from:
-# [1] https://develop.openfoam.com/Development/openfoam/-/blob/maintenance-v2406/doc/Build.md
-# [2] https://develop.openfoam.com/Development/ThirdParty-common/-/blob/v2406/Requirements.md
-# [3] https://www.openfoam.com/news/main-news/openfoam-v2406
+# [1] https://develop.openfoam.com/Development/openfoam/-/blob/maintenance-v2412/doc/Build.md
+# [2] https://develop.openfoam.com/Development/ThirdParty-common/-/blob/v2412/Requirements.md
+# [3] https://www.openfoam.com/news/main-news/openfoam-v2412
 # [4] https://gitlab.com/openfoam/core/openfoam/-/blob/master/doc/Build.md
 # [5] https://develop.openfoam.com/Development/ThirdParty-common/blob/develop/BUILD.md
 # [6] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu (Last documented instructions in the wiki)
@@ -103,7 +87,6 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
     build-essential flex bison cmake ca-certificates wget \
     zlib1g-dev libboost-system-dev libboost-thread-dev \
     #NoOpenMPI as MPICH will be used: libopenmpi-dev openmpi-bin \
-    libopenmpi-dev openmpi-bin \
     gnuplot libreadline-dev libncurses-dev libxt-dev \
     qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
     libqt5opengl5-dev \
@@ -210,7 +193,7 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
  && sed -i 's/^projectDir=/# projectDir=/g' ${OF_BASHRC_FILE} \
  && sed -i '0,/\[ -n "$projectDir"/s//# \[ -n "$projectDir"/' ${OF_BASHRC_FILE} \
  && sed -i '0,/^# projectDir="$HOME.*/!b;//a\projectDir="'"${OF_INSTALL_DIR}"'/OpenFOAM-$WM_PROJECT_VERSION"' ${OF_BASHRC_FILE} \
-#Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file 
+#Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
 #   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
 #   2. Or you can include and build stuff inside the container and save it as your own image for later use.
@@ -237,36 +220,100 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # E. Third-Party installation
-#Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
+#    Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation)
 FROM update_settings AS third_party_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
-ARG COMPILE_TASKS
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
-ARG TP_COMPILE_OPTIONS="-j${COMPILE_TASKS}"
+ARG TP_COMPILE_TASKS="16"
+ARG TP_COMPILE_OPTIONS="-j${TP_COMPILE_TASKS}"
 
 #---------------------------------------------------------------
 #Using bash to interpret OpenFOAM scripts
-SHELL ["/bin/bash","-c"]
+#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# Third party compilation
-RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain (see ThirdParty-xx/README.md):
- && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Install the ThirdParty tools:
- && cd $WM_THIRD_PARTY_DIR \
- && ./Allwmake $TP_COMPILE_OPTIONS 2>&1 | tee log.Allwmake
+# Third-Party compilation
+#    Using 3 compilation passes (2 in parallel, 1 in serial) as some compilation race conditions were found when compiling in a single parallel pass.
 
-# Obtaining a Summary in a final compilation pass
+# First compilation pass, performed in parallel.
+# A failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain (see ThirdParty-xx/README.md):
+# Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Install the ThirdParty tools:
+# Compile ThirdParty components:
  && cd $WM_THIRD_PARTY_DIR \
- && ./Allwmake 2>&1 | tee log.AllwmakeSummary
+ && echo "Starting first ThirdParty compilation pass: ${TP_COMPILE_OPTIONS}" \
+ && { \
+      ./Allwmake $TP_COMPILE_OPTIONS \
+          2>&1 | tee log.Allwmake.1st_pass-parallel; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "First parallel ThirdParty compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.Allwmake.1st_pass-parallel.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: First parallel ThirdParty compilation pass failed."; \
+          echo "Partial compilation results will be retained for the serial pass."; \
+      fi; \
+      exit 0; \
+    }
+
+# Second compilation pass, performed in parallel.
+# A failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Bootstrap to the wmake toolchain:
+ && $WM_PROJECT_DIR/wmake/src/Allmake \
+# Compile ThirdParty components:
+ && cd $WM_THIRD_PARTY_DIR \
+ && echo "Starting second ThirdParty compilation pass: ${TP_COMPILE_OPTIONS}" \
+ && { \
+      ./Allwmake $TP_COMPILE_OPTIONS \
+          2>&1 | tee log.Allwmake.2nd_pass-parallel; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "Second parallel ThirdParty compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.Allwmake.2nd_pass-parallel.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: Second parallel ThirdParty compilation pass failed."; \
+          echo "Partial compilation results will be retained for the serial pass."; \
+      fi; \
+      exit 0; \
+    }
+
+# Third compilation pass, performed serially.
+# A failure is recorded, but the authoritative pass is still attempted.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Bootstrap to the wmake toolchain:
+ && $WM_PROJECT_DIR/wmake/src/Allmake \
+# Continue from the products committed by the parallel pass:
+ && cd $WM_THIRD_PARTY_DIR \
+ && echo "Starting third ThirdParty compilation pass in serial" \
+ && { \
+      ./Allwmake \
+          2>&1 | tee log.Allwmake.3rd_pass-serial; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "Third serial ThirdParty compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.Allwmake.3rd_pass-serial.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: Third serial ThirdParty compilation pass failed."; \
+          echo "Proceeding to the authoritative compilation pass."; \
+      fi; \
+      exit 0; \
+    }
+
+# Final authoritative compilation pass, performed serially.
+# This failure is not masked. With pipefail enabled, any remaining
+# compilation failure stops the Podman build.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Bootstrap to the wmake toolchain:
+ && $WM_PROJECT_DIR/wmake/src/Allmake \
+# Perform the authoritative compilation check:
+ && cd $WM_THIRD_PARTY_DIR \
+ && echo "Starting authoritative ThirdParty compilation pass" \
+ && ./Allwmake 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 
 #---------------------------------------------------------------
@@ -277,11 +324,16 @@ FROM third_party_install AS pv_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
-ARG COMPILE_TASKS
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
-#NotAcceptedBy makeParaView:#ARG PV_COMPILE_OPTIONS="-j${COMPILE_TASKS}"
-ARG PV_COMPILE_OPTIONS="-DCMAKE_BUILD_PARALLEL_LEVEL=${COMPILE_TASKS}"
+ARG PV_COMPILE_OPTIONS=""
+# Defining the maximum number of parallel tasks to use for compilation
+ARG PV_COMPILE_TASKS=16
+#NotAcceptedBy makeParaView:#ARG PV_COMPILE_OPTIONS="-j${PV_COMPILE_TASKS}"
+#NotWorkingAsWished: #ARG PV_COMPILE_OPTIONS="-DCMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS}"
+#                    Then, CMAKE_BUILD_PARALLEL_LEVEL will be exported directly in the RUN instruction with the correct value
+
+
 #---------------------------------------------------------------
 #ParaView or VTK historically needed for runTimePostprocessing of OpenFOAM to properly compile
 #Paraview needed for graphical postprocessing to be available in the container
@@ -289,26 +341,154 @@ ARG PV_COMPILE_OPTIONS="-DCMAKE_BUILD_PARALLEL_LEVEL=${COMPILE_TASKS}"
 
 #---------------------------------------------------------------
 #Using bash to interpret OpenFOAM scripts
-SHELL ["/bin/bash","-c"]
+#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# Paraview compilation. Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
+# F.1 Validate and prepare the ParaView build environment.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
+# Bootstrap the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Continue:
+# Continue from the ThirdParty directory:
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
-# As makeParaView failed in the past due to bash-isms, changing the script shell explicitly to bash:
+# Change makeParaView to use Bash because it has historically contained bashisms:
  && cp makeParaView makeParaView.original \
  && sed -i '1s|/bin/sh|/bin/bash|' makeParaView \
-# Create a link for basic `python` name
+# Create the basic python command name required by the ParaView build:
  && ln -sf /usr/bin/python3 /usr/bin/python \
-# Obtaining the python shared library path
- && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu -name 'libpython3.*.so' | head -1) \
- && echo "Using PYTHON_LIB in Paraview installation: $PYTHON_LIB" \
-# Installing with mpi capabilities. Also with python bindings (to be able to properly compile Catalyst later)
- && ./makeParaView $PV_COMPILE_OPTIONS -mpi -python -python-lib "$PYTHON_LIB" 2>&1 | tee log.makePV
+# Find and validate the Python shared library:
+ && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
+      -name 'libpython3.*.so' | head -1) \
+ && test -n "$PYTHON_LIB" \
+ && test -f "$PYTHON_LIB" \
+ && echo "Using PYTHON_LIB=$PYTHON_LIB" \
+# Find and validate the MPI compiler wrappers supplied by the MPICH base image:
+ && MPI_C_COMPILER=$(command -v mpicc) \
+ && MPI_CXX_COMPILER=$(command -v mpicxx) \
+ && test -n "$MPI_C_COMPILER" \
+ && test -n "$MPI_CXX_COMPILER" \
+ && test -x "$MPI_C_COMPILER" \
+ && test -x "$MPI_CXX_COMPILER" \
+ && echo "Using MPI_C_COMPILER=$MPI_C_COMPILER" \
+ && echo "Using MPI_CXX_COMPILER=$MPI_CXX_COMPILER" \
+# Display the compiler, include, and library settings used by the MPI wrappers:
+ && "$MPI_C_COMPILER" -show \
+ && "$MPI_CXX_COMPILER" -show \
+# Display build-resource information:
+ && echo "Available processors: $(nproc)" \
+ && echo "Configured parallel compilation tasks: ${PV_COMPILE_TASKS}" \
+ && echo "Open file soft limit: $(ulimit -Sn)" \
+ && echo "Open file hard limit: $(ulimit -Hn)" \
+ && grep -i 'Max open files' /proc/self/limits
+
+#---------------------------------------------------------------
+# F.2 ParaView compilation
+#     Using 3 compilation passes (2 in parallel, 1 in serial) as some compilation race conditions were found when compiling in a single parallel pass.
+
+# First ParaView compilation pass, performed in parallel.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && cd $WM_THIRD_PARTY_DIR \
+ && export QT_SELECT=qt5 \
+ && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
+      -name 'libpython3.*.so' | head -1) \
+ && MPI_C_COMPILER=$(command -v mpicc) \
+ && MPI_CXX_COMPILER=$(command -v mpicxx) \
+ && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS} \
+ && echo "Starting first parallel ParaView compilation pass" \
+ && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
+ && { \
+      ./makeParaView $PV_COMPILE_OPTIONS \
+          -mpi \
+          -python \
+          -python-lib "$PYTHON_LIB" \
+          -DMPI_C_COMPILER="$MPI_C_COMPILER" \
+          -DMPI_CXX_COMPILER="$MPI_CXX_COMPILER" \
+          2>&1 | tee log.makePV.1st_pass-parallel; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "First parallel ParaView compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.makePV.1st_pass-parallel.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: First parallel ParaView compilation pass failed."; \
+          echo "Partial compilation results will be retained for the next pass."; \
+      fi; \
+      exit 0; \
+    }
+
+# Second ParaView compilation pass, performed in parallel.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && cd $WM_THIRD_PARTY_DIR \
+ && export QT_SELECT=qt5 \
+ && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
+      -name 'libpython3.*.so' | head -1) \
+ && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS} \
+ && echo "Starting second parallel ParaView compilation pass" \
+ && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
+ && { \
+      ./makeParaView $PV_COMPILE_OPTIONS \
+          -rebuild \
+          -mpi \
+          -python \
+          -python-lib "$PYTHON_LIB" \
+          2>&1 | tee log.makePV.2nd_pass-parallel; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "Second parallel ParaView compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.makePV.2nd_pass-parallel.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: Second parallel ParaView compilation pass failed."; \
+          echo "Partial compilation results will be retained for the serial pass."; \
+      fi; \
+      exit 0; \
+    }
+
+# Third ParaView compilation pass, performed in serial.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && cd $WM_THIRD_PARTY_DIR \
+ && export QT_SELECT=qt5 \
+ && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
+      -name 'libpython3.*.so' | head -1) \
+ && export CMAKE_BUILD_PARALLEL_LEVEL=1 \
+ && echo "Starting third ParaView compilation pass in serial" \
+ && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
+ && { \
+      ./makeParaView $PV_COMPILE_OPTIONS \
+          -rebuild \
+          -mpi \
+          -python \
+          -python-lib "$PYTHON_LIB" \
+          2>&1 | tee log.makePV.3rd_pass-serial; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "Third serial ParaView compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.makePV.3rd_pass-serial.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: Third serial ParaView compilation pass failed."; \
+          echo "Proceeding to the authoritative final pass."; \
+      fi; \
+      exit 0; \
+    }
+
+# This final pass is performed serially and its failure is not masked.
+# With pipefail enabled, a failure from makeParaView stops the building process.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && cd $WM_THIRD_PARTY_DIR \
+ && export QT_SELECT=qt5 \
+ && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
+      -name 'libpython3.*.so' | head -1) \
+ && export CMAKE_BUILD_PARALLEL_LEVEL=1 \
+ && echo "Starting authoritative ParaView compilation pass" \
+ && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
+ && ./makeParaView $PV_COMPILE_OPTIONS \
+      -rebuild \
+      -mpi \
+      -python \
+      -python-lib "$PYTHON_LIB" \
+      2>&1 | tee log.makePV.AuthoritativeSummary
 
 
 #---------------------------------------------------------------
@@ -320,14 +500,15 @@ FROM pv_install AS of_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
-ARG COMPILE_TASKS
 # Auxiliary arguments
-ARG OF_COMPILE_OPTIONS="-j${COMPILE_TASKS}"
+ARG OF_COMPILE_TASKS=16
+ARG OF_COMPILE_OPTIONS="-j${OF_COMPILE_TASKS}"
 ARG BASHRC_OPTIONS=""
 
 #---------------------------------------------------------------
 #Using bash to interpret OpenFOAM scripts
-SHELL ["/bin/bash","-c"]
+#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
 # G.1 Updating script to bash shell.
@@ -338,33 +519,87 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && sed -i '1s|/bin/sh|/bin/bash|' Allwmake
 
 #---------------------------------------------------------------
-# G.2 OpenFOAM compilation 
+# G.2 OpenFOAM compilation
 #     Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
-#     Using 2 compilation passes as some compilation race conditions were found.
-# First pass compilation in parallel:
+#     Using 3 compilation passes (2 in parallel, 1 in serial) as some compilation race conditions were found when compiling in a single parallel pass.
+
+# First parallel compilation pass.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
- && ./Allwmake $OF_COMPILE_OPTIONS 2>&1 | tee log.Allwmake.1st_pass-parallel
+ && echo "Starting 1st pass in parallel OpenFOAM compilation: ${OF_COMPILE_OPTIONS}" \
+ && { \
+      ./Allwmake $OF_COMPILE_OPTIONS \
+          2>&1 | tee log.Allwmake.1st_pass-parallel; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "First parallel compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.Allwmake.1st_pass-parallel.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: 1st pass in parallel OpenFOAM compilation failed. Partial results will be retained."; \
+      fi; \
+      exit 0; \
+    }
 
-# Second pass compilation in serial to recover from race conditions (if any in the first pass):
+# Second parallel compilation pass.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
- && ./Allwmake 2>&1 | tee log.Allwmake.2nd_pass-serial
+ && echo "Starting 2nd pass in parallel OpenFOAM compilation: ${OF_COMPILE_OPTIONS}" \
+ && { \
+      ./Allwmake $OF_COMPILE_OPTIONS \
+          2>&1 | tee log.Allwmake.2nd_pass-parallel; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "Second parallel compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.Allwmake.2nd_pass-parallel.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: 2nd pass in parallel OpenFOAM compilation failed. Partial results will be retained."; \
+      fi; \
+      exit 0; \
+    }
 
-# Obtaining a summary 
+# Third compilation pass, performed serially.
+# A failure is recorded but does not stop the image build,
+# allowing for a final authoritative summary pass to be attempted.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
+# Continue:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
- && ./Allwmake 2>&1 | tee log.AllwmakeSummary
+ && echo "Starting 3rd pass in serial OpenFOAM compilation" \
+ && { \
+      ./Allwmake \
+          2>&1 | tee log.Allwmake.3rd_pass-serial; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "Third serial compilation pass exit status: ${compileStatus}"; \
+      echo "${compileStatus}" > log.Allwmake.3rd_pass-serial.exit-status; \
+      if [[ ${compileStatus} -ne 0 ]]; then \
+          echo "WARNING: 3rd serial pass failed. Partial results will be retained."; \
+          echo "Proceeding to the authoritative summary pass."; \
+      fi; \
+      exit 0; \
+    }
+
+# Final authoritative serial pass and summary of the OpenFOAM compilation.
+# With pipefail enabled, any remaining compilation failure stops building process.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Bootstrap to the wmake toolchain:
+ && $WM_PROJECT_DIR/wmake/src/Allmake \
+# Continue:
+ && cd $WM_PROJECT_DIR \
+ && export QT_SELECT=qt5 \
+ && echo "Starting authoritative OpenFOAM summary compilation pass" \
+ && ./Allwmake 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 #---------------------------------------------------------------
 # G.3 Checking if a popular executable is working
@@ -413,7 +648,8 @@ ARG ENTRYPOINT_FILE_DOCKER="/usr/local/bin/docker-entrypoint-openfoam.sh"
 #ARG ENTRYPOINT_FILE_DOCKER="/etc/profile.d/docker-entrypoint-openfoam.sh"
 
 # Using bash to interpret the entry script
-SHELL ["/bin/bash","-c"]
+#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+SHELL ["/bin/bash","-o","pipefail","-c"]
 
 # Copy and update the ENTRYPOINT_FILE_DOCKER script with the right OF_BASHRC_FILE definition in this recipe
 COPY $ENTRYPOINT_FILE_TEMPLATE $ENTRYPOINT_FILE_DOCKER
@@ -427,7 +663,6 @@ RUN sed -i 's,BASHRC_TEMPLATE_TAG,'"${OF_BASHRC_FILE}"',g' $ENTRYPOINT_FILE_DOCK
 
 # For Docker Use: Defining the ENTRYPOINT file and default command
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint-openfoam.sh"]
-#ENTRYPOINT ["/bin/bash", "-l", "-c", "\"$@\"", "--"]
 CMD ["/bin/bash"]
 
 #---------------------------------------------------------------
@@ -474,7 +709,7 @@ RUN sed -i 's,BASHRC_TEMPLATE_TAG,'"${OF_BASHRC_FILE}"',g' $ENVIRONMENT_FILE_SIN
 # For Singularity Use:
 # Legacy trick (stopped working since singularity 3.6):trick to force the use of bash shell when sourcing the environment scripts
 #        OpenFoam OF_BASHRC_FILE may have bashisms that may only work in `bash` shell, not `sh`, `dash` nor `ash`.
-#        The trick of linking `sh` to `bash` used to work in previous versions for correctly sourcing files in /.singularity.d/env with `bash` instead of `sh`,`dash` or `ash`.          
+#        The trick of linking `sh` to `bash` used to work in previous versions for correctly sourcing files in /.singularity.d/env with `bash` instead of `sh`,`dash` or `ash`.
 #RUN /bin/mv /bin/sh /bin/sh.original && /bin/ln -s /bin/bash /bin/sh
 #        But this trick DOES NOT WORK ANYMORE since singularity 3.6, as singularity does not use `/bin/*sh*` available commands anymore to interpret these environment scripts.
 #        Since the mentioned version, Singularity is using an in-house-singularity embedded shell interpreter (capable to interpret many bashisms besides standard `POSIX sh`)
@@ -482,21 +717,118 @@ RUN sed -i 's,BASHRC_TEMPLATE_TAG,'"${OF_BASHRC_FILE}"',g' $ENVIRONMENT_FILE_SIN
 #        If you found that OpenFOAM's bashrc sourcing still has bashisms that require forced `bash` interpretation, then read the mentioned link for alternatives (not implemented here.)
 
 #---------------------------------------------------------------
-# H.4 Backup into the image the recipe and all files "called" during building 
+# H.4 Backup into the image the recipe and all files "called" during building
 # Recall global definitions made at the top
 ARG OF_FORK
 ARG OF_VERSION
-ARG DOCKER_RECIPES_DIR
+ARG BUILD_FILES_DIR
+# Auxiliary arguments
+ARG RECIPE_FILE="${OF_FORK}--${OF_VERSION}.dockerfile"
 # Copy all files used to build the image into the internal backup directory
-RUN mkdir -p $DOCKER_RECIPES_DIR
-COPY ${OF_FORK}-${OF_VERSION}.dockerfile \
+RUN mkdir -p "$BUILD_FILES_DIR"
+COPY $RECIPE_FILE \
      $ENTRYPOINT_FILE_TEMPLATE \
      $ENVIRONMENT_FILE_TEMPLATE \
-     $DOCKER_RECIPES_DIR
-RUN chmod -R a+rwX $DOCKER_RECIPES_DIR
+     $BUILD_FILES_DIR
 
 #---------------------------------------------------------------
-# H.5 Starting as OF_USER by default
+# H.5 Recording the effective values of the global build arguments in file $BUILD_FILES_DIR/image-build-arguments.txt
+# The argument names are read automatically from the global ARG
+# declarations located before the first FROM instruction.
+# But every global argument MUST ALSO be recalled in this section for the recording to work.
+# If a developer adds a new global ARG at the top, but does not recall it here,
+# the build stops with an explanatory error instead of generating
+# an incomplete build-arguments record.
+
+# Recall all global build arguments defined before the first FROM
+# in order to have a full match in the list to be recorded by the RUN instruction immediately below.
+ARG OF_FORK
+ARG OF_VERSION
+
+ARG BASE_IMAGE_REGISTRY
+ARG BASE_IMAGE_NAME
+ARG BASE_IMAGE_OS_VERSION
+ARG BASE_IMAGE_MPICH_VERSION
+ARG BASE_IMAGE_TAG
+ARG BASE_IMAGE_FULL
+
+ARG OF_INSTALL_DIR
+ARG OF_USER
+ARG OF_USER_DIR
+ARG OF_BASHRC_FILE
+ARG OF_PREFS_FILE
+ARG OF_CONTROL_FILE
+
+ARG BUILD_FILES_DIR
+
+# Auxiliary arguments
+ARG INTERNAL_RECIPE_FILE="${BUILD_FILES_DIR}/${OF_FORK}--${OF_VERSION}.dockerfile"
+ARG ARGUMENTS_FILE="${BUILD_FILES_DIR}/image-build-arguments.txt"
+
+# The following RUN instruction reads the list of global ARG names from the recipe file
+# and writes their effective values into a record file if they have been recalled in the lines immediately above.
+# If a global ARG is not recalled, the build stops with an error.
+RUN test -f "$INTERNAL_RECIPE_FILE" \
+# Read all global ARG names declared before the first FROM instruction:
+ && mapfile -t argumentNames < <( \
+      sed -n '1,/^[[:space:]]*FROM[[:space:]]/p' "$INTERNAL_RECIPE_FILE" \
+      | grep -E '^[[:space:]]*ARG[[:space:]]+' \
+      | sed -E ' \
+           s/^[[:space:]]*ARG[[:space:]]+//; \
+           s/[[:space:]]*=.*$//; \
+           s/[[:space:]].*$// \
+        ' \
+    ) \
+# Verify that global arguments were found:
+ && if (( ${#argumentNames[@]} == 0 )); then \
+      echo "ERROR: No global ARG declarations were found in $INTERNAL_RECIPE_FILE" >&2; \
+      exit 1; \
+    fi \
+# Create the build-arguments record:
+ && printf '%s\n' \
+      "# Effective global Dockerfile arguments used in the build process." \
+      "# If effective values differ from their defaults (defined at the top before the first FROM instruction)," \
+      "#  that means that the user has overridden the default values in the building command line." \
+      "#" \
+      "# The record was generated during the build process" \
+      "#  following the instructions in the last stage in $INTERNAL_RECIPE_FILE ." \
+      "" \
+      > "$ARGUMENTS_FILE" \
+# Write the effective value of every discovered global argument:
+ && for argumentName in "${argumentNames[@]}"; do \
+      if [[ ! -v "$argumentName" ]]; then \
+         echo "ERROR: Global build argument '$argumentName' is defined in the recipe" >&2; \
+         echo "       but is not available in the final stage." >&2; \
+         echo "       Add a recall instruction: 'ARG $argumentName' in the final stage before this RUN instruction." >&2; \
+         exit 1; \
+      fi; \
+      printf '%s=%q\n' \
+         "$argumentName" \
+         "${!argumentName}" \
+         >> "$ARGUMENTS_FILE"; \
+    done \
+ && chmod a+r "$ARGUMENTS_FILE" \
+ && echo "Created build-argument record: $ARGUMENTS_FILE" \
+ && cat "$ARGUMENTS_FILE"
+
+#---------------------------------------------------------------
+# H.6 Defining documented labels
+# Recall global definitions made at the top
+ARG OF_FORK
+ARG OF_VERSION
+ARG BASE_IMAGE_MPICH_VERSION
+ARG BASE_IMAGE_OS_VERSION
+ARG BUILD_FILES_DIR
+
+# Labels:
+LABEL org.opencontainers.image.authors="Alexis Espinosa <Alexis.Espinosa@pawsey.org.au>"
+LABEL org.opencontainers.image.title="${OF_FORK}"
+LABEL org.opencontainers.image.version="${OF_VERSION}-mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
+LABEL au.org.pawsey.image.build-files-dir="${BUILD_FILES_DIR}"
+
+#---------------------------------------------------------------
+# H.7 Starting as OF_USER by default
 # Recall global definitions made at the top
 ARG OF_USER
 # Avoid permission problems with the home directory of OF_USER
