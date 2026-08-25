@@ -1,12 +1,14 @@
 #!/bin/bash --login
-#SBATCH --job-name=test_05_osu_gpu
+#SBATCH --job-name=test_06_osu_gpu
 #SBATCH --nodes=2
+#SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --time=00:15:00
-##SBATCH --partition=gpu
-#SBATCH --partition=gpu-dev
+#SBATCH --partition=gpu
 #SBATCH --output=slurm-%x-%j.out
+#SBATCH --error=slurm-%x-%j.err
+#SBATCH --account=pawsey0001-gpu
 
 # Focus:
 # This test checks that selected OSU MPI benchmarks are available,
@@ -28,9 +30,9 @@
 #
 #   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
-#   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
+#   export SINGULARITY_MODULE="singularity/4.1.0-mpi-gpu"
 #   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
-#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_02_osu.slurm.sh
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_06_osu-gpu.slurm.sh
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
@@ -112,9 +114,9 @@ echo "Output directory: $OUTPUT_DIR"
 #--- Modules and settings
 module load "${SINGULARITY_MODULE}"
 
-if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
-fi
+#if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
+#    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
+#fi
 
 module list
 
@@ -210,21 +212,17 @@ else
     fi
 fi
 
-# Set up required for GPU
-export SINGULARITY_BINDPATH=/opt/cray/pe/mpich/8.1.32/ofi/gnu/12.3/lib/libmpi_gtl_hsa.so,$SINGULARITY_BINDPATH
-export SINGULARITYENV_LD_PRELOAD=/opt/cray/pe/mpich/8.1.32/ofi/gnu/12.3/lib/libmpi_gtl_hsa.so:$SINGULARITYENV_LD_PRELOAD
-
 #--- OSU latency test
 echo
 echo "=== OSU latency: ${OSU_P2P_NODES} node(s), 2 total ranks ==="
 
 if ! srun -N "${OSU_P2P_NODES}" -n 2 --gres=gpu:"${OSU_P2P_TASKS_PER_NODE}" --ntasks-per-node="${OSU_P2P_TASKS_PER_NODE}" \
-    singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" osu_latency D D \
+    singularity exec "${SINGULARITY_IMAGE}" osu_latency D D \
     | tee "${fileOutLatency}"; then
     fail "osu_latency failed. See: ${fileOutLatency}"
 fi
 
-if ! grep -Fq "# OSU MPI Latency Test" "${fileOutLatency}"; then
+if ! grep -Fq "# OSU MPI-ROCM Latency Test" "${fileOutLatency}"; then
     fail "osu_latency output did not contain expected header. See: ${fileOutLatency}"
 fi
 
@@ -243,12 +241,12 @@ echo
 echo "=== OSU bandwidth: ${OSU_P2P_NODES} node(s), 2 total ranks ==="
 
 if ! srun -N "${OSU_P2P_NODES}" -n 2 --gres=gpu:"${OSU_P2P_TASKS_PER_NODE}" --ntasks-per-node="${OSU_P2P_TASKS_PER_NODE}" \
-    singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" osu_bw D D \
+    singularity exec  "${SINGULARITY_IMAGE}" osu_bw D D \
     | tee "${fileOutBW}"; then
     fail "osu_bw failed. See: ${fileOutBW}"
 fi
 
-if ! grep -Fq "# OSU MPI Bandwidth Test" "${fileOutBW}"; then
+if ! grep -Fq "# OSU MPI-ROCM Bandwidth Test" "${fileOutBW}"; then
     fail "osu_bw output did not contain expected header. See: ${fileOutBW}"
 fi
 
@@ -259,19 +257,18 @@ fi
 echo "OSU bandwidth check passed"
 
 #--- OSU allreduce test
-# NOTE (CMEYER): Collective OSU operations are failing in GPU-MPI mode
 echo
 echo "=== OSU allreduce: ${SLURM_JOB_NUM_NODES} nodes, ${SLURM_NTASKS_PER_NODE} ranks per node ==="
 
 if ! srun -N "${SLURM_JOB_NUM_NODES}" \
      --gres=gpu:"${SLURM_NTASKS_PER_NODE}" \
      --ntasks-per-node="${SLURM_NTASKS_PER_NODE}" \
-     singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" osu_allreduce D D \
+     singularity exec "${SINGULARITY_IMAGE}" osu_allreduce -d rocm \
      | tee "${fileOutReduce}"; then
     fail "osu_allreduce failed. See: ${fileOutReduce}"
 fi
 
-if ! grep -Fq "# OSU MPI Allreduce Latency Test" "${fileOutReduce}"; then
+if ! grep -Fq "# OSU MPI-ROCM Allreduce Latency Test" "${fileOutReduce}"; then
     fail "osu_allreduce output did not contain expected header. See: ${fileOutReduce}"
 fi
 
