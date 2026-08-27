@@ -132,7 +132,7 @@ void MPITestBcast(Options &opt)
     
     // Record the maximum average time across all ranks
     double avg_time = 0.0, total_time = 0.0;
-    for (auto &t:times) total_time += t;
+    for (auto &t:local_times) total_time += t;
     avg_time = total_time / local_times.size();
     double max_avg_time;
     MPI_Allreduce(&avg_time, &max_avg_time, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
@@ -148,7 +148,7 @@ void MPITestBcast(Options &opt)
         << "and message size of " << opt.msg_size << " GB." << std::endl;
     
     // Cleanup
-    times.clear();
+    local_times.clear();
     p1 = p2 = nullptr;
     data.clear();
     data.shrink_to_fit();
@@ -156,7 +156,6 @@ void MPITestBcast(Options &opt)
 
 void MPITestSendRecvSingleRank(Options &opt)
 {
-    std::cout << "In sendrecvseinglerank" << std::endl;
     MPI_Status status;
     std::string mpifunc = "sendrecv_singlerank";
     LogMPITest();
@@ -187,7 +186,7 @@ void MPITestSendRecvSingleRank(Options &opt)
                 MPI_Sendrecv(p1, nelements, MPI_DOUBLE, itask, itask, p2, nelements, MPI_DOUBLE, itask, itask, MPI_COMM_WORLD, &stat);
                 double end_time = MPI_Wtime();
                 double local_time = end_time - start_time;
-                times.push_back(local_time);
+                local_times.push_back(local_time);
                 messages.push_back(std::to_string(itask) + ": " + std::to_string(local_time));
             }
             else if (itask == ThisTask) {
@@ -198,8 +197,8 @@ void MPITestSendRecvSingleRank(Options &opt)
 
     // Record the average time across all sendrecv operations
     double avg_time = 0.0, total_time = 0.0;
-    for (auto &t:times) total_time += t;
-    double avg_time = total_time / times.size();
+    for (auto &t:local_times) total_time += t;
+    avg_time = total_time / local_times.size();
 
     // Record the effective bandwidth. Each sendrecv moves 2 * <opt.msg_size> GB of data
     double gbytes_per_sendrecv = 2 * opt.msg_size;
@@ -212,7 +211,7 @@ void MPITestSendRecvSingleRank(Options &opt)
         << "and message size of " << opt.msg_size << " GB." << std::endl;
 
     // Cleanup
-    times.clear();
+    local_times.clear();
     senddata.clear();
     senddata.shrink_to_fit();
     receivedata.clear();
@@ -236,7 +235,7 @@ void MPITestSendRecv(Options &opt)
     p1 = senddata.data();
     p2 = receivedata.data();
 
-    std::vector<double> times;
+    std::vector<double> local_times;
     // Each rank sends <nelements> doubles to all other ranks <NIter> times
     for (auto iter=0;iter<opt.Niter;iter++) {
         double start_time = MPI_Wtime();
@@ -269,18 +268,18 @@ void MPITestSendRecv(Options &opt)
         }
         double end_time = MPI_Wtime();
         double local_time = end_time - start_time;
-        times.push_back(local_time);
+        local_times.push_back(local_time);
     }
 
     // Record the maximum average time across all ranks
     double avg_time = 0.0, total_time = 0.0;
-    for (auto &t:times) total_time += t;
-    avg_time = total_time / times.size();
+    for (auto &t:local_times) total_time += t;
+    avg_time = total_time / local_times.size();
     double max_avg_time;
     MPI_Allreduce(&avg_time, &max_avg_time, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
     // Record the effective bandwidth. Each sendrecv moves <Nprocs - 1> * 2 * <opt.msg_size> GB of data
-    double gbytes_per_sendrecv = (NProcs - 1) * (2 * opt.msize);
+    double gbytes_per_sendrecv = (NProcs - 1) * (2 * opt.msg_size);
     double bw = gbytes_per_sendrecv / max_avg_time;
     
     // Report basic stats
@@ -290,7 +289,7 @@ void MPITestSendRecv(Options &opt)
         << "and message size of " << opt.msg_size << " GB." << std::endl;
     
     // Cleanup
-    times.clear();
+    local_times.clear();
     senddata.clear();
     senddata.shrink_to_fit();
     receivedata.clear();
@@ -371,7 +370,7 @@ int main(int argc, char **argv) {
         int len = 0;
         MPI_Get_library_version(version, &len);
         printf("\n=== MPI runtime ===\n%.*s\n", len, version);
-        printf("\nTEST_07_GPU-MPI_CONTAINER_SUCCESS size=%d\n", NProcs);
+        printf("\nTEST_09_MPI_CONTAINER_SUCCESS size=%d\n", NProcs);
     }
     MPI_Finalize();
     return 0;

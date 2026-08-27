@@ -1,15 +1,14 @@
 #!/bin/bash --login
-#SBATCH --job-name=test_07_gpu-mpi-comm
+#SBATCH --job-name=test_09_basic-mpi-comm
 #SBATCH --nodes=1
-#SBATCH -n 2
+#SBATCH --ntasks=2
 #SBATCH --ntasks-per-node=2
-#SBATCH --gres=gpu:2
 #SBATCH --time=00:15:00
-##SBATCH --partition=work
-#SBATCH --partition=debug
+#SBATCH --partition=work
+##SBATCH --partition=debug
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
-#SBATCH --account=pawsey0001-gpu
+#SBATCH --account=pawsey0001
 
 # Focus:
 # This test validates execution of the test:
@@ -34,7 +33,7 @@
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
 #   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
 #   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
-#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_07_gpu-mpi-comm.slurm.sh
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_09_basic-mpi-comm.slurm.sh
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
@@ -171,9 +170,9 @@ echo "Output directory: $OUTPUT_DIR"
 #--- Modules and settings
 module load "${SINGULARITY_MODULE}"
 
-if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
-fi
+# if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
+#     source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
+# fi
 
 module list
 
@@ -196,8 +195,8 @@ FI_CXI_DEFAULT_VNI="$(od -vAn -N4 -tu < /dev/urandom)"
 echo "FI_CXI_DEFAULT_VNI=${FI_CXI_DEFAULT_VNI}"
 
 #--- Input/output files
-src="${FIXTURES_DIR}/gpu-mpi_comms.cpp"
-theExe="${BUILD_DIR}/gpu-mpi_comms.exe"
+src="${FIXTURES_DIR}/mpi_comms.cpp"
+theExe="${BUILD_DIR}/mpi_comms.exe"
 
 fileOutCompile="${OUTPUT_DIR}/res_${TEST_NAME}.compile.out"
 fileOutLinkage="${OUTPUT_DIR}/res_${TEST_NAME}.linkage.out"
@@ -209,8 +208,8 @@ fi
 
 #--- Compile test
 echo
-echo "=== Building with container hipcc ==="
-if ! singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" \
+echo "=== Building with container mpic++ ==="
+if ! singularity exec "${SINGULARITY_IMAGE}" \
     mpic++ -D_MPI -std=c++17 \
     -I${CRAY_MPICH_DIR}/include/ -L${CRAY_MPICH_DIR}/lib/ \
     "${src}" -o "${theExe}" -lmpi \
@@ -228,7 +227,7 @@ echo "Compilation succeeded: ${theExe}"
 echo
 echo "=== Linkage check ==="
 
-if ! singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" bash -lc \
+if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
     "ldd \"\$(command -v osu_latency)\" | grep -E 'mpi|fabric|cxi|pmi|pmix|pals|xpmem' || true" \
     | tee "${fileOutLinkage}"; then
     fail "Linkage command failed. See: ${fileOutLinkage}"
@@ -245,39 +244,42 @@ fi
 
 echo "Linkage check passed"
 
+export SINGULARITYENV_LD_LIBRARY_PATH=/opt/cray/pe/lib64:$SINGULARITYENV_LD_LIBRARY_PATH
+
 #--- Runtime test
+export MPI_COMM_ARGS="-s 0.8"
 echo
 echo "=== Running on ${SLURM_JOB_NUM_NODES} nodes ==="
 
 TOTAL_TASKS=$((SLURM_JOB_NUM_NODES * SLURM_TASKS_PER_NODE))
 
 if ! srun -N "${SLURM_JOB_NUM_NODES}" \
-     --ntasks-per-node=${SLURM_TASKS_PER_NODE} --gres=gpu:${SLURM_NTASKS_PER_NODE} \
-     singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" "${theExe}" \
+     --ntasks-per-node=${SLURM_TASKS_PER_NODE} \
+     singularity exec "${SINGULARITY_IMAGE}" "${theExe}" "${MPI_COMM_ARGS}" \
      | tee "${fileOutRun}"; then
     fail "Runtime execution failed. See: ${fileOutRun}"
 fi
 
-expected_success_line="TEST_07_GPU-MPI_CONTAINER_SUCCESS size=${TOTAL_TASKS}"
+expected_success_line="TEST_09_MPI_CONTAINER_SUCCESS size=${TOTAL_TASKS}"
 
 if ! grep -Fq "${expected_success_line}" "${fileOutRun}"; then
     fail "Expected success line not found: ${expected_success_line}. See: ${fileOutRun}"
 fi
 
-if ! grep -Fq "running GPU_GPU_copy test" "${fileOutRun}"; then
-    fail "test_basic_mpi_comm output missing gpu-gpu copy test. See: ${fileOutRun}"
+if ! grep -Fq "running sendrecv_singlerank test" "${fileOutRun}"; then
+    fail "test_basic_mpi_comm output missing sendrecv singlerank test. See: ${fileOutRun}"
 fi
 
-if ! grep -Fq "running GPU_bandwidth_sendrecv test" "${fileOutRun}"; then
-    fail "test_basic_mpi_comm output missing sendrecv test. See: ${fileOutRun}"
-fi
-
-if ! grep -Fq "running GPU_async_sendrecv test" "${fileOutRun}"; then
-    fail "test_basic_mpi_comm output missing async sendrecv test. See: ${fileOutRun}"
-fi
-
-if ! grep -Fq "running GPU_allgather test" "${fileOutRun}"; then
+if ! grep -Fq "running allreduce test" "${fileOutRun}"; then
     fail "test_basic_mpi_comm output missing allreduce test. See: ${fileOutRun}"
+fi
+
+if ! grep -Fq "running Bcast test" "${fileOutRun}"; then
+    fail "test_basic_mpi_comm output missing broadcast test. See: ${fileOutRun}"
+fi
+
+if ! grep -Fq "running sendrecv test" "${fileOutRun}"; then
+    fail "test_basic_mpi_comm output missing sendrecv test. See: ${fileOutRun}"
 fi
 
 echo "Runtime check passed"
