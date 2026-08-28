@@ -1,11 +1,16 @@
 #!/bin/bash --login
-#SBATCH --job-name=test_08_mpi-comm
+#SBATCH --job-name=test_08_gpu-mpi-comm
 #SBATCH --nodes=2
+#SBATCH --exclusive
+#SBATCH --ntasks=16
 #SBATCH --ntasks-per-node=8
+#SBATCH --gres=gpu:8
 #SBATCH --time=00:15:00
-##SBATCH --partition=gpu
-#SBATCH --partition=gpu-dev
+#SBATCH --partition=gpu
+##SBATCH --partition=gpu-dev
 #SBATCH --output=slurm-%x-%j.out
+#SBATCH --error=slurm-%x-%j.err
+#SBATCH --account=pawsey0001-gpu
 
 # Focus:
 # This test validates execution of the test:
@@ -29,13 +34,13 @@
 #
 #   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
-#   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
+#   export SINGULARITY_MODULE="singularity/4.1.0-mpi-gpu"
 #   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
-#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_04_mpi-comm.slurm.sh
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_08_gpu-mpi-comm.slurm.sh
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
-# SINGULARITY_MODULE defaults to singularity/4.1.0-mpi when not exported.
+# SINGULARITY_MODULE defaults to singularity/4.1.0-mpi-gpu when not exported.
 
 #--- Strict mode
 set -euo pipefail
@@ -48,7 +53,7 @@ TEST_NAME="${SLURM_JOB_NAME}"
 # The singularity image to use:
 : "${SINGULARITY_IMAGE:?SINGULARITY_IMAGE is not set}"
 # The Singularity module to load (default supports direct submission):
-SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi}"
+SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi-gpu}"
 # The path of the mpi subdirectory in the repository (needed as reference to find the rest of the stuff):
 : "${REPO_MPI_DIR:?REPO_MPI_DIR is not set. Submit this test through a run_tests.sh script or export REPO_MPI_DIR manually.}"
 
@@ -204,7 +209,7 @@ MPI_COMM_EXE="${MPI_COMM_EXE:-/opt/profile_util/build/src/tests/test_gpu_mpi_com
 # Not set:
 # -r      : the default value of 0 is fine
 # -o      : the default value of (NProcs / 2) + 1 is fine
-MPI_COMM_ARGS="${MPI_COMM_ARGS:--s 0.001 -i 1 -C 0 -G GPU_CPU_copy}"
+MPI_COMM_ARGS="${MPI_COMM_ARGS:--s 0.001 -i 1 -C 0 -G 1}"
 
 # Whole-job wall-clock thresholds.
 WARN_TIME_SEC="${WARN_TIME_SEC:-600}"
@@ -213,11 +218,8 @@ FAIL_TIME_SEC="${FAIL_TIME_SEC:-840}"
 # MPI operation timing thresholds.
 # test_gpu_mpi_comm reports these timings in microseconds.
 # Defaults are broad regression guards, not tight benchmark targets.
-ALLREDUCE_WARN_USEC="${ALLREDUCE_WARN_USEC:-8000000}"
-ALLREDUCE_FAIL_USEC="${ALLREDUCE_FAIL_USEC:-12000000}"
-
-SENDRECV_WARN_USEC="${SENDRECV_WARN_USEC:-80000000}"
-SENDRECV_FAIL_USEC="${SENDRECV_FAIL_USEC:-120000000}"
+ASYNC_SENDRECV_WARN_USEC="${ASYNC_SENDRECV_WARN_USEC:-80000000}"
+ASYNC_SENDRECV_FAIL_USEC="${ASYNC_SENDRECV_FAIL_USEC:-120000000}"
 
 read -r -a mpi_comm_args <<< "${MPI_COMM_ARGS}"
 
@@ -271,7 +273,7 @@ if ! grep -Fq "/opt/cray/libfabric" "${fileOutLinkage}"; then
 fi
 
 if ! grep -Fq "gtl_hsa.so" "${fileOutLinkage}"; then
-    fail "Expected osu_latency to link against GTL library. See: ${fileOutLinkage}"
+    fail "Expected test_gpu_mpi_comm to link against GTL library. See: ${fileOutLinkage}"
 fi
 
 echo "Linkage check passed"
@@ -288,7 +290,10 @@ date -Iseconds
 START_TIME_SEC="$(date +%s)"
 
 if ! srun -N "${SLURM_JOB_NUM_NODES}" \
+     --ntasks="${TOTAL_TASKS}" \
      --ntasks-per-node="${SLURM_NTASKS_PER_NODE}" \
+     --gres=gpu:"${SLURM_NTASKS_PER_NODE}" \
+     --gpus-per-task=1 --gpu-bind=closest \
      singularity exec "${SINGULARITY_IMAGE}" \
      "${MPI_COMM_EXE}" "${mpi_comm_args[@]}" \
      2>&1 | tee "${fileOutRun}"; then
@@ -352,10 +357,6 @@ if ! grep -Fq "MPI Comm=Tag_world" "${fileOutRun}"; then
     fail "test_gpu_mpi_comm output missing Tag_world communicator timing/reporting. See: ${fileOutRun}"
 fi
 
-if ! grep -Fq "MPI Comm=Tag_world @MPITestBcast" "${fileOutRun}"; then
-    fail "test_gpu_mpi_comm output missing Tag_world Bcast timing. See: ${fileOutRun}"
-fi
-
 if ! grep -Fq "timing [ave,std,min,max]" "${fileOutRun}"; then
     fail "test_gpu_mpi_comm output missing aggregate timing statistics. See: ${fileOutRun}"
 fi
@@ -380,12 +381,8 @@ MEMORY_REPORT_COUNT="$(
     awk '/Memory report/ {c++} END {print c+0}' "${fileOutRun}"
 )"
 
-ALLREDUCE_TAG_WORLD_MAX_AVE_USEC="$(
-    extract_max_tag_world_average_usec "MPITestAllReduce" "${fileOutRun}"
-)"
-
-SENDRECV_TAG_WORLD_MAX_AVE_USEC="$(
-    extract_max_tag_world_average_usec "MPITestSendRecv" "${fileOutRun}"
+ASYNC_SENDRECV_TAG_WORLD_MAX_AVE_USEC="$(
+    extract_max_tag_world_average_usec "MPITestGPUAsyncSendRecv" "${fileOutRun}"
 )"
 
 {
@@ -393,28 +390,22 @@ SENDRECV_TAG_WORLD_MAX_AVE_USEC="$(
     echo "METRIC test_gpu_mpi_comm_timing_lines ${TIMING_LINE_COUNT}"
     echo "METRIC test_gpu_mpi_comm_tag_world_timing_lines ${TAG_WORLD_TIMING_COUNT}"
     echo "METRIC test_gpu_mpi_comm_memory_report_lines ${MEMORY_REPORT_COUNT}"
-    echo "METRIC test_gpu_mpi_comm_allreduce_tag_world_max_average_usec ${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC}"
-    echo "METRIC test_gpu_mpi_comm_sendrecv_tag_world_max_average_usec ${SENDRECV_TAG_WORLD_MAX_AVE_USEC}"
+    echo "METRIC test_gpu_mpi_comm_async_sendrecv_tag_world_max_average_usec ${ASYNC_SENDRECV_TAG_WORLD_MAX_AVE_USEC}"
     echo "WARN_THRESHOLD_SEC ${WARN_TIME_SEC}"
     echo "FAIL_THRESHOLD_SEC ${FAIL_TIME_SEC}"
-    echo "ALLREDUCE_WARN_THRESHOLD_USEC ${ALLREDUCE_WARN_USEC}"
-    echo "ALLREDUCE_FAIL_THRESHOLD_USEC ${ALLREDUCE_FAIL_USEC}"
-    echo "SENDRECV_WARN_THRESHOLD_USEC ${SENDRECV_WARN_USEC}"
-    echo "SENDRECV_FAIL_THRESHOLD_USEC ${SENDRECV_FAIL_USEC}"
+    echo "ASYNC_SENDRECV_WARN_THRESHOLD_USEC ${ASYNC_SENDRECV_WARN_USEC}"
+    echo "ASYNC_SENDRECV_FAIL_THRESHOLD_USEC ${ASYNC_SENDRECV_FAIL_USEC}"
 } | tee "${fileOutPerf}"
 
 echo "Observed test_gpu_mpi_comm elapsed time               : ${ELAPSED_TIME_SEC} sec"
 echo "Observed timing lines                             : ${TIMING_LINE_COUNT}"
 echo "Observed Tag_world timing lines                   : ${TAG_WORLD_TIMING_COUNT}"
 echo "Observed memory report lines                      : ${MEMORY_REPORT_COUNT}"
-echo "Observed allreduce Tag_world max average timing   : ${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC} usec"
-echo "Observed sendrecv Tag_world max average timing    : ${SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec"
+echo "Observed async_sendrecv Tag_world max average timing    : ${ASYNC_SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec"
 echo "Warning threshold, elapsed time                   : ${WARN_TIME_SEC} sec"
 echo "Failure threshold, elapsed time                   : ${FAIL_TIME_SEC} sec"
-echo "Warning threshold, allreduce Tag_world average    : ${ALLREDUCE_WARN_USEC} usec"
-echo "Failure threshold, allreduce Tag_world average    : ${ALLREDUCE_FAIL_USEC} usec"
-echo "Warning threshold, sendrecv Tag_world average     : ${SENDRECV_WARN_USEC} usec"
-echo "Failure threshold, sendrecv Tag_world average     : ${SENDRECV_FAIL_USEC} usec"
+echo "Warning threshold, async_sendrecv Tag_world average     : ${ASYNC_SENDRECV_WARN_USEC} usec"
+echo "Failure threshold, async_sendrecv Tag_world average     : ${ASYNC_SENDRECV_FAIL_USEC} usec"
 
 if [[ "${TIMING_LINE_COUNT}" -lt 1 ]]; then
     fail "Expected at least one aggregate timing line, got ${TIMING_LINE_COUNT}. See: ${fileOutPerf}"
@@ -428,11 +419,7 @@ if [[ "${MEMORY_REPORT_COUNT}" -lt 1 ]]; then
     fail "Expected at least one memory report line, got ${MEMORY_REPORT_COUNT}. See: ${fileOutPerf}"
 fi
 
-if [[ -z "${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC}" ]]; then
-    fail "Could not extract MPITestAllReduce Tag_world average timing. See: ${fileOutRun}"
-fi
-
-if [[ -z "${SENDRECV_TAG_WORLD_MAX_AVE_USEC}" ]]; then
+if [[ -z "${ASYNC_SENDRECV_TAG_WORLD_MAX_AVE_USEC}" ]]; then
     fail "Could not extract MPITestSendRecv Tag_world average timing. See: ${fileOutRun}"
 fi
 
@@ -444,20 +431,12 @@ if compare_float_gt "${ELAPSED_TIME_SEC}" "${WARN_TIME_SEC}"; then
     warn "test_gpu_mpi_comm elapsed time ${ELAPSED_TIME_SEC} sec exceeded warning threshold ${WARN_TIME_SEC} sec. See: ${fileOutPerf}"
 fi
 
-if compare_float_gt "${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC}" "${ALLREDUCE_FAIL_USEC}"; then
-    fail "MPITestAllReduce Tag_world max average ${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC} usec exceeded failure threshold ${ALLREDUCE_FAIL_USEC} usec. See: ${fileOutPerf}"
+if compare_float_gt "${ASYNC_SENDRECV_TAG_WORLD_MAX_AVE_USEC}" "${ASYNC_SENDRECV_FAIL_USEC}"; then
+    fail "MPITestSendRecv Tag_world max average ${ASYNC_SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec exceeded failure threshold ${ASYNC_SENDRECV_FAIL_USEC} usec. See: ${fileOutPerf}"
 fi
 
-if compare_float_gt "${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC}" "${ALLREDUCE_WARN_USEC}"; then
-    warn "MPITestAllReduce Tag_world max average ${ALLREDUCE_TAG_WORLD_MAX_AVE_USEC} usec exceeded warning threshold ${ALLREDUCE_WARN_USEC} usec. See: ${fileOutPerf}"
-fi
-
-if compare_float_gt "${SENDRECV_TAG_WORLD_MAX_AVE_USEC}" "${SENDRECV_FAIL_USEC}"; then
-    fail "MPITestSendRecv Tag_world max average ${SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec exceeded failure threshold ${SENDRECV_FAIL_USEC} usec. See: ${fileOutPerf}"
-fi
-
-if compare_float_gt "${SENDRECV_TAG_WORLD_MAX_AVE_USEC}" "${SENDRECV_WARN_USEC}"; then
-    warn "MPITestSendRecv Tag_world max average ${SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec exceeded warning threshold ${SENDRECV_WARN_USEC} usec. See: ${fileOutPerf}"
+if compare_float_gt "${ASYNC_SENDRECV_TAG_WORLD_MAX_AVE_USEC}" "${ASYNC_SENDRECV_WARN_USEC}"; then
+    warn "MPITestSendRecv Tag_world max average ${ASYNC_SENDRECV_TAG_WORLD_MAX_AVE_USEC} usec exceeded warning threshold ${ASYNC_SENDRECV_WARN_USEC} usec. See: ${fileOutPerf}"
 fi
 
 echo "Runtime reporting/performance check passed"
