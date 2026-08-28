@@ -1,12 +1,11 @@
 #!/bin/bash --login
-#SBATCH --job-name=test_07_gpu-mpi-comm
-#SBATCH --nodes=1
-#SBATCH -n 2
+#SBATCH --job-name=test_07_basic-gpu-mpi-comm
+#SBATCH --nodes=2
+#SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=2
 #SBATCH --gres=gpu:2
 #SBATCH --time=00:15:00
-##SBATCH --partition=gpu
-#SBATCH --partition=gpu-dev
+#SBATCH --partition=gpu
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
 #SBATCH --account=pawsey0001-gpu
@@ -32,9 +31,9 @@
 #
 #   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
-#   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
+#   export SINGULARITY_MODULE="singularity/4.1.0-mpi-gpu"
 #   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
-#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_07_gpu-mpi-comm.slurm.sh
+#       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_07_basic-gpu-mpi-comm.slurm.sh
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
@@ -51,7 +50,7 @@ TEST_NAME="${SLURM_JOB_NAME}"
 # The singularity image to use:
 : "${SINGULARITY_IMAGE:?SINGULARITY_IMAGE is not set}"
 # The Singularity module to load (default supports direct submission):
-SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi}"
+SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi-gpu}"
 # The path of the mpi subdirectory in the repository (needed as reference to find the rest of the stuff):
 : "${REPO_MPI_DIR:?REPO_MPI_DIR is not set. Submit this test through a run_tests.sh script or export REPO_MPI_DIR manually.}"
 
@@ -171,9 +170,9 @@ echo "Output directory: $OUTPUT_DIR"
 #--- Modules and settings
 module load "${SINGULARITY_MODULE}"
 
-if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
-fi
+# if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
+#     source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
+# fi
 
 module list
 
@@ -208,13 +207,14 @@ if [[ ! -f "${src}" ]]; then
 fi
 
 # Extra libraries required for GPU-aware MPI linked against GTL library
-export SINGULARITY_BINDPATH=/opt/cray/pe/lib64/libmpi_gnu_123.so.12,/opt/cray/pe/mpich/8.1.32/ofi/gnu/12.3/lib/libmpi_gtl_hsa.so,$SINGULARITY_BINDPATH
-export SINGULARITYENV_LD_PRELOAD=/opt/cray/pe/lib64/libmpi_gnu_123.so.12:/opt/cray/pe/mpich/8.1.32/ofi/gnu/12.3/lib/libmpi_gtl_hsa.so:$SINGULARITYENV_LD_PRELOAD
+export SINGULARITYENV_LD_LIBRARY_PATH=/opt/cray/pe/lib64:$SINGULARITYENV_LD_LIBRARY_PATH
+export SINGULARITYENV_MPICH_GPU_SUPPORT_ENABLED=1
+export MPICH_GPU_SUPPORT_ENABLED=1
 
 #--- Compile test
 echo
 echo "=== Building with container hipcc ==="
-if ! singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" \
+if ! singularity exec "${SINGULARITY_IMAGE}" \
     hipcc -D_HIP -D_MPI -std=c++17 -Wno-unused-result \
     -I${CRAY_MPICH_DIR}/include/ -L${CRAY_MPICH_DIR}/lib/ -L${CRAY_MPICH_ROOTDIR}/gtl/lib/ \
     "${src}" -o "${theExe}" -lmpi -lmpi_gtl_hsa \
@@ -232,7 +232,7 @@ echo "Compilation succeeded: ${theExe}"
 echo
 echo "=== Linkage check ==="
 
-if ! singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" bash -lc \
+if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
     "ldd \"\$(command -v osu_latency)\" | grep -E 'mpi|fabric|cxi|pmi|pmix|pals|xpmem|gtl|hsa' || true" \
     | tee "${fileOutLinkage}"; then
     fail "Linkage command failed. See: ${fileOutLinkage}"
@@ -256,11 +256,12 @@ echo "Linkage check passed"
 echo
 echo "=== Running on ${SLURM_JOB_NUM_NODES} nodes ==="
 
-TOTAL_TASKS=$((SLURM_JOB_NUM_NODES * SLURM_TASKS_PER_NODE))
+TOTAL_TASKS=$((SLURM_JOB_NUM_NODES * SLURM_NTASKS_PER_NODE))
 
 if ! srun -N "${SLURM_JOB_NUM_NODES}" \
-     --ntasks-per-node=${SLURM_TASKS_PER_NODE} --gres=gpu:${SLURM_NTASKS_PER_NODE} \
-     singularity exec -B /opt/cray/pe "${SINGULARITY_IMAGE}" "${theExe}" \
+     --ntasks="${TOTAL_TASKS}" \
+     --ntasks-per-node="${SLURM_NTASKS_PER_NODE}" --gres=gpu:"${SLURM_NTASKS_PER_NODE}" \
+     singularity exec "${SINGULARITY_IMAGE}" "${theExe}" \
      | tee "${fileOutRun}"; then
     fail "Runtime execution failed. See: ${fileOutRun}"
 fi
