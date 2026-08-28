@@ -7,7 +7,7 @@
 # IMPORTANT: Developers should check that ALL the ARG definitions here are recalled in the "recording_arguments" section of the final stage.
 # 0.1 Main global arguments (related to the OpenFOAM version)
 ARG OF_FORK="openfoam"
-ARG OF_VERSION="v2412"
+ARG OF_VERSION="v2606"
 
 # 0.1 Main arguments related to the base container to use
 # Defining the base container to use
@@ -74,11 +74,11 @@ RUN mkdir -p ${OF_USER_DIR} \
 FROM basic_stage AS install_dependencies
 #---------------------------------------------------------------
 # B.1 Install OpenFOAM dependencies
-# OpenFOAM v2412+ dependencies for Ubuntu 24.04 LTS
+# OpenFOAM v2606+ dependencies for Ubuntu 24.04 LTS
 # Aggregated from:
-# [1] https://develop.openfoam.com/Development/openfoam/-/blob/maintenance-v2412/doc/Build.md
-# [2] https://develop.openfoam.com/Development/ThirdParty-common/-/blob/v2412/Requirements.md
-# [3] https://www.openfoam.com/news/main-news/openfoam-v2412
+# [1] https://develop.openfoam.com/Development/openfoam/-/blob/maintenance-v2606/doc/Build.md
+# [2] https://develop.openfoam.com/Development/ThirdParty-common/-/blob/v2606/Requirements.md
+# [3] https://www.openfoam.com/news/main-news/openfoam-v2606
 # [4] https://gitlab.com/openfoam/core/openfoam/-/blob/master/doc/Build.md
 # [5] https://develop.openfoam.com/Development/ThirdParty-common/blob/develop/BUILD.md
 # [6] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu (Last documented instructions in the wiki)
@@ -119,14 +119,14 @@ ARG OF_INSTALL_DIR
 #Change to the installation dir, download OpenFOAM and untar
 WORKDIR $OF_INSTALL_DIR
 RUN wget --no-hsts -O OpenFOAM-${OF_VERSION}.tgz \
-    "https://sourceforge.net/projects/openfoam/files/OpenFOAM-${OF_VERSION}.tgz/download" \
+    "https://dl.openfoam.com/source/${OF_VERSION}/OpenFOAM-${OF_VERSION}.tgz" \
  && tar -xvzf OpenFOAM-${OF_VERSION}.tgz \
  && rm -f OpenFOAM-${OF_VERSION}.tgz
 
-RUN wget --no-hsts -O ThirdParty-${OF_VERSION}.tgz \
-    "https://sourceforge.net/projects/openfoam/files/ThirdParty-${OF_VERSION}.tgz/download" \
- && tar -xvzf ThirdParty-${OF_VERSION}.tgz \
- && rm -f ThirdParty-${OF_VERSION}.tgz
+RUN wget --no-hsts -O ThirdParty-${OF_VERSION}.tar.gz \
+    "https://dl.openfoam.com/source/${OF_VERSION}/ThirdParty-${OF_VERSION}.tar.gz" \
+ && tar -xvzf ThirdParty-${OF_VERSION}.tar.gz \
+ && rm -f ThirdParty-${OF_VERSION}.tar.gz
 
 
 #---------------------------------------------------------------

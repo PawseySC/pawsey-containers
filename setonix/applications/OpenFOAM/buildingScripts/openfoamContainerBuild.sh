@@ -36,6 +36,17 @@
 # generated image name. Repeated --build-arg NAME=VALUE options can override
 # Dockerfile ARG values, including values used in the generated image name.
 #
+# Docker and Podman use cached build layers by default. Supply --no-cache to make
+# the selected engine execute every Dockerfile instruction without reusing cached
+# layers. This affects layer reuse only; it does not automatically pull a newer
+# copy of an already-local base image.
+#
+# A recipe can mark output from deliberately non-authoritative compilation passes
+# with OPENFOAM_BUILD_SCAN_IGNORE_BEGIN and OPENFOAM_BUILD_SCAN_IGNORE_END. The
+# supplementary whole-build error scan excludes only those marked ranges. The
+# complete build.log and pass-specific logs remain unchanged, while errors from
+# authoritative compilation passes continue to be checked normally.
+#
 # A complete image is built by default. For development and troubleshooting,
 # --target builds a named Dockerfile stage. The optional --targetFrom setting
 # temporarily changes the base of that selected stage without modifying the
@@ -57,6 +68,8 @@
 #
 #   openfoamContainerBuild.sh --recipe-dir v2406 --engine docker \
 #      --build-arg OF_COMPILE_TASKS=16
+#
+#   openfoamContainerBuild.sh --recipe-dir v2406 --engine podman --no-cache
 #
 #   openfoamContainerBuild.sh --recipe-dir v2406 --engine podman \
 #      --target openfoam-development
@@ -93,7 +106,9 @@ runLog=""
 buildLog=""
 buildCommandFile=""
 imageDetailsFile=""
+buildScanLog=""
 configFile=""
+noCache=false
 
 # --- Command-line help
 usage() {
@@ -106,6 +121,7 @@ Options:
   --recipe-dir, -r <directory>  OpenFOAM build-context directory containing the docker recipe and
                                  the buildAndValidationConfig/openfoamBuildAndValidation.config file
   --engine, -b <engine>         Container engine: docker or podman (required)
+  --no-cache                    Build every layer without using cached layers
   --build-arg NAME=VALUE        Override a Dockerfile ARG; may be repeated
   --target <stageName>          Build a specific named Dockerfile stage
   --targetFrom <startingStage>  Replace the selected target stage base; requires --target
@@ -135,6 +151,10 @@ while [[ $# -gt 0 ]]; do
             exit 1
          fi
          shift 2
+         ;;
+      --no-cache)
+         noCache=true
+         shift
          ;;
       --build-arg)
          if [[ $# -lt 2 || "$2" != *=* ]]; then
@@ -237,6 +257,7 @@ runLog="${runArtifactsDir}/run.log"
 buildLog="${runArtifactsDir}/build.log"
 buildCommandFile="${runArtifactsDir}/build-command.txt"
 imageDetailsFile="${runArtifactsDir}/image-details.txt"
+buildScanLog="${runArtifactsDir}/build.scan.log"
 
 # Preserve the complete script output while continuing to display it.
 exec > >(tee "$runLog") 2>&1
@@ -292,8 +313,13 @@ if [[ -n "$stageFrom" && -z "$stageName" ]]; then
    exit 1
 fi
 
-echo "Parsed: recipeDir='$recipeDir' ENGINE='$ENGINE' stageName='$stageName' stageFrom='$stageFrom'"
+echo "Parsed: recipeDir='$recipeDir' ENGINE='$ENGINE' stageName='$stageName' stageFrom='$stageFrom' noCache='$noCache'"
 echo "Build-validation configuration: $configFile"
+if [[ "$noCache" == true ]]; then
+   echo "Build cache: disabled; all Dockerfile instructions will be executed"
+else
+   echo "Build cache: enabled; the engine may reuse cached layers"
+fi
 if [[ ${#buildArgs[@]} -gt 0 ]]; then
    echo "Build-argument overrides:"
    for ((i=0; i<${#buildArgs[@]}; i+=2)); do
@@ -489,6 +515,10 @@ echo
 imageName="${OF_FORK}"
 imageTag="${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
 buildOptions=()
+if [[ "$noCache" == true ]]; then
+   # Docker and Podman both accept --no-cache for build-layer cache bypass.
+   buildOptions+=(--no-cache)
+fi
 if [[ -n "$stageName" ]]; then
    imageTag="${imageTag}-${stageName}"
    buildOptions+=(--target "$stageName")
@@ -587,6 +617,7 @@ if [[ "$imageExists" == true ]]; then
       echo "Recipe directory: $recipeDir"
       echo "Build command file: $buildCommandFile"
       echo "Build log: $buildLog"
+      echo "Build scan log: $buildScanLog"
       echo "Complete run log: $runLog"
    } > "$imageDetailsFile"
 else
@@ -622,37 +653,85 @@ else
 fi
 echo
 
-# --- Step 10: Scan the container-engine build log for additional error messages
-# This is a supplementary diagnostic check. The exit status returned by the
-# container-engine build command remains the authoritative indication of build
-# success or failure.
+# --- Step 10: Scan unmarked build output for additional error messages
+# The recipe can mark deliberately non-authoritative compilation-pass output with
+# OPENFOAM_BUILD_SCAN_IGNORE_BEGIN and OPENFOAM_BUILD_SCAN_IGNORE_END. This step
+# removes only those marked ranges from its supplementary diagnostic scan and
+# stores the exact inspected text in build.scan.log. The original build.log is
+# never modified.
 #
-# Podman STEP lines are excluded because they reproduce complete Dockerfile
-# instructions that may contain the word "Error" in comments while not being a real error.
+# Marker parsing is strict. Nested, unmatched, or unclosed markers fail this step
+# instead of allowing an invalid range to hide later authoritative build output.
 ((++testNum))
 echo "$thisScript: -----------------------------------------"
-echo "Step $testNum - Scanning $logFileBuild for additional error messages"
-echo "Checking the file: $logFileBuild"
+echo "Step $testNum - Scanning unmarked build output for additional error messages"
+echo "Complete build log: $logFileBuild"
+echo "Filtered scan log: $buildScanLog"
 
 if [[ -f "$logFileBuild" ]]; then
-   errorOutput=$(
-      grep -iE '\bError\b' "$logFileBuild" |
-         grep -vE '^\[[0-9]+/[0-9]+\][[:space:]]+STEP[[:space:]]+[0-9]+/[0-9]+:' |
-         grep -viE 'Error[./-]|ignor' ||
-         true
-   )
+   markerCountFile="${buildScanLog}.marker-count"
+   markerStatus=0
+   awk '
+      /^OPENFOAM_BUILD_SCAN_IGNORE_BEGIN([[:space:]]|$)/ {
+         if (ignoring) {
+            printf "Nested ignore-begin marker at line %d\n", NR > "/dev/stderr"
+            invalid = 1
+         }
+         ignoring = 1
+         beginCount++
+         next
+      }
+      /^OPENFOAM_BUILD_SCAN_IGNORE_END([[:space:]]|$)/ {
+         if (!ignoring) {
+            printf "Ignore-end marker without a matching begin at line %d\n", NR > "/dev/stderr"
+            invalid = 1
+         }
+         ignoring = 0
+         endCount++
+         next
+      }
+      !ignoring { print }
+      END {
+         if (ignoring) {
+            print "Build log ended inside an ignored range" > "/dev/stderr"
+            invalid = 1
+         }
+         if (beginCount != endCount) {
+            printf "Ignore-marker count mismatch: begin=%d end=%d\n", beginCount, endCount > "/dev/stderr"
+            invalid = 1
+         }
+         if (invalid) exit 1
+         printf "%d\n", beginCount > countFile
+      }
+   ' countFile="$markerCountFile" "$logFileBuild" > "$buildScanLog" || markerStatus=$?
 
-   if [[ -z "$errorOutput" ]]; then
-      echo "✓ Step $testNum PASS: No additional error messages found in $logFileBuild"
-   else
-      errorCount=$(printf '%s\n' "$errorOutput" | wc -l)
-
-      echo "✖ Step $testNum FAIL: $errorCount additional error message(s) found in $logFileBuild"
-      echo "First 5 errors:"
-      printf '%s\n' "$errorOutput" | head -n 5
-
-      failedTests+=("$testNum: $logFileBuild has $errorCount additional error message(s)")
+   if [[ $markerStatus -ne 0 ]]; then
+      rm -f "$markerCountFile"
+      echo "✖ Step $testNum FAIL: Invalid build-log ignore-marker structure"
+      failedTests+=("$testNum: Invalid build-log ignore-marker structure")
       ((++totalFailed))
+   else
+      ignoredRangeCount=$(cat "$markerCountFile")
+      rm -f "$markerCountFile"
+      echo "Ignored non-authoritative compilation ranges: $ignoredRangeCount"
+
+      errorOutput=$(
+         grep -iE '\bError\b' "$buildScanLog" |
+            grep -vE '^\[[0-9]+/[0-9]+\][[:space:]]+STEP[[:space:]]+[0-9]+/[0-9]+:' |
+            grep -viE 'Error[./-]|ignor' ||
+            true
+      )
+
+      if [[ -z "$errorOutput" ]]; then
+         echo "✓ Step $testNum PASS: No additional error messages found outside marked ranges"
+      else
+         errorCount=$(printf '%s\n' "$errorOutput" | wc -l)
+         echo "✖ Step $testNum FAIL: $errorCount additional error message(s) found outside marked ranges"
+         echo "First 5 errors:"
+         printf '%s\n' "$errorOutput" | head -n 5
+         failedTests+=("$testNum: $buildScanLog has $errorCount additional error message(s)")
+         ((++totalFailed))
+      fi
    fi
 else
    echo "✖ Step $testNum FAIL: Build log does not exist: $logFileBuild"
@@ -809,6 +888,7 @@ echo "======================================================"
 echo "Total steps run: $testNum"
 echo "Invocation artifacts: $runArtifactsDir"
 echo "Build log: $buildLog"
+echo "Build scan log: $buildScanLog"
 echo "Complete run log: $runLog"
 if [[ $totalFailed -eq 0 ]]; then
    echo "✓ ALL STEPS PASSED! Image '$imageFull' was built successfully."

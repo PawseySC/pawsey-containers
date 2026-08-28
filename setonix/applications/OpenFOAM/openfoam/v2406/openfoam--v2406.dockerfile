@@ -118,11 +118,12 @@ ARG OF_VERSION
 ARG OF_INSTALL_DIR
 #Change to the installation dir, download OpenFOAM and untar
 WORKDIR $OF_INSTALL_DIR
-RUN wget --no-check-certificate -O OpenFOAM-${OF_VERSION}.tgz \
+RUN wget --no-hsts -O OpenFOAM-${OF_VERSION}.tgz \
     "https://sourceforge.net/projects/openfoam/files/OpenFOAM-${OF_VERSION}.tgz/download" \
  && tar -xvzf OpenFOAM-${OF_VERSION}.tgz \
- && rm -f OpenFOAM-${OF_VERSION}.tgz \
- && wget --no-check-certificate -O ThirdParty-${OF_VERSION}.tgz \
+ && rm -f OpenFOAM-${OF_VERSION}.tgz
+
+RUN wget --no-hsts -O ThirdParty-${OF_VERSION}.tgz \
     "https://sourceforge.net/projects/openfoam/files/ThirdParty-${OF_VERSION}.tgz/download" \
  && tar -xvzf ThirdParty-${OF_VERSION}.tgz \
  && rm -f ThirdParty-${OF_VERSION}.tgz
@@ -237,11 +238,18 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
 # Third-Party compilation
-#    Using 3 compilation passes (2 in parallel, 1 in serial) as some compilation race conditions were found when compiling in a single parallel pass.
+# IMPORTANT: We are using 3 preliminar compilation passes (2 in parallel, 1 in serial)
+#            and 1 final serial authoritative compilation pass.
+#            This because some compilation race conditions were found when compiling in a single parallel pass.
+#            The preliminar compilation passes are "sheltered" to avoid the building to break.
+#            The only compilation pass that causes the building to break if there are issues is the final authoritative pass.
 
-# First compilation pass, performed in parallel.
+# First preliminar compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+# OPENFOAM_BUILD_SCAN_IGNORE_BEGIN and _END print-outs are for an external
+# review of the building logs to ignore errors in these compilation passes and concentrate
+# only on errors in the final authoritative compilation pass.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
@@ -249,6 +257,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
  && echo "Starting first ThirdParty compilation pass: ${TP_COMPILE_OPTIONS}" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=1"; \
       ./Allwmake $TP_COMPILE_OPTIONS \
           2>&1 | tee log.Allwmake.1st_pass-parallel; \
       compileStatus=${PIPESTATUS[0]}; \
@@ -258,10 +267,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
           echo "WARNING: First parallel ThirdParty compilation pass failed."; \
           echo "Partial compilation results will be retained for the serial pass."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=1"; \
       exit 0; \
     }
 
-# Second compilation pass, performed in parallel.
+# Second preliminar compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -271,6 +281,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
  && echo "Starting second ThirdParty compilation pass: ${TP_COMPILE_OPTIONS}" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=2"; \
       ./Allwmake $TP_COMPILE_OPTIONS \
           2>&1 | tee log.Allwmake.2nd_pass-parallel; \
       compileStatus=${PIPESTATUS[0]}; \
@@ -280,11 +291,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
           echo "WARNING: Second parallel ThirdParty compilation pass failed."; \
           echo "Partial compilation results will be retained for the serial pass."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=2"; \
       exit 0; \
     }
 
-# Third compilation pass, performed serially.
-# A failure is recorded, but the authoritative pass is still attempted.
+# Third preliminar compilation pass, performed serially.
+# A failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
@@ -292,6 +305,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
  && echo "Starting third ThirdParty compilation pass in serial" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=3"; \
       ./Allwmake \
           2>&1 | tee log.Allwmake.3rd_pass-serial; \
       compileStatus=${PIPESTATUS[0]}; \
@@ -301,6 +315,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
           echo "WARNING: Third serial ThirdParty compilation pass failed."; \
           echo "Proceeding to the authoritative compilation pass."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=3"; \
       exit 0; \
     }
 
@@ -384,9 +399,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 
 #---------------------------------------------------------------
 # F.2 ParaView compilation
-#     Using 3 compilation passes (2 in parallel, 1 in serial) as some compilation race conditions were found when compiling in a single parallel pass.
+# IMPORTANT: We are using 3 preliminar compilation passes (2 in parallel, 1 in serial)
+#            and 1 final serial authoritative compilation pass.
+#            This because some compilation race conditions were found when compiling in a single parallel pass.
+#            The preliminar compilation passes are "sheltered" to avoid the building to break.
+#            The only compilation pass that causes the building to break if there are issues is the final authoritative pass.
 
-# First ParaView compilation pass, performed in parallel.
+# First ParaView preliminar compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -400,6 +419,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && echo "Starting first parallel ParaView compilation pass" \
  && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=1"; \
       ./makeParaView $PV_COMPILE_OPTIONS \
           -mpi \
           -python \
@@ -414,10 +434,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
           echo "WARNING: First parallel ParaView compilation pass failed."; \
           echo "Partial compilation results will be retained for the next pass."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=1"; \
       exit 0; \
     }
 
-# Second ParaView compilation pass, performed in parallel.
+# Second ParaView preliminar compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -429,6 +450,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && echo "Starting second parallel ParaView compilation pass" \
  && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=2"; \
       ./makeParaView $PV_COMPILE_OPTIONS \
           -rebuild \
           -mpi \
@@ -442,10 +464,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
           echo "WARNING: Second parallel ParaView compilation pass failed."; \
           echo "Partial compilation results will be retained for the serial pass."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=2"; \
       exit 0; \
     }
 
-# Third ParaView compilation pass, performed in serial.
+# Third ParaView preliminar compilation pass, performed in serial.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -457,6 +480,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && echo "Starting third ParaView compilation pass in serial" \
  && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=3"; \
       ./makeParaView $PV_COMPILE_OPTIONS \
           -rebuild \
           -mpi \
@@ -470,6 +494,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
           echo "WARNING: Third serial ParaView compilation pass failed."; \
           echo "Proceeding to the authoritative final pass."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=3"; \
       exit 0; \
     }
 
@@ -521,9 +546,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #---------------------------------------------------------------
 # G.2 OpenFOAM compilation
 #     Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
-#     Using 3 compilation passes (2 in parallel, 1 in serial) as some compilation race conditions were found when compiling in a single parallel pass.
+# IMPORTANT: We are using 3 preliminar compilation passes (2 in parallel, 1 in serial)
+#            and 1 final serial authoritative compilation pass.
+#            This because some compilation race conditions were found when compiling in a single parallel pass.
+#            The preliminar compilation passes are "sheltered" to avoid the building to break.
+#            The only compilation pass that causes the building to break if there are issues is the final authoritative pass.
 
-# First parallel compilation pass.
+# First parallel preliminar compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -534,6 +563,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && export QT_SELECT=qt5 \
  && echo "Starting 1st pass in parallel OpenFOAM compilation: ${OF_COMPILE_OPTIONS}" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=1"; \
       ./Allwmake $OF_COMPILE_OPTIONS \
           2>&1 | tee log.Allwmake.1st_pass-parallel; \
       compileStatus=${PIPESTATUS[0]}; \
@@ -542,10 +572,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       if [[ ${compileStatus} -ne 0 ]]; then \
           echo "WARNING: 1st pass in parallel OpenFOAM compilation failed. Partial results will be retained."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=1"; \
       exit 0; \
     }
 
-# Second parallel compilation pass.
+# Second parallel preliminar compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -556,6 +587,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && export QT_SELECT=qt5 \
  && echo "Starting 2nd pass in parallel OpenFOAM compilation: ${OF_COMPILE_OPTIONS}" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=2"; \
       ./Allwmake $OF_COMPILE_OPTIONS \
           2>&1 | tee log.Allwmake.2nd_pass-parallel; \
       compileStatus=${PIPESTATUS[0]}; \
@@ -564,12 +596,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       if [[ ${compileStatus} -ne 0 ]]; then \
           echo "WARNING: 2nd pass in parallel OpenFOAM compilation failed. Partial results will be retained."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=2"; \
       exit 0; \
     }
 
-# Third compilation pass, performed serially.
-# A failure is recorded but does not stop the image build,
-# allowing for a final authoritative summary pass to be attempted.
+# Third preliminar compilation pass, performed serially.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
@@ -578,6 +611,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && export QT_SELECT=qt5 \
  && echo "Starting 3rd pass in serial OpenFOAM compilation" \
  && { \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=3"; \
       ./Allwmake \
           2>&1 | tee log.Allwmake.3rd_pass-serial; \
       compileStatus=${PIPESTATUS[0]}; \
@@ -587,6 +621,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
           echo "WARNING: 3rd serial pass failed. Partial results will be retained."; \
           echo "Proceeding to the authoritative summary pass."; \
       fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=3"; \
       exit 0; \
     }
 
