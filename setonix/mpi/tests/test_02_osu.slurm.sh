@@ -3,9 +3,10 @@
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=00:15:00
-##SBATCH --partition=work
-#SBATCH --partition=debug
+#SBATCH --partition=work
+##SBATCH --partition=debug
 #SBATCH --output=slurm-%x-%j.out
+#SBATCH --error=slurm-%x-%j.err
 
 # Focus:
 # This test checks that selected OSU MPI benchmarks are available,

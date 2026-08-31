@@ -165,7 +165,6 @@ run_slurm_test() {
     local test_script="$1"
     local number_of_nodes="$2"
     local tasks_per_node="$3"
-    local test_script_abs
     local test_file
     local test_name
     local job_id
@@ -173,6 +172,7 @@ run_slurm_test() {
     local marker_fail
     local marker_warn
     local slurm_output
+    local slurm_error
 
     if ! [[ "${number_of_nodes}" =~ ^[1-9][0-9]*$ ]]; then
         echo "ERROR: Number of nodes must be a positive integer: ${number_of_nodes}" >&2
@@ -194,6 +194,7 @@ run_slurm_test() {
     marker_fail="${OUTPUT_DIR}/${test_name}.FAIL"
     marker_warn="${OUTPUT_DIR}/${test_name}.WARN"
     slurm_output="${OUTPUT_DIR}/slurm-${test_name}-%j.out"
+    slurm_error="${OUTPUT_DIR}/slurm-${test_name}-%j.err"
 
     rm -f "${marker_pass}" "${marker_fail}" "${marker_warn}"
 
@@ -228,6 +229,7 @@ run_slurm_test() {
         "${reservation_args[@]}" \
         "${dependency_args[@]}" \
         --output="${slurm_output}" \
+        --error="${slurm_error}" \
         --export=SINGULARITY_IMAGE,REPO_MPI_DIR,SINGULARITY_MODULE,ARTIFACTS_DIR,BUILD_DIR,OUTPUT_DIR \
         "${test_script_abs}")"
 
@@ -238,6 +240,7 @@ run_slurm_test() {
     echo "Submitted job: ${job_id}"
     echo "Output directory: ${OUTPUT_DIR}"
     echo "Slurm output file: ${OUTPUT_DIR}/slurm-${test_name}-${job_id}.out"
+    echo "Slurm error file: ${OUTPUT_DIR}/slurm-${test_name}-${job_id}.err"
 }
 
 
