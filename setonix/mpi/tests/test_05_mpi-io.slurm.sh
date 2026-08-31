@@ -3,9 +3,10 @@
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=00:10:00
-##SBATCH --partition=work
-#SBATCH --partition=debug
+#SBATCH --partition=work
+##SBATCH --partition=debug
 #SBATCH --output=slurm-%x-%j.out
+#SBATCH --error=slurm-%x-%j.err
 
 # Focus:
 # This test checks that MPI IO functions in a container
@@ -148,7 +149,7 @@ fi
 
 #--- Compile test
 echo
-echo "=== Building with container mpicc ==="
+echo "=== Building with container mpic++ ==="
 
 if ! singularity exec "${SINGULARITY_IMAGE}" \
     mpic++ -O2 "${src}" -o "${theExe}" \
