@@ -249,6 +249,8 @@ run_slurm_test "${SHARED_TESTS_DIR}/test_01_compile+run.slurm.sh" 2 4
 run_slurm_test "${SHARED_TESTS_DIR}/test_02_osu.slurm.sh" 2 4
 run_slurm_test "${SHARED_TESTS_DIR}/test_03_mpi4py.slurm.sh" 2 4
 run_slurm_test "${SHARED_TESTS_DIR}/test_04_mpi-comm.slurm.sh" 2 8
+run_slurm_test "${SHARED_TESTS_DIR}/test_05_mpi-io.slurm.sh" 2 4
+run_slurm_test "${SHARED_TESTS_DIR}/test_09_basic-mpi-comm.slurm.sh" 1 2
 
 job_id_list="$(IFS=,; echo "${TEST_JOB_IDS[@]}")"
 
@@ -279,7 +281,9 @@ for test_name in \
     "test_01_compile+run" \
     "test_02_osu" \
     "test_03_mpi4py" \
-    "test_04_mpi-comm"
+    "test_04_mpi-comm" \
+    "test_05_mpi-io" \
+    "test_09_basic-mpi-comm"
 do
     marker_pass="${OUTPUT_DIR}/${test_name}.PASS"
     marker_fail="${OUTPUT_DIR}/${test_name}.FAIL"
