@@ -1,9 +1,8 @@
 #!/bin/bash --login
 #SBATCH --job-name=test_07_basic-gpu-mpi-comm
 #SBATCH --nodes=2
-#SBATCH --ntasks=4
-#SBATCH --ntasks-per-node=2
-#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
 #SBATCH --time=00:15:00
 #SBATCH --partition=gpu
 #SBATCH --output=slurm-%x-%j.out
@@ -170,9 +169,9 @@ echo "Output directory: $OUTPUT_DIR"
 #--- Modules and settings
 module load "${SINGULARITY_MODULE}"
 
-# if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-#     source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
-# fi
+if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
+    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
+fi
 
 module list
 
@@ -233,21 +232,21 @@ echo
 echo "=== Linkage check ==="
 
 if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
-    "ldd \"\$(command -v osu_latency)\" | grep -E 'mpi|fabric|cxi|pmi|pmix|pals|xpmem|gtl|hsa' || true" \
+    "ldd ${theExe} | grep -E 'mpi|fabric|cxi|pmi|pmix|pals|xpmem|gtl|hsa' || true" \
     | tee "${fileOutLinkage}"; then
     fail "Linkage command failed. See: ${fileOutLinkage}"
 fi
 
 if ! grep -Fq "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
-    fail "Expected osu_latency to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
+    fail "Expected ${theExe} to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
 fi
 
 if ! grep -Fq "/opt/cray/libfabric" "${fileOutLinkage}"; then
-    fail "Expected osu_latency to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
+    fail "Expected ${theExe} to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
 fi
 
 if ! grep -Fq "gtl_hsa.so" "${fileOutLinkage}"; then
-    fail "Expected osu_latency to link against GTL library. See: ${fileOutLinkage}"
+    fail "Expected ${theExe} to link against GTL library. See: ${fileOutLinkage}"
 fi
 
 echo "Linkage check passed"

@@ -1,14 +1,12 @@
 #!/bin/bash --login
 #SBATCH --job-name=test_09_basic-mpi-comm
 #SBATCH --nodes=1
-#SBATCH --ntasks=2
 #SBATCH --ntasks-per-node=2
 #SBATCH --time=00:15:00
 #SBATCH --partition=work
 ##SBATCH --partition=debug
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
-#SBATCH --account=pawsey0001
 
 # Focus:
 # This test validates execution of the test:
@@ -170,9 +168,9 @@ echo "Output directory: $OUTPUT_DIR"
 #--- Modules and settings
 module load "${SINGULARITY_MODULE}"
 
-# if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-#     source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
-# fi
+if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
+    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
+fi
 
 module list
 
@@ -206,13 +204,14 @@ if [[ ! -f "${src}" ]]; then
     fail "Fixture source file not found: ${src}"
 fi
 
+# The test fixture needs libmpi_gnu.so.12 under /opt/cray/pe/lib64
+export SINGULARITYENV_LD_LIBRARY_PATH=/opt/cray/pe/lib64:$SINGULARITYENV_LD_LIBRARY_PATH
+
 #--- Compile test
 echo
 echo "=== Building with container mpic++ ==="
 if ! singularity exec "${SINGULARITY_IMAGE}" \
-    mpic++ -D_MPI -std=c++17 \
-    -I${CRAY_MPICH_DIR}/include/ -L${CRAY_MPICH_DIR}/lib/ \
-    "${src}" -o "${theExe}" -lmpi \
+    mpic++ -O2 "${src}" -o "${theExe}" \
     > "${fileOutCompile}" 2>&1; then
     fail "Compilation failed. See: ${fileOutCompile}"
 fi
@@ -228,23 +227,21 @@ echo
 echo "=== Linkage check ==="
 
 if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
-    "ldd \"\$(command -v osu_latency)\" | grep -E 'mpi|fabric|cxi|pmi|pmix|pals|xpmem' || true" \
+    "ldd ${theExe} | grep -E 'mpi|fabric|cxi|pmi|pmix|pals|xpmem' || true" \
     | tee "${fileOutLinkage}"; then
     fail "Linkage command failed. See: ${fileOutLinkage}"
 fi
 
-if ! grep -Fq "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
-    fail "Expected osu_latency to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
+if ! grep -Fq "libmpi_gnu" "${fileOutLinkage}"; then
+    fail "Expected ${theExe} to link against /opt/cray/pe/lib64/libmpi_gnu.so.12. See: ${fileOutLinkage}"
 fi
 
 if ! grep -Fq "/opt/cray/libfabric" "${fileOutLinkage}"; then
-    fail "Expected osu_latency to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
+    fail "Expected ${theExe} to link against /opt/cray/libfabric. See: ${fileOutLinkage}"
 fi
 
 
 echo "Linkage check passed"
-
-export SINGULARITYENV_LD_LIBRARY_PATH=/opt/cray/pe/lib64:$SINGULARITYENV_LD_LIBRARY_PATH
 
 #--- Runtime test
 export MPI_COMM_ARGS="-s 0.8"

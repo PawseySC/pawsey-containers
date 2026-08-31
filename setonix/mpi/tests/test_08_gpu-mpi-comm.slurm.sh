@@ -1,13 +1,10 @@
 #!/bin/bash --login
 #SBATCH --job-name=test_08_gpu-mpi-comm
 #SBATCH --nodes=2
-#SBATCH --exclusive
-#SBATCH --ntasks=16
-#SBATCH --ntasks-per-node=8
-#SBATCH --gres=gpu:8
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
 #SBATCH --time=00:15:00
 #SBATCH --partition=gpu
-##SBATCH --partition=gpu-dev
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
 #SBATCH --account=pawsey0001-gpu
