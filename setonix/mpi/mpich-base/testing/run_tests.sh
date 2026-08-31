@@ -186,8 +186,7 @@ run_slurm_test() {
         return
     fi
 
-    test_script_abs="$(realpath "${test_script}")"
-    test_file="$(basename "${test_script_abs}")"
+    test_file="$(basename "${test_script}")"
     test_name="${test_file%.slurm.sh}"
 
     marker_pass="${OUTPUT_DIR}/${test_name}.PASS"
@@ -198,14 +197,14 @@ run_slurm_test() {
 
     rm -f "${marker_pass}" "${marker_fail}" "${marker_warn}"
 
-    if [[ ! -f "${test_script_abs}" ]]; then
-        echo "ERROR: Test script not found: ${test_script_abs}" >&2
+    if [[ ! -f "${test_script}" ]]; then
+        echo "ERROR: Test script not found: ${test_script}" >&2
         FAILED=1
         return
     fi
 
     echo ""
-    echo "Submitting: ${test_script_abs}"
+    echo "Submitting: ${test_script}"
     echo "Test name : ${test_name}"
     echo "Nodes     : ${number_of_nodes}"
     echo "Tasks/node: ${tasks_per_node}"
@@ -231,7 +230,7 @@ run_slurm_test() {
         --output="${slurm_output}" \
         --error="${slurm_error}" \
         --export=SINGULARITY_IMAGE,REPO_MPI_DIR,SINGULARITY_MODULE,ARTIFACTS_DIR,BUILD_DIR,OUTPUT_DIR \
-        "${test_script_abs}")"
+        "${test_script}")"
 
     IFS=';' read -r job_id _ <<< "${job_id}"
     TEST_JOB_IDS+=("${job_id}")

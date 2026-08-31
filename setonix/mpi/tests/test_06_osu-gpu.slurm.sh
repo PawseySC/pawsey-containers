@@ -1,7 +1,6 @@
 #!/bin/bash --login
 #SBATCH --job-name=test_06_osu_gpu
 #SBATCH --nodes=2
-#SBATCH --ntasks=8
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --time=00:15:00
@@ -114,9 +113,9 @@ echo "Output directory: $OUTPUT_DIR"
 #--- Modules and settings
 module load "${SINGULARITY_MODULE}"
 
-#if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
-#    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
-#fi
+if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
+   source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
+fi
 
 module list
 
