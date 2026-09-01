@@ -7,6 +7,7 @@ nohup.out
 *.tgz
 log.*
 *.log
+slurm*.out
 
 # Virtualenv
 /.venv/
