@@ -24,10 +24,16 @@ export SINGULARITYENV_LD_LIBRARY_PATH=:/host_lib64\
 :/opt/xpmem/lib64:/opt/cray/pe/pmi/default/lib:/opt/cray/pe/pals/default/lib\
 :/opt/cray/libfabric/${libfabricver}/lib64/\
 :$LD_LIBRARY_PATH
-export SINGULARITYENV_LD_PRELOAD=:/opt/xpmem/lib64/libxpmem.so.0:/usr/lib64/libcxi.so.1\
-:/usr/lib64/libcurl.so.4:/usr/lib64/libjson-c.so.5\
+export SINGULARITYENV_LD_PRELOAD=:/opt/xpmem/lib64/libxpmem.so.0\
+:/usr/lib64/libcxi.so.1:/usr/lib64/libjson-c.so.5\
 :/usr/lib64/libmunge.so.2\
 :/usr/lib64/liblustreapi.so.1:/usr/lib64/liblnetconfig.so.4:/usr/lib64/libyaml-0.so.2:/usr/lib64/libnl-genl-3.so.200:/usr/lib64/libnl-3.so.200
+fi
+
+if [[ "$SLURM_JOB_PARTITION" == *"gpu"* ]]; then
+export SINGULARITYENV_LD_PRELOAD=:/opt/cray/pe/mpich/9.1.0/gtl/lib/libmpi_gtl_hsa.so.0:$SINGULARITYENV_LD_PRELOAD
+export MPICH_GPU_SUPPORT_ENABLED=1
+export SINGULARITYENV_MPICH_GPU_SUPPORT_ENABLED=1
 fi
 
 echo "SINGULARITY env ------- start"

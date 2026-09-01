@@ -204,9 +204,6 @@ if [[ ! -f "${src}" ]]; then
     fail "Fixture source file not found: ${src}"
 fi
 
-# The test fixture needs libmpi_gnu.so.12 under /opt/cray/pe/lib64
-export SINGULARITYENV_LD_LIBRARY_PATH=/opt/cray/pe/lib64:$SINGULARITYENV_LD_LIBRARY_PATH
-
 #--- Compile test
 echo
 echo "=== Building with container mpic++ ==="
@@ -232,8 +229,8 @@ if ! singularity exec "${SINGULARITY_IMAGE}" bash -lc \
     fail "Linkage command failed. See: ${fileOutLinkage}"
 fi
 
-if ! grep -Fq "libmpi_gnu" "${fileOutLinkage}"; then
-    fail "Expected ${theExe} to link against /opt/cray/pe/lib64/libmpi_gnu.so.12. See: ${fileOutLinkage}"
+if ! grep -Fq "/opt/cray/pe/mpich" "${fileOutLinkage}"; then
+    fail "Expected test_mpi_comm to link against /opt/cray/pe/mpich. See: ${fileOutLinkage}"
 fi
 
 if ! grep -Fq "/opt/cray/libfabric" "${fileOutLinkage}"; then
