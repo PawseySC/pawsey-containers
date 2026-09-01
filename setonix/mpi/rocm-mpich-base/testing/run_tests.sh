@@ -107,7 +107,7 @@ if [[ ! -f "${SINGULARITY_IMAGE}" ]]; then
 fi
 
 echo "============================================================"
-echo "mpich-base Slurm test launcher"
+echo "rocm-mpich-base Slurm test launcher"
 echo "============================================================"
 echo "Repository root      : ${REPO_ROOT}"
 echo "Run ID               : ${RUN_ID}"
@@ -201,7 +201,7 @@ run_slurm_test() {
     marker_fail="${OUTPUT_DIR}/${test_name}.FAIL"
     marker_warn="${OUTPUT_DIR}/${test_name}.WARN"
     slurm_output="${OUTPUT_DIR}/slurm-${test_name}-%j.out"
-    slurm_error="${OUTPUT_DIR}/slurm-${test_name}-%j.out"
+    slurm_error="${OUTPUT_DIR}/slurm-${test_name}-%j.err"
 
     rm -f "${marker_pass}" "${marker_fail}" "${marker_warn}"
 
