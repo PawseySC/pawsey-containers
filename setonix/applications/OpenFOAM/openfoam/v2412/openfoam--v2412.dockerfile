@@ -38,17 +38,25 @@ ARG BUILD_FILES_DIR="/opt/build-information-and-recipes"
 # A. Basic Stage.
 FROM $BASE_IMAGE_FULL AS basic_stage
 #---------------------------------------------------------------
-# A.1 Installing additional tools useful for interactive sessions
-#     and the check of bashisms in scripts
-RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+# A.1 Installing additional tools useful for interactive sessions,
+#     downloading and other checks
+ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  &&  apt-get -y --no-install-recommends install \
             vim time \
             cron gosu \
             bc curl wget \
-            git devscripts \
 # cleaning at the end:
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
+
+### Use the following block anywher in the script during developing whenever the tools are needed
+##RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+## &&  apt-get -y --no-install-recommends install \
+##            git \ #For git pulling capabilities
+##            devscripts \ #For installing the checkbashisms tool
+### cleaning at the end:
+## && apt-get clean all \
+## && rm -r /var/lib/apt/lists/*
 
 #---------------------------------------------------------------
 # A.2 Setting a user for interactive sessions and development of own tools
@@ -113,7 +121,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 FROM install_dependencies AS download
 #---------------------------------------------------------------
 # C.1 Download
-# Recall global definitions made on the top
+# Recall global definitions made at the top
 ARG OF_VERSION
 ARG OF_INSTALL_DIR
 #Change to the installation dir, download OpenFOAM and untar
@@ -229,7 +237,6 @@ ARG OF_BASHRC_FILE
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
 ARG TP_COMPILE_TASKS="16"
-ARG TP_COMPILE_OPTIONS="-j${TP_COMPILE_TASKS}"
 
 #---------------------------------------------------------------
 #Using bash to interpret OpenFOAM scripts
@@ -238,97 +245,151 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
 # Third-Party compilation
-# IMPORTANT: We are using 3 preliminar compilation passes (2 in parallel, 1 in serial)
-#            and 1 final serial authoritative compilation pass.
+# IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
+#            and 1 final parallel authoritative compilation pass.
 #            This because some compilation race conditions were found when compiling in a single parallel pass.
-#            The preliminar compilation passes are "sheltered" to avoid the building to break.
+#            The preliminary compilation passes are "sheltered" to avoid the building to break.
 #            The only compilation pass that causes the building to break if there are issues is the final authoritative pass.
+# IMPORTANT: A successful preliminary compilation pass creates a component-specific
+#            sentinel file. Later preliminary compilation passes skip their
+#            compilation when that sentinel exists. The final authoritative
+#            compilation pass always runs. The sentinel is retained as provenance.
+# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+#            (in this case just the final authoritative pass would exist). But, as mentioned above,
+#            the multiple preliminary passes were needed to warranty proper compilation in our builidng nodes.
 
-# First preliminar compilation pass, performed in parallel.
+# First preliminary compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
 # OPENFOAM_BUILD_SCAN_IGNORE_BEGIN and _END print-outs are for an external
 # review of the building logs to ignore errors in these compilation passes and concentrate
 # only on errors in the final authoritative compilation pass.
+ARG TP_PASS_NUMBER="1"
+ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Compile ThirdParty components:
+# Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
- && echo "Starting first ThirdParty compilation pass: ${TP_COMPILE_OPTIONS}" \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=1"; \
-      ./Allwmake $TP_COMPILE_OPTIONS \
-          2>&1 | tee log.Allwmake.1st_pass-parallel; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "First parallel ThirdParty compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.Allwmake.1st_pass-parallel.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: First parallel ThirdParty compilation pass failed."; \
-          echo "Partial compilation results will be retained for the serial pass."; \
+      passInfo="pass-${TP_PASS_NUMBER}-tasks-${TP_PASS_TASKS}"; \
+      passLog="log.Allwmake.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.thirdparty-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ThirdParty preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=1"; \
+      echo "Starting ThirdParty preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=${TP_PASS_NUMBER}"; \
+      # ----- The compilation command:
+      ./Allwmake -j"${TP_PASS_TASKS}" 2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "ThirdParty preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ThirdParty preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ThirdParty preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=${TP_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# Second preliminar compilation pass, performed in parallel.
+# Second preliminary compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+ARG TP_PASS_NUMBER="2"
+ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Compile ThirdParty components:
+# Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
- && echo "Starting second ThirdParty compilation pass: ${TP_COMPILE_OPTIONS}" \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=2"; \
-      ./Allwmake $TP_COMPILE_OPTIONS \
-          2>&1 | tee log.Allwmake.2nd_pass-parallel; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "Second parallel ThirdParty compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.Allwmake.2nd_pass-parallel.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: Second parallel ThirdParty compilation pass failed."; \
-          echo "Partial compilation results will be retained for the serial pass."; \
+      passInfo="pass-${TP_PASS_NUMBER}-tasks-${TP_PASS_TASKS}"; \
+      passLog="log.Allwmake.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.thirdparty-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ThirdParty preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=2"; \
+      echo "Starting ThirdParty preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=${TP_PASS_NUMBER}"; \
+      # ----- The compilation command:
+      ./Allwmake -j"${TP_PASS_TASKS}" 2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "ThirdParty preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ThirdParty preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ThirdParty preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=${TP_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# Third preliminar compilation pass, performed serially.
+# Third preliminary compilation pass, performed serially.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+ARG TP_PASS_NUMBER="3"
+ARG TP_PASS_TASKS="1"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Continue from the products committed by the parallel pass:
+# Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
- && echo "Starting third ThirdParty compilation pass in serial" \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=3"; \
-      ./Allwmake \
-          2>&1 | tee log.Allwmake.3rd_pass-serial; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "Third serial ThirdParty compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.Allwmake.3rd_pass-serial.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: Third serial ThirdParty compilation pass failed."; \
-          echo "Proceeding to the authoritative compilation pass."; \
+      passInfo="pass-${TP_PASS_NUMBER}-tasks-${TP_PASS_TASKS}"; \
+      passLog="log.Allwmake.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.thirdparty-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ThirdParty preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=3"; \
+      echo "Starting ThirdParty preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ThirdParty pass=${TP_PASS_NUMBER}"; \
+      # ----- The compilation command:
+      ./Allwmake -j"${TP_PASS_TASKS}" 2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "ThirdParty preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ThirdParty preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ThirdParty preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ThirdParty pass=${TP_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# Final authoritative compilation pass, performed serially.
+# Final authoritative compilation pass, performed in parallel.
 # This failure is not masked. With pipefail enabled, any remaining
 # compilation failure stops the Podman build.
+ARG TP_PASS_NUMBER="authoritative"
+ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Perform the authoritative compilation check:
  && cd $WM_THIRD_PARTY_DIR \
  && echo "Starting authoritative ThirdParty compilation pass" \
- && ./Allwmake 2>&1 | tee log.Allwmake.AuthoritativeSummary
+ && ./Allwmake -j"$TP_PASS_TASKS" | tee log.Allwmake.AuthoritativeSummary
 
 
 #---------------------------------------------------------------
@@ -341,7 +402,6 @@ FROM third_party_install AS pv_install
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
-ARG PV_COMPILE_OPTIONS=""
 # Defining the maximum number of parallel tasks to use for compilation
 ARG PV_COMPILE_TASKS=16
 #NotAcceptedBy makeParaView:#ARG PV_COMPILE_OPTIONS="-j${PV_COMPILE_TASKS}"
@@ -399,116 +459,182 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 
 #---------------------------------------------------------------
 # F.2 ParaView compilation
-# IMPORTANT: We are using 3 preliminar compilation passes (2 in parallel, 1 in serial)
-#            and 1 final serial authoritative compilation pass.
+# IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
+#            and 1 final parallel authoritative compilation pass.
 #            This because some compilation race conditions were found when compiling in a single parallel pass.
-#            The preliminar compilation passes are "sheltered" to avoid the building to break.
+#            The preliminary compilation passes are "sheltered" to avoid the building to break.
 #            The only compilation pass that causes the building to break if there are issues is the final authoritative pass.
+# IMPORTANT: A successful preliminary compilation pass creates a component-specific
+#            sentinel file. Later preliminary compilation passes skip their
+#            compilation when that sentinel exists. The final authoritative
+#            compilation pass always runs. The sentinel is retained as provenance.
+# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+#            (in this case just the final authoritative pass would exist). But, as mentioned above,
+#            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 
-# First ParaView preliminar compilation pass, performed in parallel.
+# First ParaView preliminary compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+ARG PV_PASS_NUMBER="1"
+ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
  && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
       -name 'libpython3.*.so' | head -1) \
  && MPI_C_COMPILER=$(command -v mpicc) \
  && MPI_CXX_COMPILER=$(command -v mpicxx) \
- && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS} \
- && echo "Starting first parallel ParaView compilation pass" \
- && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
+ && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=1"; \
-      ./makeParaView $PV_COMPILE_OPTIONS \
+      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
+      passLog="log.makePV.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ParaView preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
+      fi; \
+      echo "Starting ParaView preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
+      rebuildOption=""; \
+      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
+      # ----- The compilation command:
+      ./makeParaView $rebuildOption \
           -mpi \
           -python \
           -python-lib "$PYTHON_LIB" \
           -DMPI_C_COMPILER="$MPI_C_COMPILER" \
-          -DMPI_CXX_COMPILER="$MPI_CXX_COMPILER" \
-          2>&1 | tee log.makePV.1st_pass-parallel; \
+          -DMPI_CXX_COMPILER="$MPI_CXX_COMPILER" 2>&1 | tee "$passLog"; \
       compileStatus=${PIPESTATUS[0]}; \
-      echo "First parallel ParaView compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.makePV.1st_pass-parallel.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: First parallel ParaView compilation pass failed."; \
-          echo "Partial compilation results will be retained for the next pass."; \
+      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ParaView preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=1"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# Second ParaView preliminar compilation pass, performed in parallel.
+# Second ParaView preliminary compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+ARG PV_PASS_NUMBER="2"
+ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
  && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
       -name 'libpython3.*.so' | head -1) \
- && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS} \
- && echo "Starting second parallel ParaView compilation pass" \
- && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
+ && MPI_C_COMPILER=$(command -v mpicc) \
+ && MPI_CXX_COMPILER=$(command -v mpicxx) \
+ && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=2"; \
-      ./makeParaView $PV_COMPILE_OPTIONS \
-          -rebuild \
+      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
+      passLog="log.makePV.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ParaView preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
+      fi; \
+      echo "Starting ParaView preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
+      rebuildOption=""; \
+      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
+      # ----- The compilation command:
+      ./makeParaView $rebuildOption \
           -mpi \
           -python \
           -python-lib "$PYTHON_LIB" \
-          2>&1 | tee log.makePV.2nd_pass-parallel; \
+          -DMPI_C_COMPILER="$MPI_C_COMPILER" \
+          -DMPI_CXX_COMPILER="$MPI_CXX_COMPILER" 2>&1 | tee "$passLog"; \
       compileStatus=${PIPESTATUS[0]}; \
-      echo "Second parallel ParaView compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.makePV.2nd_pass-parallel.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: Second parallel ParaView compilation pass failed."; \
-          echo "Partial compilation results will be retained for the serial pass."; \
+      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ParaView preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=2"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# Third ParaView preliminar compilation pass, performed in serial.
+# Third ParaView preliminary compilation pass, performed in serial.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+ARG PV_PASS_NUMBER="3"
+ARG PV_PASS_TASKS="1"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
  && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
       -name 'libpython3.*.so' | head -1) \
- && export CMAKE_BUILD_PARALLEL_LEVEL=1 \
- && echo "Starting third ParaView compilation pass in serial" \
- && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
+ && MPI_C_COMPILER=$(command -v mpicc) \
+ && MPI_CXX_COMPILER=$(command -v mpicxx) \
+ && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=3"; \
-      ./makeParaView $PV_COMPILE_OPTIONS \
-          -rebuild \
+      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
+      passLog="log.makePV.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ParaView preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
+      fi; \
+      echo "Starting ParaView preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
+      rebuildOption=""; \
+      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
+      # ----- The compilation command:
+      ./makeParaView $rebuildOption \
           -mpi \
           -python \
           -python-lib "$PYTHON_LIB" \
-          2>&1 | tee log.makePV.3rd_pass-serial; \
+          -DMPI_C_COMPILER="$MPI_C_COMPILER" \
+          -DMPI_CXX_COMPILER="$MPI_CXX_COMPILER" 2>&1 | tee "$passLog"; \
       compileStatus=${PIPESTATUS[0]}; \
-      echo "Third serial ParaView compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.makePV.3rd_pass-serial.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: Third serial ParaView compilation pass failed."; \
-          echo "Proceeding to the authoritative final pass."; \
+      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ParaView preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=3"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# This final pass is performed serially and its failure is not masked.
+# This final pass is performed in parallel and its failure is not masked.
 # With pipefail enabled, a failure from makeParaView stops the building process.
+ARG PV_PASS_NUMBER="authoritative"
+ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
  && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
       -name 'libpython3.*.so' | head -1) \
- && export CMAKE_BUILD_PARALLEL_LEVEL=1 \
+ && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
  && echo "Starting authoritative ParaView compilation pass" \
  && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
- && ./makeParaView $PV_COMPILE_OPTIONS \
+ && ./makeParaView \
       -rebuild \
       -mpi \
       -python \
@@ -527,7 +653,6 @@ FROM pv_install AS of_install
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
 ARG OF_COMPILE_TASKS=16
-ARG OF_COMPILE_OPTIONS="-j${OF_COMPILE_TASKS}"
 ARG BASHRC_OPTIONS=""
 
 #---------------------------------------------------------------
@@ -546,87 +671,143 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #---------------------------------------------------------------
 # G.2 OpenFOAM compilation
 #     Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
-# IMPORTANT: We are using 3 preliminar compilation passes (2 in parallel, 1 in serial)
-#            and 1 final serial authoritative compilation pass.
+# IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
+#            and 1 final parallel authoritative compilation pass.
 #            This because some compilation race conditions were found when compiling in a single parallel pass.
-#            The preliminar compilation passes are "sheltered" to avoid the building to break.
+#            The preliminary compilation passes are "sheltered" to avoid the building to break.
 #            The only compilation pass that causes the building to break if there are issues is the final authoritative pass.
+# IMPORTANT: A successful preliminary compilation pass creates a component-specific
+#            sentinel file. Later preliminary compilation passes skip their
+#            compilation when that sentinel exists. The final authoritative
+#            compilation pass always runs. The sentinel is retained as provenance.
+# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+#            (in this case just the final authoritative pass would exist). But, as mentioned above,
+#            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 
-# First parallel preliminar compilation pass.
+# First parallel preliminary compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+ARG OF_PASS_NUMBER="1"
+ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Continue:
+# Continue from the component source directory:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
- && echo "Starting 1st pass in parallel OpenFOAM compilation: ${OF_COMPILE_OPTIONS}" \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=1"; \
-      ./Allwmake $OF_COMPILE_OPTIONS \
-          2>&1 | tee log.Allwmake.1st_pass-parallel; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "First parallel compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.Allwmake.1st_pass-parallel.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: 1st pass in parallel OpenFOAM compilation failed. Partial results will be retained."; \
+      passInfo="pass-${OF_PASS_NUMBER}-tasks-${OF_PASS_TASKS}"; \
+      passLog="log.Allwmake.${passInfo}"; \
+      sentinelFile="$WM_PROJECT_DIR/.openfoam-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping OpenFOAM preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=1"; \
+      echo "Starting OpenFOAM preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=${OF_PASS_NUMBER}"; \
+      # ----- The compilation command:
+      ./Allwmake -j"${OF_PASS_TASKS}" 2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "OpenFOAM preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "OpenFOAM preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: OpenFOAM preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=${OF_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# Second parallel preliminar compilation pass.
+# Second parallel preliminary compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+ARG OF_PASS_NUMBER="2"
+ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Continue:
+# Continue from the component source directory:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
- && echo "Starting 2nd pass in parallel OpenFOAM compilation: ${OF_COMPILE_OPTIONS}" \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=2"; \
-      ./Allwmake $OF_COMPILE_OPTIONS \
-          2>&1 | tee log.Allwmake.2nd_pass-parallel; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "Second parallel compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.Allwmake.2nd_pass-parallel.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: 2nd pass in parallel OpenFOAM compilation failed. Partial results will be retained."; \
+      passInfo="pass-${OF_PASS_NUMBER}-tasks-${OF_PASS_TASKS}"; \
+      passLog="log.Allwmake.${passInfo}"; \
+      sentinelFile="$WM_PROJECT_DIR/.openfoam-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping OpenFOAM preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=2"; \
+      echo "Starting OpenFOAM preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=${OF_PASS_NUMBER}"; \
+      # ----- The compilation command:
+      ./Allwmake -j"${OF_PASS_TASKS}" 2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "OpenFOAM preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "OpenFOAM preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: OpenFOAM preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=${OF_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# Third preliminar compilation pass, performed serially.
+# Third preliminary compilation pass, performed serially.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
+ARG OF_PASS_NUMBER="3"
+ARG OF_PASS_TASKS="1"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Continue:
+# Continue from the component source directory:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
- && echo "Starting 3rd pass in serial OpenFOAM compilation" \
  && { \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=3"; \
-      ./Allwmake \
-          2>&1 | tee log.Allwmake.3rd_pass-serial; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "Third serial compilation pass exit status: ${compileStatus}"; \
-      echo "${compileStatus}" > log.Allwmake.3rd_pass-serial.exit-status; \
-      if [[ ${compileStatus} -ne 0 ]]; then \
-          echo "WARNING: 3rd serial pass failed. Partial results will be retained."; \
-          echo "Proceeding to the authoritative summary pass."; \
+      passInfo="pass-${OF_PASS_NUMBER}-tasks-${OF_PASS_TASKS}"; \
+      passLog="log.Allwmake.${passInfo}"; \
+      sentinelFile="$WM_PROJECT_DIR/.openfoam-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping OpenFOAM preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
       fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=3"; \
+      echo "Starting OpenFOAM preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=OpenFOAM pass=${OF_PASS_NUMBER}"; \
+      # ----- The compilation command:
+      ./Allwmake -j"${OF_PASS_TASKS}" 2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "OpenFOAM preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "OpenFOAM preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: OpenFOAM preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=OpenFOAM pass=${OF_PASS_NUMBER}"; \
       exit 0; \
     }
 
-# Final authoritative serial pass and summary of the OpenFOAM compilation.
+# Final authoritative parallel pass and summary of the OpenFOAM compilation.
 # With pipefail enabled, any remaining compilation failure stops building process.
+ARG OF_PASS_NUMBER="authoritative"
+ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Bootstrap to the wmake toolchain:
  && $WM_PROJECT_DIR/wmake/src/Allmake \
@@ -634,7 +815,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
  && echo "Starting authoritative OpenFOAM summary compilation pass" \
- && ./Allwmake 2>&1 | tee log.Allwmake.AuthoritativeSummary
+ && ./Allwmake -j"$OF_PASS_TASKS" | tee log.Allwmake.AuthoritativeSummary
 
 #---------------------------------------------------------------
 # G.3 Checking if a popular executable is working
@@ -867,7 +1048,7 @@ LABEL au.org.pawsey.image.build-files-dir="${BUILD_FILES_DIR}"
 # Recall global definitions made at the top
 ARG OF_USER
 # Avoid permission problems with the home directory of OF_USER
-RUN chmod -R a+rwX /home/$OFUSER
+RUN chmod -R a+rwX /home/$OF_USER
 # Starting as OF_USER by default
 USER $OF_USER
 WORKDIR /home/$OF_USER

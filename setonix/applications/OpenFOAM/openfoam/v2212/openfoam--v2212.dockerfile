@@ -7,7 +7,7 @@
 # IMPORTANT: Developers should check that ALL the ARG definitions here are recalled in the "recording_arguments" section of the final stage.
 # 0.1 Main global arguments (related to the OpenFOAM version)
 ARG OF_FORK="openfoam"
-ARG OF_VERSION="v2606"
+ARG OF_VERSION="v2212"
 
 # 0.1 Main arguments related to the base container to use
 # Defining the base container to use
@@ -82,37 +82,92 @@ RUN mkdir -p ${OF_USER_DIR} \
 FROM basic_stage AS install_dependencies
 #---------------------------------------------------------------
 # B.1 Install OpenFOAM dependencies
-# OpenFOAM v2606+ dependencies for Ubuntu 24.04 LTS
-# Aggregated from:
-# [1] https://develop.openfoam.com/Development/openfoam/-/blob/maintenance-v2606/doc/Build.md
-# [2] https://develop.openfoam.com/Development/ThirdParty-common/-/blob/v2606/Requirements.md
-# [3] https://www.openfoam.com/news/main-news/openfoam-v2606
-# [4] https://gitlab.com/openfoam/core/openfoam/-/blob/master/doc/Build.md
-# [5] https://develop.openfoam.com/Development/ThirdParty-common/blob/develop/BUILD.md
-# [6] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu (Last documented instructions in the wiki)
+# Will follow PARTIALLY the official installation instructions:
+# [1] https://www.openfoam.com/documentation/system-requirements.php
+# [2] https://www.openfoam.com/code/build-guide.php
+# [3] https://www.openfoam.com/download/install-source.php
+# [4] https://develop.openfoam.com/Development/openfoam/blob/develop/doc/Requirements.md
+# [5] https://develop.openfoam.com/Development/ThirdParty-common/blob/develop/Requirements.md
+#
+# Will follow PARTIALLY the instructions for openfoamplus available in the wiki (latest for ubuntu is v1806):
+# [6] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu
+# (There are some other instructions for v1906, but not for ubuntu)
+#
+# Then, will follow a combination of both.
+# The package selection below is preserved from the original v2212 recipe
+# because it has been proven to successfully build this specific OpenFOAM version.
+# A warning may appear:
+# debconf: delaying package configuration, since apt-utils is not installed
+# But seems to be a bug:
+# [7] https://github.com/phusion/baseimage-docker/issues/319
+# But harmless.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
- && apt-get --no-install-recommends --no-install-suggests --yes install \
-    build-essential flex bison cmake ca-certificates wget \
-    zlib1g-dev libboost-system-dev libboost-thread-dev \
-    #NoOpenMPI as MPICH will be used: libopenmpi-dev openmpi-bin \
+ && apt-get -y --no-install-recommends --no-install-suggests install \
+    build-essential \
+    gcc-9 g++-9 gfortran-9 \
+    flex bison cmake zlib1g-dev \
+    libboost-system-dev libboost-thread-dev \
+    # No OpenMPI because MPICH will be used (installed in the parent FROM image): \
+    # libopenmpi-dev openmpi-bin \
+    libfftw3-dev \
     gnuplot libreadline-dev libncurses-dev libxt-dev \
-    qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
-    libqt5opengl5-dev \
-    libgl1-mesa-dev libglu1-mesa-dev freeglut3-dev \
-    libcgal-dev libfftw3-dev \
+    # Not installing Qt4 as in the official instructions, but Qt5 as in the ThirdParty requirements list: \
+    # qt4-dev-tools libqt4-dev libqt4-opengl-dev libqtwebkit-dev \
+    qtbase5-dev qttools5-dev \
+    qttools5-dev-tools libqt5opengl5-dev \
+    libqt5x11extras5-dev libqt5svg5-dev libxt-dev \
+    qtxmlpatterns5-dev-tools \
+    # Ubuntu 24.04 replacement components for the removed qt5-default metapackage: \
+    qtchooser qt5-qmake qtbase5-dev-tools \
+    libqt5help5 qtdeclarative5-dev \
+    freeglut3-dev \
+    #Not Installing Python due to huge problems with versions. So Catalyst will not be installed in this old version of OpenFOAM.
     #For Catalyst (and therefore ParaView):
-    python3-dev \
-# Additional dependencies listed in ThirdParty-xxx/Requirements.md (not repeating):
-    qttools5-dev qttools5-dev-tools libqt5x11extras5-dev \
-# Additional dependencies found when building the image:
-    #For compiling ParaView (Qt5 GUI support & xmlpatterns library):
-    libqt5svg5-dev qtxmlpatterns5-dev-tools \
-    #For compiling OpenFOAM (to include FlexLexer.h):
+    #python3-dev \
+    # No Scotch because it installs OpenMPI, which later interferes with MPICH. \
+    # Therefore, ThirdParty Scotch is the one to be installed and used by OpenFOAM. \
+    # libscotch-dev \
+    # Yes CGAL, so the ThirdParty version will not be installed: \
+    libcgal-dev \
+    # These libraries are needed for system and ThirdParty CGAL: \
+    libgmp-dev libmpfr-dev libmpc-dev \
+    libglu1-mesa-dev \
+    # Needed to provide FlexLexer.h: \
     libfl-dev \
 # cleaning at the end:
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
+#---------------------------------------------------------------
+# B.2 Select the Ubuntu 20.04 compiler family for all subsequent build stages
+# GCC 9 was the default compiler family in Ubuntu 20.04.
+# Versioned compiler packages from Ubuntu 24.04 are used without modifying
+# the compiler commands managed below /usr/bin.
+RUN mkdir -p /opt/gcc9/bin \
+ && ln -sf /usr/bin/gcc-9 /opt/gcc9/bin/gcc \
+ && ln -sf /usr/bin/g++-9 /opt/gcc9/bin/g++ \
+ && ln -sf /usr/bin/gcc-9 /opt/gcc9/bin/cc \
+ && ln -sf /usr/bin/g++-9 /opt/gcc9/bin/c++ \
+ && ln -sf /usr/bin/gfortran-9 /opt/gcc9/bin/gfortran \
+ && ln -sf /usr/bin/gfortran-9 /opt/gcc9/bin/f95 \
+ && ln -sf /usr/bin/gfortran-9 /opt/gcc9/bin/f77
+
+ENV PATH="/opt/gcc9/bin:${PATH}"
+ENV CC="gcc"
+ENV CXX="g++"
+ENV FC="gfortran"
+ENV F77="gfortran"
+ENV F90="gfortran"
+
+# Validate the selected compiler family and the compilers used by the MPI wrappers
+RUN test "$(command -v gcc)" = "/opt/gcc9/bin/gcc" \
+ && test "$(command -v g++)" = "/opt/gcc9/bin/g++" \
+ && test "$(command -v gfortran)" = "/opt/gcc9/bin/gfortran" \
+ && gcc -dumpfullversion -dumpversion \
+ && g++ -dumpfullversion -dumpversion \
+ && gfortran -dumpfullversion -dumpversion \
+ && mpicc -show \
+ && mpicxx -show
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -127,14 +182,14 @@ ARG OF_INSTALL_DIR
 #Change to the installation dir, download OpenFOAM and untar
 WORKDIR $OF_INSTALL_DIR
 RUN wget --no-hsts -O OpenFOAM-${OF_VERSION}.tgz \
-    "https://dl.openfoam.com/source/${OF_VERSION}/OpenFOAM-${OF_VERSION}.tgz" \
+    "https://sourceforge.net/projects/openfoam/files/OpenFOAM-${OF_VERSION}.tgz/download" \
  && tar -xvzf OpenFOAM-${OF_VERSION}.tgz \
  && rm -f OpenFOAM-${OF_VERSION}.tgz
 
-RUN wget --no-hsts -O ThirdParty-${OF_VERSION}.tar.gz \
-    "https://dl.openfoam.com/source/${OF_VERSION}/ThirdParty-${OF_VERSION}.tar.gz" \
- && tar -xvzf ThirdParty-${OF_VERSION}.tar.gz \
- && rm -f ThirdParty-${OF_VERSION}.tar.gz
+RUN wget --no-hsts -O ThirdParty-${OF_VERSION}.tgz \
+    "https://sourceforge.net/projects/openfoam/files/ThirdParty-${OF_VERSION}.tgz/download" \
+ && tar -xvzf ThirdParty-${OF_VERSION}.tgz \
+ && rm -f ThirdParty-${OF_VERSION}.tgz
 
 
 #---------------------------------------------------------------
@@ -150,7 +205,7 @@ ARG OF_INSTALL_DIR
 ARG OF_PREFS_FILE
 # Defining the template
 ARG OF_PREFS_TEMPLATE=${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh
-ARG OF_PREFS_HEADER_LINES=26
+ARG OF_PREFS_HEADER_LINES=23
 
 #Updating the prefs.sh file
 RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
@@ -404,9 +459,6 @@ ARG OF_BASHRC_FILE
 ARG BASHRC_OPTIONS=""
 # Defining the maximum number of parallel tasks to use for compilation
 ARG PV_COMPILE_TASKS=16
-#NotAcceptedBy makeParaView:#ARG PV_COMPILE_OPTIONS="-j${PV_COMPILE_TASKS}"
-#NotWorkingAsWished: #ARG PV_COMPILE_OPTIONS="-DCMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS}"
-#                    Then, CMAKE_BUILD_PARALLEL_LEVEL will be exported directly in the RUN instruction with the correct value
 
 
 #---------------------------------------------------------------
@@ -427,17 +479,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Continue from the ThirdParty directory:
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
+# Validate the ParaView build script:
+ && test -f makeParaView \
 # Change makeParaView to use Bash because it has historically contained bashisms:
  && cp makeParaView makeParaView.original \
+ && grep -q '^#!/bin/sh' makeParaView \
  && sed -i '1s|/bin/sh|/bin/bash|' makeParaView \
-# Create the basic python command name required by the ParaView build:
- && ln -sf /usr/bin/python3 /usr/bin/python \
-# Find and validate the Python shared library:
- && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
-      -name 'libpython3.*.so' | head -1) \
- && test -n "$PYTHON_LIB" \
- && test -f "$PYTHON_LIB" \
- && echo "Using PYTHON_LIB=$PYTHON_LIB" \
+ && grep -q '^#!/bin/bash' makeParaView \
 # Find and validate the MPI compiler wrappers supplied by the MPICH base image:
  && MPI_C_COMPILER=$(command -v mpicc) \
  && MPI_CXX_COMPILER=$(command -v mpicxx) \
@@ -471,6 +519,9 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # NOTE:      In a "normal" recipe only a single compilation pass would been writen,
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
+# IMPORTANT: Paraview will be installed without Python support, as the mismatch of Python versions
+#            due to the installation of this old OpenFOAM version in a more modern ubuntu version
+#            is causing too much problems.
 
 # First ParaView preliminary compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
@@ -481,10 +532,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
- && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
-      -name 'libpython3.*.so' | head -1) \
- && MPI_C_COMPILER=$(command -v mpicc) \
- && MPI_CXX_COMPILER=$(command -v mpicxx) \
  && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
  && { \
       passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
@@ -502,11 +549,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
       # ----- The compilation command:
       ./makeParaView $rebuildOption \
-          -mpi \
-          -python \
-          -python-lib "$PYTHON_LIB" \
-          -DMPI_C_COMPILER="$MPI_C_COMPILER" \
-          -DMPI_CXX_COMPILER="$MPI_CXX_COMPILER" 2>&1 | tee "$passLog"; \
+          -mpi 2>&1 | tee "$passLog"; \
       compileStatus=${PIPESTATUS[0]}; \
       echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
       printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
@@ -531,10 +574,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
- && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
-      -name 'libpython3.*.so' | head -1) \
- && MPI_C_COMPILER=$(command -v mpicc) \
- && MPI_CXX_COMPILER=$(command -v mpicxx) \
  && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
  && { \
       passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
@@ -552,11 +591,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
       # ----- The compilation command:
       ./makeParaView $rebuildOption \
-          -mpi \
-          -python \
-          -python-lib "$PYTHON_LIB" \
-          -DMPI_C_COMPILER="$MPI_C_COMPILER" \
-          -DMPI_CXX_COMPILER="$MPI_CXX_COMPILER" 2>&1 | tee "$passLog"; \
+          -mpi 2>&1 | tee "$passLog"; \
       compileStatus=${PIPESTATUS[0]}; \
       echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
       printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
@@ -581,10 +616,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
- && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
-      -name 'libpython3.*.so' | head -1) \
- && MPI_C_COMPILER=$(command -v mpicc) \
- && MPI_CXX_COMPILER=$(command -v mpicxx) \
  && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
  && { \
       passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
@@ -602,11 +633,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
       # ----- The compilation command:
       ./makeParaView $rebuildOption \
-          -mpi \
-          -python \
-          -python-lib "$PYTHON_LIB" \
-          -DMPI_C_COMPILER="$MPI_C_COMPILER" \
-          -DMPI_CXX_COMPILER="$MPI_CXX_COMPILER" 2>&1 | tee "$passLog"; \
+          -mpi 2>&1 | tee "$passLog"; \
       compileStatus=${PIPESTATUS[0]}; \
       echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
       printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
@@ -629,16 +656,12 @@ ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_THIRD_PARTY_DIR \
  && export QT_SELECT=qt5 \
- && PYTHON_LIB=$(find /usr/lib/x86_64-linux-gnu \
-      -name 'libpython3.*.so' | head -1) \
  && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
  && echo "Starting authoritative ParaView compilation pass" \
  && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
  && ./makeParaView \
       -rebuild \
       -mpi \
-      -python \
-      -python-lib "$PYTHON_LIB" \
       2>&1 | tee log.makePV.AuthoritativeSummary
 
 
@@ -661,12 +684,29 @@ ARG BASHRC_OPTIONS=""
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# G.1 Updating script to bash shell.
+# G.1 Updating script to bash shell and disabling the unsupported Catalyst module.
 #     This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && cp Allwmake Allwmake.original \
  && sed -i '1s|/bin/sh|/bin/bash|' Allwmake
+
+# IMPORTANT: OpenFOAM v2212 Catalyst requires ParaView's PythonCatalyst component.
+#            ParaView is intentionally built without Python support for compatibility with Ubuntu 24.04.
+#            The OpenFOAM Catalyst module is therefore intentionally skipped, while the
+#            ParaView readers and runTimePostProcessing remain enabled.
+# Remove Catalyst compilation by using an explicit no-op script:
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && cd $WM_PROJECT_DIR \
+ && CATALYST_ALLWMAKE="$WM_PROJECT_DIR/modules/visualization/src/catalyst/Allwmake" \
+ && test -f "$CATALYST_ALLWMAKE" \
+ && cp "$CATALYST_ALLWMAKE" "${CATALYST_ALLWMAKE}.original" \
+ && printf '%s\n' \
+      '#!/bin/sh' \
+      'echo "Skipping OpenFOAM Catalyst: ParaView was built without PythonCatalyst support."' \
+      'exit 0' \
+      > "$CATALYST_ALLWMAKE" \
+ && chmod +x "$CATALYST_ALLWMAKE"
 
 #---------------------------------------------------------------
 # G.2 OpenFOAM compilation
