@@ -254,7 +254,7 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 #            sentinel file. Later preliminary compilation passes skip their
 #            compilation when that sentinel exists. The final authoritative
 #            compilation pass always runs. The sentinel is retained as provenance.
-# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+# NOTE:      In a "normal" recipe only a single compilation pass would have been used,
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple preliminary passes were needed to warranty proper compilation in our builidng nodes.
 
@@ -468,7 +468,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #            sentinel file. Later preliminary compilation passes skip their
 #            compilation when that sentinel exists. The final authoritative
 #            compilation pass always runs. The sentinel is retained as provenance.
-# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+# NOTE:      In a "normal" recipe only a single compilation pass would have been used,
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 
@@ -661,8 +661,10 @@ ARG BASHRC_OPTIONS=""
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# G.1 Updating script to bash shell.
-#     This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
+# G.1 Preparatory updates
+
+# Setting shebang to bash in Allwmake.
+# This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && cp Allwmake Allwmake.original \
@@ -680,7 +682,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #            sentinel file. Later preliminary compilation passes skip their
 #            compilation when that sentinel exists. The final authoritative
 #            compilation pass always runs. The sentinel is retained as provenance.
-# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+# NOTE:      In a "normal" recipe only a single compilation pass would have been used,
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 

@@ -102,37 +102,38 @@ FROM basic_stage AS install_dependencies
 # [7] https://github.com/phusion/baseimage-docker/issues/319
 # But harmless.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
- && apt-get -y --no-install-recommends --no-install-suggests install \
+ && apt-get --no-install-recommends --no-install-suggests --yes install \
     build-essential \
+    #Installing old compiler version compatible with old version of OpenFOAM (v2212)
     gcc-9 g++-9 gfortran-9 \
     flex bison cmake zlib1g-dev \
     libboost-system-dev libboost-thread-dev \
-    # No OpenMPI because MPICH will be used (installed in the parent FROM image): \
+    # No OpenMPI because MPICH will be used (installed in the parent FROM image):
     # libopenmpi-dev openmpi-bin \
     libfftw3-dev \
     gnuplot libreadline-dev libncurses-dev libxt-dev \
-    # Not installing Qt4 as in the official instructions, but Qt5 as in the ThirdParty requirements list: \
+    # Not installing Qt4 as in the official instructions, but Qt5 as in the ThirdParty requirements list:
     # qt4-dev-tools libqt4-dev libqt4-opengl-dev libqtwebkit-dev \
     qtbase5-dev qttools5-dev \
     qttools5-dev-tools libqt5opengl5-dev \
     libqt5x11extras5-dev libqt5svg5-dev libxt-dev \
     qtxmlpatterns5-dev-tools \
-    # Ubuntu 24.04 replacement components for the removed qt5-default metapackage: \
+    # Ubuntu 24.04 replacement components for the removed qt5-default metapackage:
     qtchooser qt5-qmake qtbase5-dev-tools \
     libqt5help5 qtdeclarative5-dev \
     freeglut3-dev \
     #Not Installing Python due to huge problems with versions. So Catalyst will not be installed in this old version of OpenFOAM.
     #For Catalyst (and therefore ParaView):
     #python3-dev \
-    # No Scotch because it installs OpenMPI, which later interferes with MPICH. \
-    # Therefore, ThirdParty Scotch is the one to be installed and used by OpenFOAM. \
+    # No Scotch because it installs OpenMPI, which later interferes with MPICH.
+    # Therefore, ThirdParty Scotch is the one to be installed and used by OpenFOAM.
     # libscotch-dev \
-    # Yes CGAL, so the ThirdParty version will not be installed: \
+    # Yes CGAL, so the ThirdParty version will not be installed:
     libcgal-dev \
-    # These libraries are needed for system and ThirdParty CGAL: \
+    # These libraries are needed for system and ThirdParty CGAL:
     libgmp-dev libmpfr-dev libmpc-dev \
     libglu1-mesa-dev \
-    # Needed to provide FlexLexer.h: \
+    # Needed to provide FlexLexer.h:
     libfl-dev \
 # cleaning at the end:
  && apt-get clean all \
@@ -140,7 +141,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 
 #---------------------------------------------------------------
 # B.2 Select the Ubuntu 20.04 compiler family for all subsequent build stages
-# GCC 9 was the default compiler family in Ubuntu 20.04.
+# GCC 9 was the default compiler family in Ubuntu 20.04 and used to work fine for OpenFOAM v2206.
 # Versioned compiler packages from Ubuntu 24.04 are used without modifying
 # the compiler commands managed below /usr/bin.
 RUN mkdir -p /opt/gcc9/bin \
@@ -309,7 +310,7 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 #            sentinel file. Later preliminary compilation passes skip their
 #            compilation when that sentinel exists. The final authoritative
 #            compilation pass always runs. The sentinel is retained as provenance.
-# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+# NOTE:      In a "normal" recipe only a single compilation pass would have been used,
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple preliminary passes were needed to warranty proper compilation in our builidng nodes.
 
@@ -516,7 +517,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #            sentinel file. Later preliminary compilation passes skip their
 #            compilation when that sentinel exists. The final authoritative
 #            compilation pass always runs. The sentinel is retained as provenance.
-# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+# NOTE:      In a "normal" recipe only a single compilation pass would have been used,
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 # IMPORTANT: Paraview will be installed without Python support, as the mismatch of Python versions
@@ -684,8 +685,10 @@ ARG BASHRC_OPTIONS=""
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# G.1 Updating script to bash shell and disabling the unsupported Catalyst module.
-#     This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
+# G.1 Preparatory updates
+
+# Setting shebang to bash in Allwmake.
+# This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && cp Allwmake Allwmake.original \
@@ -720,7 +723,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #            sentinel file. Later preliminary compilation passes skip their
 #            compilation when that sentinel exists. The final authoritative
 #            compilation pass always runs. The sentinel is retained as provenance.
-# NOTE:      In a "normal" recipe only a single compilation pass would been writen,
+# NOTE:      In a "normal" recipe only a single compilation pass would have been used,
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 
