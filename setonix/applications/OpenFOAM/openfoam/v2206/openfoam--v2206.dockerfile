@@ -25,8 +25,6 @@ ARG OF_INSTALL_DIR="/opt/OpenFOAM"
 ARG OF_USER="ofuser"
 ARG OF_USER_DIR="/home/${OF_USER}/OpenFOAM/${OF_USER}-${OF_VERSION}"
 ARG OF_BASHRC_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/bashrc"
-ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
-ARG OF_CONTROL_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/controlDict"
 
 # 0.3 Other auxiliary variables
 ARG BUILD_FILES_DIR="/opt/build-information-and-recipes"
@@ -203,9 +201,9 @@ FROM download AS update_settings
 # Recall global definitions made at the top
 ARG OF_VERSION
 ARG OF_INSTALL_DIR
-ARG OF_PREFS_FILE
-# Defining the template
-ARG OF_PREFS_TEMPLATE=${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh
+# Auxiliary arguments
+ARG OF_PREFS_TEMPLATE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh"
+ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
 ARG OF_PREFS_HEADER_LINES=23
 
 #Updating the prefs.sh file
@@ -270,7 +268,11 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
 #---------------------------------------------------------------
 # D.3 Update of the controlDict file settings
 # Recall global definitions made at the top
-ARG OF_CONTROL_FILE
+ARG OF_INSTALL_DIR
+ARG OF_VERSION
+
+#Auxiliary arguments
+ARG OF_CONTROL_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/controlDict"
 
 #Defining Pawsey Best Practices as defaults of the controlDict (also creating a backup of the original)
 RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
@@ -279,6 +281,24 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
  && sed -i '0,\@fileHandler uncollated;@s@@// fileHandler uncollated;@' ${OF_CONTROL_FILE} \
 #--Dummy line to avoid tracking continuation lines:
  && echo ''
+
+#---------------------------------------------------------------
+# D.4 Disable ADIOS2
+# ADIOS2 is optional and is not required for the intended use of this image.
+# OpenFOAM v2206 includes ADIOS2-2.7.1, whose Python bindings are incompatible with Python 3.12.
+# Disable ADIOS2 through its OpenFOAM configuration so that the ThirdParty build skips its installation.
+# Recall global definitions made at the top
+ARG OF_VERSION
+ARG OF_INSTALL_DIR
+# Auxiliary arguments
+ARG OF_ADIOS2_CONFIG_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/adios2"
+
+# Disable ADIOS2 (also saving a backup of the original configuration file)
+RUN test -f ${OF_ADIOS2_CONFIG_FILE} \
+ && cp ${OF_ADIOS2_CONFIG_FILE} ${OF_ADIOS2_CONFIG_FILE}.original \
+ && grep -q '^adios2_version=ADIOS2-2\.7\.1$' ${OF_ADIOS2_CONFIG_FILE} \
+ && sed -i 's/^adios2_version=ADIOS2-2\.7\.1$/adios2_version=none/' ${OF_ADIOS2_CONFIG_FILE} \
+ && grep -q '^adios2_version=none$' ${OF_ADIOS2_CONFIG_FILE}
 
 
 #---------------------------------------------------------------
@@ -1003,21 +1023,16 @@ COPY $RECIPE_FILE \
 # in order to have a full match in the list to be recorded by the RUN instruction immediately below.
 ARG OF_FORK
 ARG OF_VERSION
-
 ARG BASE_IMAGE_REGISTRY
 ARG BASE_IMAGE_NAME
 ARG BASE_IMAGE_OS_VERSION
 ARG BASE_IMAGE_MPICH_VERSION
 ARG BASE_IMAGE_TAG
 ARG BASE_IMAGE_FULL
-
 ARG OF_INSTALL_DIR
 ARG OF_USER
 ARG OF_USER_DIR
 ARG OF_BASHRC_FILE
-ARG OF_PREFS_FILE
-ARG OF_CONTROL_FILE
-
 ARG BUILD_FILES_DIR
 
 # Auxiliary arguments
