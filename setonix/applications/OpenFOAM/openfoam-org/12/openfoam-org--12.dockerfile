@@ -6,8 +6,8 @@
 # IMPORTANT: Recipe needs to re-call them at each stage to recover their values
 # IMPORTANT: Developers should check that ALL the ARG definitions here are recalled in the "recording_arguments" section of the final stage.
 # 0.1 Main global arguments (related to the OpenFOAM version)
-ARG OF_FORK="openfoam"
-ARG OF_VERSION="v2206"
+ARG OF_FORK="openfoam-org"
+ARG OF_VERSION="12"
 
 # 0.1 Main arguments related to the base container to use
 # Defining the base container to use
@@ -81,92 +81,47 @@ FROM basic_stage AS install_dependencies
 #---------------------------------------------------------------
 # B.1 Install OpenFOAM dependencies
 # Will follow PARTIALLY the official installation instructions:
-# [1] https://www.openfoam.com/documentation/system-requirements.php
-# [2] https://www.openfoam.com/code/build-guide.php
-# [3] https://www.openfoam.com/download/install-source.php
-# [4] https://develop.openfoam.com/Development/openfoam/blob/develop/doc/Requirements.md
-# [5] https://develop.openfoam.com/Development/ThirdParty-common/blob/develop/Requirements.md
+# [1] https://openfoam.org/download/source/
 #
-# Will follow PARTIALLY the instructions for openfoamplus available in the wiki (latest for ubuntu is v1806):
-# [6] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu
-# (There are some other instructions for v1906, but not for ubuntu)
+# Will follow PARTIALLY the latest instructions available in the wiki:
+# [2] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-7/Ubuntu/18.04
+# [3] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-8
 #
 # Then, will follow a combination of both.
-# The package selection below is preserved from the original v2206 recipe
-# because it has been proven to successfully build this specific OpenFOAM version.
+# The package selection below is preserved from the original OpenFOAM 12 recipe
+# because it defines the dependencies intended for this specific OpenFOAM version.
 # A warning may appear:
 # debconf: delaying package configuration, since apt-utils is not installed
 # But seems to be a bug:
-# [7] https://github.com/phusion/baseimage-docker/issues/319
+# [4] https://github.com/phusion/baseimage-docker/issues/319
 # But harmless.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  && apt-get --no-install-recommends --no-install-suggests --yes install \
-    build-essential \
-    #Installing old compiler version compatible with old version of OpenFOAM (v2212)
-    gcc-9 g++-9 gfortran-9 \
-    flex bison cmake zlib1g-dev \
-    libboost-system-dev libboost-thread-dev \
-    # No OpenMPI because MPICH will be used (installed in the parent FROM image):
-    # libopenmpi-dev openmpi-bin \
-    libfftw3-dev \
-    gnuplot libreadline-dev libncurses-dev libxt-dev \
-    # Not installing Qt4 as in the official instructions, but Qt5 as in the ThirdParty requirements list:
-    # qt4-dev-tools libqt4-dev libqt4-opengl-dev libqtwebkit-dev \
-    qtbase5-dev qttools5-dev \
-    qttools5-dev-tools libqt5opengl5-dev \
-    libqt5x11extras5-dev libqt5svg5-dev libxt-dev \
-    qtxmlpatterns5-dev-tools \
-    # Ubuntu 24.04 replacement components for the removed qt5-default metapackage:
-    qtchooser qt5-qmake qtbase5-dev-tools \
-    libqt5help5 qtdeclarative5-dev \
-    freeglut3-dev \
-    #Not Installing Python due to huge problems with versions. So Catalyst will not be installed in this old version of OpenFOAM.
-    #For Catalyst (and therefore ParaView):
-    #python3-dev \
-    # No Scotch because it installs OpenMPI, which later interferes with MPICH.
-    # Therefore, ThirdParty Scotch is the one to be installed and used by OpenFOAM.
-    # libscotch-dev \
-    # Yes CGAL, so the ThirdParty version will not be installed:
-    libcgal-dev \
-    # These libraries are needed for system and ThirdParty CGAL:
-    libgmp-dev libmpfr-dev libmpc-dev \
-    libglu1-mesa-dev \
-    # Needed to provide FlexLexer.h:
-    libfl-dev \
+    # As indicated in the official documentation:
+    # Tools for repositories and compilation:
+    build-essential cmake git ca-certificates flex \
+    # Tools for ThirdParty:
+    # paraview-dev is installed in the ParaView stage below. \
+    # Tools in the openfoam-nopv-deps list (not repeating ones already included):
+    # No OpenMPI because MPICH will be used (installed in the parent FROM image): \
+    # libopenmpi-dev \
+    zlib1g-dev gnuplot gnuplot-x11 libxt-dev \
+    # Tools in the openfoam-deps list (not repeating ones already included):
+    libxml2-dev libhdf5-dev libavfilter-dev libtheora-dev libgl2ps-dev \
+    libx11-dev libqt5x11extras5-dev libglew-dev libutfcpp-dev \
+    libdouble-conversion-dev libfreetype-dev libqt5svg5-dev \
+    qtxmlpatterns5-dev-tools qttools5-dev python3-dev \
+    libadios2-serial-c-dev libadios2-serial-c++11-dev \
+    # Tools not officially listed, but needed in the past:
+    libfl-dev bison libboost-system-dev libboost-thread-dev \
+    libreadline-dev libncurses-dev \
+    # Expanded set of Qt5 libraries suggested for older OpenFOAM versions:
+    # qt5-default \
+    # qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake qtbase5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
 # cleaning at the end:
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
-#---------------------------------------------------------------
-# B.2 Select the Ubuntu 20.04 compiler family for all subsequent build stages
-# GCC 9 was the default compiler family in Ubuntu 20.04 and used to work fine for OpenFOAM v2206.
-# Versioned compiler packages from Ubuntu 24.04 are used without modifying
-# the compiler commands managed below /usr/bin.
-RUN mkdir -p /opt/gcc9/bin \
- && ln -sf /usr/bin/gcc-9 /opt/gcc9/bin/gcc \
- && ln -sf /usr/bin/g++-9 /opt/gcc9/bin/g++ \
- && ln -sf /usr/bin/gcc-9 /opt/gcc9/bin/cc \
- && ln -sf /usr/bin/g++-9 /opt/gcc9/bin/c++ \
- && ln -sf /usr/bin/gfortran-9 /opt/gcc9/bin/gfortran \
- && ln -sf /usr/bin/gfortran-9 /opt/gcc9/bin/f95 \
- && ln -sf /usr/bin/gfortran-9 /opt/gcc9/bin/f77
-
-ENV PATH="/opt/gcc9/bin:${PATH}"
-ENV CC="gcc"
-ENV CXX="g++"
-ENV FC="gfortran"
-ENV F77="gfortran"
-ENV F90="gfortran"
-
-# Validate the selected compiler family and the compilers used by the MPI wrappers
-RUN test "$(command -v gcc)" = "/opt/gcc9/bin/gcc" \
- && test "$(command -v g++)" = "/opt/gcc9/bin/g++" \
- && test "$(command -v gfortran)" = "/opt/gcc9/bin/gfortran" \
- && gcc -dumpfullversion -dumpversion \
- && g++ -dumpfullversion -dumpversion \
- && gfortran -dumpfullversion -dumpversion \
- && mpicc -show \
- && mpicxx -show
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -178,17 +133,12 @@ FROM install_dependencies AS download
 # Recall global definitions made at the top
 ARG OF_VERSION
 ARG OF_INSTALL_DIR
-#Change to the installation dir, download OpenFOAM and untar
+#Change to the installation dir, clone OpenFOAM directories
 WORKDIR $OF_INSTALL_DIR
-RUN wget --no-hsts -O OpenFOAM-${OF_VERSION}.tgz \
-    "https://sourceforge.net/projects/openfoam/files/OpenFOAM-${OF_VERSION}.tgz/download" \
- && tar -xvzf OpenFOAM-${OF_VERSION}.tgz \
- && rm -f OpenFOAM-${OF_VERSION}.tgz
-
-RUN wget --no-hsts -O ThirdParty-${OF_VERSION}.tgz \
-    "https://sourceforge.net/projects/openfoam/files/ThirdParty-${OF_VERSION}.tgz/download" \
- && tar -xvzf ThirdParty-${OF_VERSION}.tgz \
- && rm -f ThirdParty-${OF_VERSION}.tgz
+RUN git clone https://github.com/OpenFOAM/OpenFOAM-${OF_VERSION}.git
+RUN git clone https://github.com/OpenFOAM/ThirdParty-${OF_VERSION}.git
+##RUN git clone git://github.com/OpenFOAM/OpenFOAM-${OF_VERSION}.git
+##RUN git clone git://github.com/OpenFOAM/ThirdParty-${OF_VERSION}.git
 
 
 #---------------------------------------------------------------
@@ -229,17 +179,17 @@ RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
 ## && echo 'export MPI_ARCH_LIBS="-L/usr/lib/x86_64-linux-gnu -lmpich"' >> ${OF_PREFS_FILE} \
 #
 #  ~(B)The suggestions from the file mplibMPICH file itself are:
- && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX -DOMPI_SKIP_MPICXX"' >> ${OF_PREFS_FILE} \
-## && echo 'export MPI_ARCH_INC="-isystem $MPI_ROOT/include"' >> ${OF_PREFS_FILE} \
-## && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpi -lrt"' >> ${OF_PREFS_FILE} \
+ && echo 'export MPI_ARCH_FLAGS="-DMPICH_SKIP_MPICXX"' >> ${OF_PREFS_FILE} \
+## && echo 'export MPI_ARCH_INC="-isystem ${MPI_ROOT}/include"' >> ${OF_PREFS_FILE} \
+ && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OF_PREFS_FILE} \
 #
 #  ~(C)Even further modifications needed for some OpenFOAM and compiler versions:
 #..If the gcc compiler has problems with the -isystem flag, use -I instead:
  && echo 'export MPI_ARCH_INC="-I ${MPI_ROOT}/include"' >> ${OF_PREFS_FILE} \
 #..Use only one library path and plus -lmpich
-## && echo 'export MPI_ARCH_LIBS="-L$MPI_ROOT/lib -lmpich"' >> ${OF_PREFS_FILE} \
+## && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OF_PREFS_FILE} \
 #..Use the two library paths and plus -lmpich
- && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OF_PREFS_FILE} \
+## && echo 'export MPI_ARCH_LIBS="-L${MPI_ROOT}/lib${WM_COMPILER_LIB_ARCH} -L${MPI_ROOT}/lib -lmpich -lrt"' >> ${OF_PREFS_FILE} \
 #--Dummy line to avoid tracking continuation lines:
  && echo ''
 
@@ -249,17 +199,17 @@ RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
 ARG OF_INSTALL_DIR
 ARG OF_USER_DIR
 ARG OF_BASHRC_FILE
-
 # Updating the bashrc file (also saving a backup of the original)
 RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
 #Changing the installation directory within the bashrc file (This is not in the openfoamwiki instructions)
- && sed -i 's/^projectDir=/# projectDir=/g' ${OF_BASHRC_FILE} \
- && sed -i '0,/\[ -n "$projectDir"/s//# \[ -n "$projectDir"/' ${OF_BASHRC_FILE} \
- && sed -i '0,/^# projectDir="$HOME.*/!b;//a\projectDir="'"${OF_INSTALL_DIR}"'/OpenFOAM-$WM_PROJECT_VERSION"' ${OF_BASHRC_FILE} \
+ && sed -i 's/^export FOAM_INST_DIR=/# export FOAM_INST_DIR=/g' ${OF_BASHRC_FILE} \
+ && sed -i '0,/\[ "$BASH"/s//# \[ "$BASH"/' ${OF_BASHRC_FILE} \
+ && sed -i '0,/\[ "$ZSH_NAME"/s//# \[ "$ZSH"/' ${OF_BASHRC_FILE} \
+ && sed -i '0,/^# export FOAM_INST_DIR=.*/!b;//a\export FOAM_INST_DIR='"${OF_INSTALL_DIR}" ${OF_BASHRC_FILE} \
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
-#   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
-#   2. Or you can include and build stuff inside the container and save it as your own image for later use.
+#   1. You can mount a directory of your local-host into this directory
+#   2. Or you can include and build stuff inside the image and save it as your own image for later use.
  && sed -i '/^export WM_PROJECT_USER_DIR=.*/aexport WM_PROJECT_USER_DIR='"${OF_USER_DIR}" ${OF_BASHRC_FILE} \
  && sed -i '0,/^export WM_PROJECT_USER_DIR/s//# export WM_PROJECT_USER_DIR/' ${OF_BASHRC_FILE} \
 #--Dummy line to avoid tracking continuation lines:
@@ -270,10 +220,8 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
 # Recall global definitions made at the top
 ARG OF_INSTALL_DIR
 ARG OF_VERSION
-
 #Auxiliary arguments
 ARG OF_CONTROL_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/controlDict"
-
 #Defining Pawsey Best Practices as defaults of the controlDict (also creating a backup of the original)
 RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 #Setting collated as default for fileHandler
@@ -282,30 +230,15 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 #--Dummy line to avoid tracking continuation lines:
  && echo ''
 
-#---------------------------------------------------------------
-# D.4 Disable ADIOS2
-# ADIOS2 is optional and is not required for the intended use of this image.
-# OpenFOAM v2206 includes ADIOS2-2.7.1, whose Python bindings are incompatible with Python 3.12.
-# Disable ADIOS2 through its OpenFOAM configuration so that the ThirdParty build skips its installation.
-# Recall global definitions made at the top
-ARG OF_VERSION
-ARG OF_INSTALL_DIR
-# Auxiliary arguments
-ARG OF_ADIOS2_CONFIG_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/adios2"
-
-# Disable ADIOS2 (also saving a backup of the original configuration file)
-RUN test -f ${OF_ADIOS2_CONFIG_FILE} \
- && cp ${OF_ADIOS2_CONFIG_FILE} ${OF_ADIOS2_CONFIG_FILE}.original \
- && grep -q '^adios2_version=ADIOS2-2\.7\.1$' ${OF_ADIOS2_CONFIG_FILE} \
- && sed -i 's/^adios2_version=ADIOS2-2\.7\.1$/adios2_version=none/' ${OF_ADIOS2_CONFIG_FILE} \
- && grep -q '^adios2_version=none$' ${OF_ADIOS2_CONFIG_FILE}
-
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # E. Third-Party installation
 #    Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation)
+# No ThirdParty CGAL or Boost build is indicated for this release.
+# If needed, these dependencies are expected to be installed with apt-get.
+# It seems that foamyHexMesh has been deprecated, so CGAL seems not to be needed.
 FROM update_settings AS third_party_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
@@ -343,8 +276,6 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 ARG TP_PASS_NUMBER="1"
 ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && { \
@@ -382,8 +313,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 ARG TP_PASS_NUMBER="2"
 ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && { \
@@ -421,8 +350,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 ARG TP_PASS_NUMBER="3"
 ARG TP_PASS_TASKS="1"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue from the component source directory:
  && cd $WM_THIRD_PARTY_DIR \
  && { \
@@ -460,12 +387,12 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 ARG TP_PASS_NUMBER="authoritative"
 ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Perform the authoritative compilation check:
  && cd $WM_THIRD_PARTY_DIR \
  && echo "Starting authoritative ThirdParty compilation pass" \
- && ./Allwmake -j"$TP_PASS_TASKS" | tee log.Allwmake.AuthoritativeSummary
+ && ./Allwmake -j"$TP_PASS_TASKS" 2>&1 | tee log.Allwmake.AuthoritativeSummary
+
+
 
 
 #---------------------------------------------------------------
@@ -474,216 +401,38 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # F. ParaView installation
 FROM third_party_install AS pv_install
 #---------------------------------------------------------------
-# Recall global definitions made at the top
-ARG OF_BASHRC_FILE
-# Auxiliary arguments
-ARG BASHRC_OPTIONS=""
-# Defining the maximum number of parallel tasks to use for compilation
-ARG PV_COMPILE_TASKS=16
-
+# ParaView or VTK historically needed for runTimePostprocessing of OpenFOAM to properly compile
+# ParaView needed for graphical postprocessing to be available in the container
+# Catalyst tools are not available for the Foundation version
+# Foundation source files do not include a makeVTK script, so VTK will not be installed separately
 
 #---------------------------------------------------------------
-#ParaView or VTK historically needed for runTimePostprocessing of OpenFOAM to properly compile
-#Paraview needed for graphical postprocessing to be available in the container
-#Paraview needed for catalyst module to properly compile (wont work with just VTK)
+# F.1 Install ParaView as a system package
+RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+ && apt-get --no-install-recommends --no-install-suggests --yes install \
+    paraview-dev \
+# cleaning at the end:
+ && apt-get clean all \
+ && rm -r /var/lib/apt/lists/*
 
 #---------------------------------------------------------------
-#Using bash to interpret OpenFOAM scripts
-#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
-SHELL ["/bin/bash","-o","pipefail","-c"]
+# F.2 Alternative installation of ParaView from source
+# (ParaView download address copied from ThirdParty-<Version>/README.org)
+#NotUsed:ARG PVverFull="5.11.2"
+#NotUsed:ARG PVverMajor="5.11"
+#NotUsed:RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+#NotUsed: && cd $WM_THIRD_PARTY_DIR \
+#NotUsed: && export QT_SELECT=qt5 \
+#NotUsed: && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
+#NotUsed: && tar xvf ParaView-v${PVverFull}.tar.gz \
+#NotUsed: && rm ParaView-v${PVverFull}.tar.gz \
+#NotUsed: && mv ParaView-v${PVverFull} ParaView-${PVverFull}
 
-#---------------------------------------------------------------
-# F.1 Validate and prepare the ParaView build environment.
-RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
-# Continue from the ThirdParty directory:
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
-# Validate the ParaView build script:
- && test -f makeParaView \
-# Change makeParaView to use Bash because it has historically contained bashisms:
- && cp makeParaView makeParaView.original \
- && grep -q '^#!/bin/sh' makeParaView \
- && sed -i '1s|/bin/sh|/bin/bash|' makeParaView \
- && grep -q '^#!/bin/bash' makeParaView \
-# Find and validate the MPI compiler wrappers supplied by the MPICH base image:
- && MPI_C_COMPILER=$(command -v mpicc) \
- && MPI_CXX_COMPILER=$(command -v mpicxx) \
- && test -n "$MPI_C_COMPILER" \
- && test -n "$MPI_CXX_COMPILER" \
- && test -x "$MPI_C_COMPILER" \
- && test -x "$MPI_CXX_COMPILER" \
- && echo "Using MPI_C_COMPILER=$MPI_C_COMPILER" \
- && echo "Using MPI_CXX_COMPILER=$MPI_CXX_COMPILER" \
-# Display the compiler, include, and library settings used by the MPI wrappers:
- && "$MPI_C_COMPILER" -show \
- && "$MPI_CXX_COMPILER" -show \
-# Display build-resource information:
- && echo "Available processors: $(nproc)" \
- && echo "Configured parallel compilation tasks: ${PV_COMPILE_TASKS}" \
- && echo "Open file soft limit: $(ulimit -Sn)" \
- && echo "Open file hard limit: $(ulimit -Hn)" \
- && grep -i 'Max open files' /proc/self/limits
-
-#---------------------------------------------------------------
-# F.2 ParaView compilation
-# IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
-#            and 1 final parallel authoritative compilation pass.
-#            This because some compilation race conditions were found when compiling in a single parallel pass.
-#            The preliminary compilation passes are "sheltered" to avoid the building to break.
-#            The only compilation pass that causes the building to break if there are issues is the final authoritative pass.
-# IMPORTANT: A successful preliminary compilation pass creates a component-specific
-#            sentinel file. Later preliminary compilation passes skip their
-#            compilation when that sentinel exists. The final authoritative
-#            compilation pass always runs. The sentinel is retained as provenance.
-# NOTE:      In a "normal" recipe only a single compilation pass would have been used,
-#            (in this case just the final authoritative pass would exist). But, as mentioned above,
-#            the multiple passes were needed to warranty proper compilation in our builidng nodes.
-# IMPORTANT: Paraview will be installed without Python support, as the mismatch of Python versions
-#            due to the installation of this old OpenFOAM version in a more modern ubuntu version
-#            is causing too much problems.
-
-# First ParaView preliminary compilation pass, performed in parallel.
-# A compilation failure is recorded but does not stop the image build,
-# allowing partial build products to be committed into this layer.
-ARG PV_PASS_NUMBER="1"
-ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
-RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Continue from the component source directory:
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
- && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
- && { \
-      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
-      passLog="log.makePV.${passInfo}"; \
-      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
-      if [[ -f "$sentinelFile" ]]; then \
-          echo "Skipping ParaView preliminary compilation $passInfo."; \
-          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
-          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
-          exit 0; \
-      fi; \
-      echo "Starting ParaView preliminary compilation $passInfo"; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
-      rebuildOption=""; \
-      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
-      # ----- The compilation command:
-      ./makeParaView $rebuildOption \
-          -mpi 2>&1 | tee "$passLog"; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
-      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
-      if [[ $compileStatus -eq 0 ]]; then \
-          printf '%s\n' "$passInfo" > "$sentinelFile"; \
-          echo "ParaView preliminary compilation $passInfo completed successfully."; \
-          echo "Later preliminary compilation passes can be skipped."; \
-      else \
-          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
-          echo "Partial compilation results will be retained for the next compilation pass."; \
-      fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
-      exit 0; \
-    }
-
-# Second ParaView preliminary compilation pass, performed in parallel.
-# A compilation failure is recorded but does not stop the image build,
-# allowing partial build products to be committed into this layer.
-ARG PV_PASS_NUMBER="2"
-ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
-RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Continue from the component source directory:
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
- && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
- && { \
-      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
-      passLog="log.makePV.${passInfo}"; \
-      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
-      if [[ -f "$sentinelFile" ]]; then \
-          echo "Skipping ParaView preliminary compilation $passInfo."; \
-          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
-          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
-          exit 0; \
-      fi; \
-      echo "Starting ParaView preliminary compilation $passInfo"; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
-      rebuildOption=""; \
-      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
-      # ----- The compilation command:
-      ./makeParaView $rebuildOption \
-          -mpi 2>&1 | tee "$passLog"; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
-      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
-      if [[ $compileStatus -eq 0 ]]; then \
-          printf '%s\n' "$passInfo" > "$sentinelFile"; \
-          echo "ParaView preliminary compilation $passInfo completed successfully."; \
-          echo "Later preliminary compilation passes can be skipped."; \
-      else \
-          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
-          echo "Partial compilation results will be retained for the next compilation pass."; \
-      fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
-      exit 0; \
-    }
-
-# Third ParaView preliminary compilation pass, performed in serial.
-# A compilation failure is recorded but does not stop the image build,
-# allowing partial build products to be committed into this layer.
-ARG PV_PASS_NUMBER="3"
-ARG PV_PASS_TASKS="1"
-RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Continue from the component source directory:
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
- && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
- && { \
-      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
-      passLog="log.makePV.${passInfo}"; \
-      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
-      if [[ -f "$sentinelFile" ]]; then \
-          echo "Skipping ParaView preliminary compilation $passInfo."; \
-          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
-          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
-          exit 0; \
-      fi; \
-      echo "Starting ParaView preliminary compilation $passInfo"; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
-      rebuildOption=""; \
-      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
-      # ----- The compilation command:
-      ./makeParaView $rebuildOption \
-          -mpi 2>&1 | tee "$passLog"; \
-      compileStatus=${PIPESTATUS[0]}; \
-      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
-      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
-      if [[ $compileStatus -eq 0 ]]; then \
-          printf '%s\n' "$passInfo" > "$sentinelFile"; \
-          echo "ParaView preliminary compilation $passInfo completed successfully."; \
-          echo "Later preliminary compilation passes can be skipped."; \
-      else \
-          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
-          echo "Partial compilation results will be retained for the next compilation pass."; \
-      fi; \
-      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
-      exit 0; \
-    }
-
-# This final pass is performed in parallel and its failure is not masked.
-# With pipefail enabled, a failure from makeParaView stops the building process.
-ARG PV_PASS_NUMBER="authoritative"
-ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
-RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
- && cd $WM_THIRD_PARTY_DIR \
- && export QT_SELECT=qt5 \
- && export CMAKE_BUILD_PARALLEL_LEVEL=${PV_PASS_TASKS} \
- && echo "Starting authoritative ParaView compilation pass" \
- && echo "CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL" \
- && ./makeParaView \
-      -rebuild \
-      -mpi \
-      2>&1 | tee log.makePV.AuthoritativeSummary
+# ParaView compilation according to instructions from the official site
+#NotUsed:RUN echo 'export ParaView_TYPE=ThirdParty' >> ${OF_PREFS_FILE} \
+#NotUsed: && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+#NotUsed: && cd $WM_THIRD_PARTY_DIR \
+#NotUsed: && ./makeParaView -version ${PVverFull} 2>&1 | tee log.makePVOfficial
 
 
 #---------------------------------------------------------------
@@ -705,32 +454,6 @@ ARG BASHRC_OPTIONS=""
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# G.1 Preparatory updates
-
-# Setting shebang to bash in Allwmake.
-# This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
-RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
- && cd $WM_PROJECT_DIR \
- && cp Allwmake Allwmake.original \
- && sed -i '1s|/bin/sh|/bin/bash|' Allwmake
-
-# IMPORTANT: OpenFOAM v2206 Catalyst requires ParaView's PythonCatalyst component.
-#            ParaView is intentionally built without Python support for compatibility with Ubuntu 24.04.
-#            The OpenFOAM Catalyst module is therefore intentionally skipped, while the
-#            ParaView readers and runTimePostProcessing remain enabled.
-# Remove Catalyst compilation by using an explicit no-op script:
-RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
- && cd $WM_PROJECT_DIR \
- && CATALYST_ALLWMAKE="$WM_PROJECT_DIR/modules/visualization/src/catalyst/Allwmake" \
- && test -f "$CATALYST_ALLWMAKE" \
- && cp "$CATALYST_ALLWMAKE" "${CATALYST_ALLWMAKE}.original" \
- && printf '%s\n' \
-      '#!/bin/sh' \
-      'echo "Skipping OpenFOAM Catalyst: ParaView was built without PythonCatalyst support."' \
-      'exit 0' \
-      > "$CATALYST_ALLWMAKE" \
- && chmod +x "$CATALYST_ALLWMAKE"
-
 #---------------------------------------------------------------
 # G.2 OpenFOAM compilation
 #     Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
@@ -753,8 +476,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 ARG OF_PASS_NUMBER="1"
 ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue from the component source directory:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
@@ -793,8 +514,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 ARG OF_PASS_NUMBER="2"
 ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue from the component source directory:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
@@ -833,8 +552,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 ARG OF_PASS_NUMBER="3"
 ARG OF_PASS_TASKS="1"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue from the component source directory:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
@@ -872,8 +589,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 ARG OF_PASS_NUMBER="authoritative"
 ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-# Bootstrap to the wmake toolchain:
- && $WM_PROJECT_DIR/wmake/src/Allmake \
 # Continue:
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
@@ -891,9 +606,10 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # G.4 Printing out the environment variables for the installation so far:
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
- && printenv > environment_vars_raw.txt
+ && printenv > environment_vars_raw.env
 
 
+#---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------

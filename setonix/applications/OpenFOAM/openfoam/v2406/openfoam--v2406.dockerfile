@@ -90,7 +90,7 @@ FROM basic_stage AS install_dependencies
 # [6] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu (Last documented instructions in the wiki)
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  && apt-get --no-install-recommends --no-install-suggests --yes install \
-    build-essential flex bison cmake ca-certificates wget \
+    build-essential flex bison cmake ca-certificates \
     zlib1g-dev libboost-system-dev libboost-thread-dev \
     #NoOpenMPI as MPICH will be used: libopenmpi-dev openmpi-bin \
     gnuplot libreadline-dev libncurses-dev libxt-dev \
@@ -819,7 +819,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
  && echo "Starting authoritative OpenFOAM summary compilation pass" \
- && ./Allwmake -j"$OF_PASS_TASKS" | tee log.Allwmake.AuthoritativeSummary
+ && ./Allwmake -j"$OF_PASS_TASKS" 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 #---------------------------------------------------------------
 # G.3 Checking if a popular executable is working

@@ -884,7 +884,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && export QT_SELECT=qt5 \
  && echo "Starting authoritative OpenFOAM summary compilation pass" \
- && ./Allwmake -j"$OF_PASS_TASKS" | tee log.Allwmake.AuthoritativeSummary
+ && ./Allwmake -j"$OF_PASS_TASKS" 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 #---------------------------------------------------------------
 # G.3 Checking if a popular executable is working
