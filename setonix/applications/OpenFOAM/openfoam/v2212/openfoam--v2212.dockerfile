@@ -47,7 +47,7 @@ FROM $BASE_IMAGE_FULL AS basic_stage
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
-### Use the following block anywher in the script during developing whenever the tools are needed
+### Use the following block anywhere in the script during developing whenever the tools are needed
 ##RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 ## &&  apt-get -y --no-install-recommends install \
 ##            git \ #For git pulling capabilities
@@ -447,7 +447,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Perform the authoritative compilation check:
  && cd $WM_THIRD_PARTY_DIR \
  && echo "Starting authoritative ThirdParty compilation pass" \
- && ./Allwmake -j"$TP_PASS_TASKS" | tee log.Allwmake.AuthoritativeSummary
+ && ./Allwmake -j"$TP_PASS_TASKS" 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 
 #---------------------------------------------------------------

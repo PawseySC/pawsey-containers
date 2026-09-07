@@ -31,10 +31,13 @@
 #
 #   PARAVIEW_BUILD_LOG='NO_CHECK'
 #
-# The script reads the OpenFOAM fork, OpenFOAM version, operating-system version,
-# and MPICH version from Dockerfile ARG instructions. These values define the
-# generated image name. Repeated --build-arg NAME=VALUE options can override
-# Dockerfile ARG values, including values used in the generated image name.
+# The script reads the OpenFOAM fork, OpenFOAM version, compiler version,
+# OpenFOAM compilation settings, operating-system version, and MPICH version
+# from Dockerfile ARG instructions. These values define the generated image name.
+# Only ARG instructions marked with USER_BUILD_ARG in the selected recipe can be
+# overridden with --build-arg. Unknown arguments and fixed recipe arguments are
+# rejected before the container engine is started. Repeated supported build
+# arguments are accepted and the last supplied value is used.
 #
 # Docker and Podman use cached build layers by default. Supply --no-cache to make
 # the selected engine execute every Dockerfile instruction without reusing cached
@@ -122,7 +125,7 @@ Options:
                                  the buildAndValidationConfig/openfoamBuildAndValidation.config file
   --engine, -b <engine>         Container engine: docker or podman (required)
   --no-cache                    Build every layer without using cached layers
-  --build-arg NAME=VALUE        Override a Dockerfile ARG; may be repeated
+  --build-arg NAME=VALUE        Override a Dockerfile ARG marked with USER_BUILD_ARG; may be repeated
   --target <stageName>          Build a specific named Dockerfile stage
   --targetFrom <startingStage>  Replace the selected target stage base; requires --target
   --help, -h                    Show this help message and exit
@@ -295,6 +298,59 @@ if [[ ! -f "$recipeFile" ]]; then
 fi
 echo "OpenFOAM docker recipe: $recipeFile"
 
+# --- Validate build-argument names against the selected recipe
+# Every Dockerfile ARG is recorded as declared. Only an ARG immediately preceded
+# by a USER_BUILD_ARG marker is exposed as a supported command-line override.
+# This catches misspelled names and prevents fixed recipe settings from being
+# changed through this builder.
+declare -A declaredBuildArgs=()
+declare -A supportedBuildArgs=()
+pendingUserBuildArg=false
+while IFS= read -r recipeLine; do
+   if [[ "$recipeLine" =~ ^[[:space:]]*#[[:space:]]*USER_BUILD_ARG[[:space:]]*$ ]]; then
+      pendingUserBuildArg=true
+      continue
+   fi
+
+   if [[ "$recipeLine" =~ ^[[:space:]]*ARG[[:space:]]+([A-Za-z_][A-Za-z0-9_]*) ]]; then
+      declaredArgumentName="${BASH_REMATCH[1]}"
+      declaredBuildArgs["$declaredArgumentName"]=1
+      if [[ "$pendingUserBuildArg" == true ]]; then
+         supportedBuildArgs["$declaredArgumentName"]=1
+      fi
+      pendingUserBuildArg=false
+      continue
+   fi
+
+   if [[ "$pendingUserBuildArg" == true && ! "$recipeLine" =~ ^[[:space:]]*$ ]]; then
+      echo "ERROR: USER_BUILD_ARG marker is not followed by an ARG instruction in: $recipeFile" >&2
+      echo "       Unexpected line: $recipeLine" >&2
+      exit 1
+   fi
+done < "$recipeFile"
+
+if [[ "$pendingUserBuildArg" == true ]]; then
+   echo "ERROR: USER_BUILD_ARG marker at the end of $recipeFile has no following ARG instruction" >&2
+   exit 1
+fi
+if (( ${#declaredBuildArgs[@]} == 0 )); then
+   echo "ERROR: No ARG instructions were found in: $recipeFile" >&2
+   exit 1
+fi
+
+for argumentName in "${!buildArgValues[@]}"; do
+   if [[ ! -v "declaredBuildArgs[$argumentName]" ]]; then
+      echo "ERROR: Unknown build argument: $argumentName" >&2
+      echo "       No ARG named '$argumentName' is declared in: $recipeFile" >&2
+      exit 1
+   fi
+   if [[ ! -v "supportedBuildArgs[$argumentName]" ]]; then
+      echo "ERROR: Build argument '$argumentName' is fixed by the selected recipe" >&2
+      echo "       and is not exposed as a supported user override." >&2
+      exit 1
+   fi
+done
+
 # --- Validate the selected container engine
 if [[ -z "$ENGINE" ]]; then
    echo "ERROR: --engine docker|podman is required" >&2
@@ -401,6 +457,10 @@ echo "$thisScript: -----------------------------------------"
 echo "Step $testNum - Setting the variables for defining names"
 OF_FORK=$(grep '^ARG OF_FORK=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
 OF_VERSION=$(grep '^ARG OF_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+GCC_VERSION=$(grep '^ARG GCC_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+WM_LABEL_SIZE=$(grep '^ARG WM_LABEL_SIZE=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+WM_PRECISION_OPTION=$(grep '^ARG WM_PRECISION_OPTION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+WM_COMPILE_OPTION=$(grep '^ARG WM_COMPILE_OPTION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
 OS_VERSION=$(grep '^ARG BASE_IMAGE_OS_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
 MPICH_VERSION=$(grep '^ARG BASE_IMAGE_MPICH_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
 
@@ -408,15 +468,24 @@ MPICH_VERSION=$(grep '^ARG BASE_IMAGE_MPICH_VERSION=' "$recipeFile" 2>/dev/null 
 # The last repeated --build-arg value wins.
 OF_FORK="${buildArgValues[OF_FORK]:-$OF_FORK}"
 OF_VERSION="${buildArgValues[OF_VERSION]:-$OF_VERSION}"
+WM_LABEL_SIZE="${buildArgValues[WM_LABEL_SIZE]:-$WM_LABEL_SIZE}"
+WM_PRECISION_OPTION="${buildArgValues[WM_PRECISION_OPTION]:-$WM_PRECISION_OPTION}"
+WM_COMPILE_OPTION="${buildArgValues[WM_COMPILE_OPTION]:-$WM_COMPILE_OPTION}"
 OS_VERSION="${buildArgValues[BASE_IMAGE_OS_VERSION]:-$OS_VERSION}"
 MPICH_VERSION="${buildArgValues[BASE_IMAGE_MPICH_VERSION]:-$MPICH_VERSION}"
 
 echo "OF_FORK: '$OF_FORK'"
 echo "OF_VERSION: '$OF_VERSION'"
+echo "GCC_VERSION: '$GCC_VERSION'"
+echo "WM_LABEL_SIZE: '$WM_LABEL_SIZE'"
+echo "WM_PRECISION_OPTION: '$WM_PRECISION_OPTION'"
+echo "WM_COMPILE_OPTION: '$WM_COMPILE_OPTION'"
 echo "OS_VERSION: '$OS_VERSION'"
 echo "MPICH_VERSION: '$MPICH_VERSION'"
 
-if [[ -z "$OF_FORK" || -z "$OF_VERSION" || -z "$OS_VERSION" || -z "$MPICH_VERSION" ]]; then
+if [[ -z "$OF_FORK" || -z "$OF_VERSION" || -z "$GCC_VERSION" || \
+      -z "$WM_LABEL_SIZE" || -z "$WM_PRECISION_OPTION" || -z "$WM_COMPILE_OPTION" || \
+      -z "$OS_VERSION" || -z "$MPICH_VERSION" ]]; then
    echo "✖ Step $testNum FAIL: Failed to extract required variables from docker recipe"
    ((totalFailed++))
    exit 1
@@ -513,7 +582,7 @@ echo
 # runs from the selected context and its combined output is saved in artifacts/.
 ((++testNum))
 imageName="${OF_FORK}"
-imageTag="${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
+imageTag="${OF_VERSION}-gcc${GCC_VERSION}${WM_PRECISION_OPTION}Int${WM_LABEL_SIZE}${WM_COMPILE_OPTION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
 buildOptions=()
 if [[ "$noCache" == true ]]; then
    # Docker and Podman both accept --no-cache for build-layer cache bypass.

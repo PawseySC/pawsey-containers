@@ -2,31 +2,48 @@
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # 0. Initial main definition of global parameters
-# IMPORTANT: All these settings can be overriden with the use of `--build-arg <Name>=<Value>`
-# IMPORTANT: Recipe needs to re-call them at each stage to recover their values
+# IMPORTANT: Global arguments marked with USER_BUILD_ARG can be overridden with `--build-arg <Name>=<Value>` when using the building script.
+# IMPORTANT: Other global arguments are fixed recipe settings and are not supported as user overrides.
+# IMPORTANT: Recipe needs to re-call global arguments at each stage to recover their values.
 # IMPORTANT: Developers should check that ALL the ARG definitions here are recalled in the "recording_arguments" section of the final stage.
-# 0.1 Main global arguments (related to the OpenFOAM version)
+# 0.1 Main global arguments related to the OpenFOAM version and compiler
+# USER_BUILD_ARG
 ARG OF_FORK="openfoam"
+# USER_BUILD_ARG
 ARG OF_VERSION="v2606"
+# GCC version fixed for this recipe and used for package installation, compiler selection, validation and image naming
+ARG GCC_VERSION="13"
 
-# 0.1 Main arguments related to the base container to use
+# 0.2 OpenFOAM compilation settings supported as user build-argument overrides
+# USER_BUILD_ARG
+ARG WM_LABEL_SIZE="32"
+# USER_BUILD_ARG
+ARG WM_PRECISION_OPTION="DP"
+# USER_BUILD_ARG
+ARG WM_COMPILE_OPTION="Opt"
+
+# 0.3 Main arguments related to the base container to use
 # Defining the base container to use
 # IMPORTANT: Setonix mpi containers need at least ubuntu24.04 (From August 2025)
+# USER_BUILD_ARG
 ARG BASE_IMAGE_REGISTRY="quay.io/pawsey"
+# USER_BUILD_ARG
 ARG BASE_IMAGE_NAME="mpich-base"
+# USER_BUILD_ARG
 ARG BASE_IMAGE_OS_VERSION="24.04"
+# USER_BUILD_ARG
 ARG BASE_IMAGE_MPICH_VERSION="4.2.2"
 ARG BASE_IMAGE_TAG="mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
 ARG BASE_IMAGE_FULL="${BASE_IMAGE_REGISTRY}/${BASE_IMAGE_NAME}:${BASE_IMAGE_TAG}"
 
 #---------------------------------------------------------------
-# 0.2 Auxiliary global arguments of definitions used in multiple stages
+# 0.4 Auxiliary global arguments of definitions used in multiple stages
 ARG OF_INSTALL_DIR="/opt/OpenFOAM"
 ARG OF_USER="ofuser"
 ARG OF_USER_DIR="/home/${OF_USER}/OpenFOAM/${OF_USER}-${OF_VERSION}"
 ARG OF_BASHRC_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/bashrc"
 
-# 0.3 Other auxiliary variables
+# 0.5 Other auxiliary variables
 ARG BUILD_FILES_DIR="/opt/build-information-and-recipes"
 
 
@@ -47,7 +64,7 @@ FROM $BASE_IMAGE_FULL AS basic_stage
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
-### Use the following block anywher in the script during developing whenever the tools are needed
+### Use the following block anywhere in the script during developing whenever the tools are needed
 ##RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 ## &&  apt-get -y --no-install-recommends install \
 ##            git \ #For git pulling capabilities
@@ -80,6 +97,8 @@ RUN mkdir -p ${OF_USER_DIR} \
 FROM basic_stage AS install_dependencies
 #---------------------------------------------------------------
 # B.1 Install OpenFOAM dependencies
+# Recall global definitions made at the top
+ARG GCC_VERSION
 # OpenFOAM v2606+ dependencies for Ubuntu 24.04 LTS
 # Aggregated from:
 # [1] https://develop.openfoam.com/Development/openfoam/-/blob/maintenance-v2606/doc/Build.md
@@ -90,7 +109,8 @@ FROM basic_stage AS install_dependencies
 # [6] https://openfoamwiki.net/index.php/Installation/Linux/OpenFOAM-v1806/Ubuntu (Last documented instructions in the wiki)
 RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  && apt-get --no-install-recommends --no-install-suggests --yes install \
-    build-essential flex bison cmake ca-certificates wget \
+    build-essential gcc-${GCC_VERSION} g++-${GCC_VERSION} gfortran-${GCC_VERSION} \
+    flex bison cmake ca-certificates wget \
     zlib1g-dev libboost-system-dev libboost-thread-dev \
     #NoOpenMPI as MPICH will be used: libopenmpi-dev openmpi-bin \
     gnuplot libreadline-dev libncurses-dev libxt-dev \
@@ -110,6 +130,44 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 # cleaning at the end:
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
+
+
+#---------------------------------------------------------------
+# B.2 Select the Ubuntu 24.04 default compiler family for all subsequent build stages
+# GCC 13 is the default GCC family for Ubuntu 24.04.
+# Versioned packages and an isolated command directory ensure that this exact
+# compiler family is selected explicitly instead of relying on unversioned defaults.
+# Recall global definitions made at the top
+ARG GCC_VERSION
+# Create an isolated command directory for the selected compiler version
+RUN mkdir -p /opt/gcc${GCC_VERSION}/bin \
+ && ln -sf /usr/bin/gcc-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/gcc \
+ && ln -sf /usr/bin/g++-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/g++ \
+ && ln -sf /usr/bin/gcc-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/cc \
+ && ln -sf /usr/bin/g++-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/c++ \
+ && ln -sf /usr/bin/gfortran-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/gfortran \
+ && ln -sf /usr/bin/gfortran-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/f95 \
+ && ln -sf /usr/bin/gfortran-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/f77
+
+ENV PATH="/opt/gcc${GCC_VERSION}/bin:${PATH}"
+ENV CC="gcc"
+ENV CXX="g++"
+ENV FC="gfortran"
+ENV F77="gfortran"
+ENV F90="gfortran"
+
+# Validate the selected compiler family and display the compilers used by the MPI wrappers
+RUN test "$(command -v gcc)" = "/opt/gcc${GCC_VERSION}/bin/gcc" \
+ && test "$(command -v g++)" = "/opt/gcc${GCC_VERSION}/bin/g++" \
+ && test "$(command -v gfortran)" = "/opt/gcc${GCC_VERSION}/bin/gfortran" \
+ && test "$(gcc -dumpfullversion -dumpversion | cut -d. -f1)" = "$GCC_VERSION" \
+ && test "$(g++ -dumpfullversion -dumpversion | cut -d. -f1)" = "$GCC_VERSION" \
+ && test "$(gfortran -dumpfullversion -dumpversion | cut -d. -f1)" = "$GCC_VERSION" \
+ && gcc -dumpfullversion -dumpversion \
+ && g++ -dumpfullversion -dumpversion \
+ && gfortran -dumpfullversion -dumpversion \
+ && mpicc -show \
+ && mpicxx -show
 
 
 #---------------------------------------------------------------
@@ -145,14 +203,35 @@ FROM download AS update_settings
 # Recall global definitions made at the top
 ARG OF_VERSION
 ARG OF_INSTALL_DIR
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG OF_PREFS_TEMPLATE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh"
 ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
 ARG OF_PREFS_HEADER_LINES=26
 
+# Validate the supported OpenFOAM compilation settings before using them
+RUN case "$WM_LABEL_SIZE" in \
+      32|64) ;; \
+      *) echo "ERROR: Invalid WM_LABEL_SIZE='$WM_LABEL_SIZE'. Supported values: 32, 64." >&2; exit 1 ;; \
+    esac \
+ && case "$WM_PRECISION_OPTION" in \
+      DP|SP|SPDP) ;; \
+      *) echo "ERROR: Invalid WM_PRECISION_OPTION='$WM_PRECISION_OPTION'. Supported values: DP, SP, SPDP." >&2; exit 1 ;; \
+    esac \
+ && case "$WM_COMPILE_OPTION" in \
+      Opt|Debug|Prof) ;; \
+      *) echo "ERROR: Invalid WM_COMPILE_OPTION='$WM_COMPILE_OPTION'. Supported values: Opt, Debug, Prof." >&2; exit 1 ;; \
+    esac
+
 #Updating the prefs.sh file
 RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
  && echo '#------------------------------------------------------------------------------' >> ${OF_PREFS_FILE} \
+#Defining the OpenFOAM compilation settings selected for this image:
+ && echo "export WM_LABEL_SIZE=${WM_LABEL_SIZE}" >> ${OF_PREFS_FILE} \
+ && echo "export WM_PRECISION_OPTION=${WM_PRECISION_OPTION}" >> ${OF_PREFS_FILE} \
+ && echo "export WM_COMPILE_OPTION=${WM_COMPILE_OPTION}" >> ${OF_PREFS_FILE} \
 #Using a combination of the variable definition recommended for the use of system mpich in this link:
 #   https://bugs.openfoam.org/view.php?id=1167
 #And in the file .../OpenFOAM-${OF_VERSION}/wmake/rules/General/mplibMPICH
@@ -236,14 +315,32 @@ FROM update_settings AS third_party_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
+# USER_BUILD_ARG
 ARG TP_COMPILE_TASKS="16"
 
 #---------------------------------------------------------------
 #Using bash to interpret OpenFOAM scripts
 #Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
 SHELL ["/bin/bash","-o","pipefail","-c"]
+
+#---------------------------------------------------------------
+# Validate and display the effective OpenFOAM compilation settings
+RUN expectedWM_LABEL_SIZE="${WM_LABEL_SIZE}" \
+ && expectedWM_PRECISION_OPTION="${WM_PRECISION_OPTION}" \
+ && expectedWM_COMPILE_OPTION="${WM_COMPILE_OPTION}" \
+ && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && test "$WM_LABEL_SIZE" = "$expectedWM_LABEL_SIZE" \
+ && test "$WM_PRECISION_OPTION" = "$expectedWM_PRECISION_OPTION" \
+ && test "$WM_COMPILE_OPTION" = "$expectedWM_COMPILE_OPTION" \
+ && echo "WM_LABEL_SIZE=$WM_LABEL_SIZE" \
+ && echo "WM_PRECISION_OPTION=$WM_PRECISION_OPTION" \
+ && echo "WM_COMPILE_OPTION=$WM_COMPILE_OPTION" \
+ && echo "WM_OPTIONS=$WM_OPTIONS"
 
 #---------------------------------------------------------------
 # Third-Party compilation
@@ -391,7 +488,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # Perform the authoritative compilation check:
  && cd $WM_THIRD_PARTY_DIR \
  && echo "Starting authoritative ThirdParty compilation pass" \
- && ./Allwmake -j"$TP_PASS_TASKS" | tee log.Allwmake.AuthoritativeSummary
+ && ./Allwmake -j"$TP_PASS_TASKS" 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 
 #---------------------------------------------------------------
@@ -405,6 +502,7 @@ ARG OF_BASHRC_FILE
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
 # Defining the maximum number of parallel tasks to use for compilation
+# USER_BUILD_ARG
 ARG PV_COMPILE_TASKS=16
 #NotAcceptedBy makeParaView:#ARG PV_COMPILE_OPTIONS="-j${PV_COMPILE_TASKS}"
 #NotWorkingAsWished: #ARG PV_COMPILE_OPTIONS="-DCMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS}"
@@ -654,6 +752,7 @@ FROM pv_install AS of_install
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
+# USER_BUILD_ARG
 ARG OF_COMPILE_TASKS=16
 ARG BASHRC_OPTIONS=""
 
@@ -955,7 +1054,9 @@ COPY $RECIPE_FILE \
 # H.5 Recording the effective values of the global build arguments in file $BUILD_FILES_DIR/image-build-arguments.txt
 # The argument names are read automatically from the global ARG
 # declarations located before the first FROM instruction.
-# But every global argument MUST ALSO be recalled in this section for the recording to work.
+# Global arguments marked with USER_BUILD_ARG are supported user overrides.
+# Other global arguments are fixed recipe settings, but their effective values are also recorded.
+# Every global argument MUST ALSO be recalled in this section for the recording to work.
 # If a developer adds a new global ARG at the top, but does not recall it here,
 # the build stops with an explanatory error instead of generating
 # an incomplete build-arguments record.
@@ -964,6 +1065,10 @@ COPY $RECIPE_FILE \
 # in order to have a full match in the list to be recorded by the RUN instruction immediately below.
 ARG OF_FORK
 ARG OF_VERSION
+ARG GCC_VERSION
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 ARG BASE_IMAGE_REGISTRY
 ARG BASE_IMAGE_NAME
 ARG BASE_IMAGE_OS_VERSION
@@ -1002,8 +1107,8 @@ RUN test -f "$INTERNAL_RECIPE_FILE" \
 # Create the build-arguments record:
  && printf '%s\n' \
       "# Effective global Dockerfile arguments used in the build process." \
-      "# If effective values differ from their defaults (defined at the top before the first FROM instruction)," \
-      "#  that means that the user has overridden the default values in the building command line." \
+      "# Arguments marked with USER_BUILD_ARG in the recipe are supported user overrides." \
+      "# Other arguments are fixed recipe settings whose effective values are recorded for provenance." \
       "#" \
       "# The record was generated during the build process" \
       "#  following the instructions in the last stage in $INTERNAL_RECIPE_FILE ." \
@@ -1031,6 +1136,10 @@ RUN test -f "$INTERNAL_RECIPE_FILE" \
 # Recall global definitions made at the top
 ARG OF_FORK
 ARG OF_VERSION
+ARG GCC_VERSION
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 ARG BASE_IMAGE_MPICH_VERSION
 ARG BASE_IMAGE_OS_VERSION
 ARG BUILD_FILES_DIR
@@ -1038,7 +1147,7 @@ ARG BUILD_FILES_DIR
 # Labels:
 LABEL org.opencontainers.image.authors="Alexis Espinosa <Alexis.Espinosa@pawsey.org.au>"
 LABEL org.opencontainers.image.title="${OF_FORK}"
-LABEL org.opencontainers.image.version="${OF_VERSION}-mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
+LABEL org.opencontainers.image.version="${OF_VERSION}-gcc${GCC_VERSION}${WM_PRECISION_OPTION}Int${WM_LABEL_SIZE}${WM_COMPILE_OPTION}-mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
 LABEL au.org.pawsey.image.build-files-dir="${BUILD_FILES_DIR}"
 

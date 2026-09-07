@@ -43,14 +43,14 @@ FROM $BASE_IMAGE_FULL AS basic_stage
             vim time \
             cron gosu \
             bc curl wget \
+            git \
 # cleaning at the end:
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
-### Use the following block anywher in the script during developing whenever the tools are needed
+### Use the following block anywhere in the script during developing whenever the tools are needed
 ##RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 ## &&  apt-get -y --no-install-recommends install \
-##            git \ #For git pulling capabilities
 ##            devscripts \ #For installing the checkbashisms tool
 ### cleaning at the end:
 ## && apt-get clean all \
@@ -99,7 +99,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  && apt-get --no-install-recommends --no-install-suggests --yes install \
     # As indicated in the official documentation:
     # Tools for repositories and compilation:
-    build-essential cmake git ca-certificates flex \
+    build-essential cmake ca-certificates flex \
     # Tools for ThirdParty:
     # paraview-dev is installed in the ParaView stage below. \
     # Tools in the openfoam-nopv-deps list (not repeating ones already included):
@@ -135,10 +135,15 @@ ARG OF_VERSION
 ARG OF_INSTALL_DIR
 #Change to the installation dir, clone OpenFOAM directories
 WORKDIR $OF_INSTALL_DIR
-RUN git clone https://github.com/OpenFOAM/OpenFOAM-${OF_VERSION}.git
-RUN git clone https://github.com/OpenFOAM/ThirdParty-${OF_VERSION}.git
+##RUN git clone https://github.com/OpenFOAM/OpenFOAM-${OF_VERSION}.git
+##RUN git clone https://github.com/OpenFOAM/ThirdParty-${OF_VERSION}.git
 ##RUN git clone git://github.com/OpenFOAM/OpenFOAM-${OF_VERSION}.git
 ##RUN git clone git://github.com/OpenFOAM/ThirdParty-${OF_VERSION}.git
+RUN git clone --depth 1 --branch version-${OF_VERSION} \
+    https://github.com/OpenFOAM/OpenFOAM-${OF_VERSION}.git
+
+RUN git clone --depth 1 --branch version-${OF_VERSION} \
+    https://github.com/OpenFOAM/ThirdParty-${OF_VERSION}.git
 
 
 #---------------------------------------------------------------
@@ -393,8 +398,6 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && ./Allwmake -j"$TP_PASS_TASKS" 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 
-
-
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -454,6 +457,8 @@ ARG BASHRC_OPTIONS=""
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
+# G.1 Preparatory updates
+
 #---------------------------------------------------------------
 # G.2 OpenFOAM compilation
 #     Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
@@ -606,10 +611,9 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # G.4 Printing out the environment variables for the installation so far:
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
- && printenv > environment_vars_raw.env
+ && printenv > environment_vars_raw.txt
 
 
-#---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
