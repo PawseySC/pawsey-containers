@@ -329,7 +329,10 @@ ARG TP_COMPILE_TASKS="16"
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# Validate and display the effective OpenFOAM compilation settings
+# E.1 Validate and display the effective OpenFOAM compilation settings
+# These 3 settings have been defined as USER_BUILD_ARG and can be set at the top
+# or overridden with `--build-arg` when using the building script. Or directly
+# in the command line when using `docker build` or `podman build`.
 RUN expectedWM_LABEL_SIZE="${WM_LABEL_SIZE}" \
  && expectedWM_PRECISION_OPTION="${WM_PRECISION_OPTION}" \
  && expectedWM_COMPILE_OPTION="${WM_COMPILE_OPTION}" \
@@ -343,7 +346,7 @@ RUN expectedWM_LABEL_SIZE="${WM_LABEL_SIZE}" \
  && echo "WM_OPTIONS=$WM_OPTIONS"
 
 #---------------------------------------------------------------
-# Third-Party compilation
+# E.2 Third-Party compilation
 # IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
 #            and 1 final parallel authoritative compilation pass.
 #            This because some compilation race conditions were found when compiling in a single parallel pass.
@@ -751,6 +754,9 @@ FROM pv_install AS of_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 # USER_BUILD_ARG
 ARG OF_COMPILE_TASKS=16
@@ -763,7 +769,6 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
 # G.1 Preparatory updates
-
 # Setting shebang to bash in Allwmake.
 # This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -772,7 +777,24 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && sed -i '1s|/bin/sh|/bin/bash|' Allwmake
 
 #---------------------------------------------------------------
-# G.2 OpenFOAM compilation
+# G.2 Validate and display the effective OpenFOAM compilation settings
+# These 3 settings have been defined as USER_BUILD_ARG and can be set at the top
+# or overridden with `--build-arg` when using the building script. Or directly
+# in the command line when using `docker build` or `podman build`.
+RUN expectedWM_LABEL_SIZE="${WM_LABEL_SIZE}" \
+ && expectedWM_PRECISION_OPTION="${WM_PRECISION_OPTION}" \
+ && expectedWM_COMPILE_OPTION="${WM_COMPILE_OPTION}" \
+ && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && test "$WM_LABEL_SIZE" = "$expectedWM_LABEL_SIZE" \
+ && test "$WM_PRECISION_OPTION" = "$expectedWM_PRECISION_OPTION" \
+ && test "$WM_COMPILE_OPTION" = "$expectedWM_COMPILE_OPTION" \
+ && echo "WM_LABEL_SIZE=$WM_LABEL_SIZE" \
+ && echo "WM_PRECISION_OPTION=$WM_PRECISION_OPTION" \
+ && echo "WM_COMPILE_OPTION=$WM_COMPILE_OPTION" \
+ && echo "WM_OPTIONS=$WM_OPTIONS"
+
+#---------------------------------------------------------------
+# G.3 OpenFOAM compilation
 #     Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
 # IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
 #            and 1 final parallel authoritative compilation pass.
@@ -921,14 +943,14 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && ./Allwmake -j"$OF_PASS_TASKS" 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 #---------------------------------------------------------------
-# G.3 Checking if a popular executable is working
+# G.4 Checking if a popular executable is working
 ARG OF_TOOL="icoFoam"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && $OF_TOOL -help 2>&1 | tee log.OF_TOOL
 
 #---------------------------------------------------------------
-# G.4 Printing out the environment variables for the installation so far:
+# G.5 Printing out the environment variables for the installation so far:
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && printenv > environment_vars_raw.txt
@@ -1043,12 +1065,13 @@ ARG OF_VERSION
 ARG BUILD_FILES_DIR
 # Auxiliary arguments
 ARG RECIPE_FILE="${OF_FORK}--${OF_VERSION}.dockerfile"
+ARG IMAGE_BUILD_FILES_DIR="${BUILD_FILES_DIR}/${OF_FORK}"
 # Copy all files used to build the image into the internal backup directory
-RUN mkdir -p "$BUILD_FILES_DIR"
+RUN mkdir -p "$IMAGE_BUILD_FILES_DIR"
 COPY $RECIPE_FILE \
      $ENTRYPOINT_FILE_TEMPLATE \
      $ENVIRONMENT_FILE_TEMPLATE \
-     $BUILD_FILES_DIR
+     $IMAGE_BUILD_FILES_DIR
 
 #---------------------------------------------------------------
 # H.5 Recording the effective values of the global build arguments in file $BUILD_FILES_DIR/image-build-arguments.txt
@@ -1082,8 +1105,8 @@ ARG OF_BASHRC_FILE
 ARG BUILD_FILES_DIR
 
 # Auxiliary arguments
-ARG INTERNAL_RECIPE_FILE="${BUILD_FILES_DIR}/${OF_FORK}--${OF_VERSION}.dockerfile"
-ARG ARGUMENTS_FILE="${BUILD_FILES_DIR}/image-build-arguments.txt"
+ARG INTERNAL_RECIPE_FILE="${IMAGE_BUILD_FILES_DIR}/${OF_FORK}--${OF_VERSION}.dockerfile"
+ARG ARGUMENTS_FILE="${IMAGE_BUILD_FILES_DIR}/image-build-arguments.txt"
 
 # The following RUN instruction reads the list of global ARG names from the recipe file
 # and writes their effective values into a record file if they have been recalled in the lines immediately above.
