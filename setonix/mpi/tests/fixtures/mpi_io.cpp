@@ -40,7 +40,7 @@ std::string get_filename(int file_num, const std::string& directory, std::string
     return fname;
 }
 
-void WriteCollective(std::string &fname, size_t fsize, std::vector<double> buffer)
+void WriteCollective(std::string &fname, size_t fsize, const std::vector<double>& buffer)
 {
     Rank0LocalLoggerWithTime() << " Starting collective write to " << fname << std::endl;
 
@@ -50,32 +50,34 @@ void WriteCollective(std::string &fname, size_t fsize, std::vector<double> buffe
     // Calculate the offset based on the rank
     offset = ThisTask * buffer.size() * sizeof(double);
 
+    if (ThisTask == 0) MPI_File_delete(fname.c_str(), MPI_INFO_NULL);
+
     // Record timing of writes
     double start_time, end_time;
-    start_time = MPI_Wtime();
 
     // Open file for writing
-    MPI_File_delete(fname.c_str(), MPI_INFO_NULL);
+    MPI_Barrier(MPI_COMM_WORLD);
+    start_time = MPI_Wtime();
     MPI_File_open(MPI_COMM_WORLD, fname.c_str(), MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
     // Write to the file using collective I/O - all processes conrtibute to the file write
     MPI_File_write_at_all(file, offset, buffer.data(), buffer.size(), MPI_DOUBLE, &status);
-
     // Close the file
     MPI_File_close(&file);
+    MPI_Barrier(MPI_COMM_WORLD);
     end_time = MPI_Wtime();
 
     // Report timing
     double local_time = end_time - start_time;
     double max_time;
     MPI_Reduce(&local_time, &max_time, 1,MPI_DOUBLE, MPI_MAX, 0,MPI_COMM_WORLD);
-    auto bandwidth = (fsize / max_time) / (1024.0 * 1024.0 * 1024.0);
+    auto bandwidth = (fsize / max_time) / (1024.0 * 1024.0);
     Rank0LocalLoggerWithTime()
         << " Completed collective write to "
         << fname << " in " << max_time << " seconds, "
-        << "with effective bandwidth" << bandwidth << " GB/s" << std::endl;
+        << "with effective bandwidth " << bandwidth << " MB/s" << std::endl;
 }
 
-void WriteNonCollective(std::string &fname, size_t fsize, std::vector<double> buffer)
+void WriteNonCollective(std::string &fname, size_t fsize, const std::vector<double>& buffer)
 {
     Rank0LocalLoggerWithTime() << " Starting non-collective write to " << fname << std::endl;
 
@@ -85,32 +87,34 @@ void WriteNonCollective(std::string &fname, size_t fsize, std::vector<double> bu
     // Calculate the offset based on the rank
     offset = ThisTask * buffer.size() * sizeof(double);
 
+    if (ThisTask == 0) MPI_File_delete(fname.c_str(), MPI_INFO_NULL);
+
     // Record timing of writes
     double start_time, end_time;
-    start_time = MPI_Wtime();
 
     // Open file for writing
-    MPI_File_delete(fname.c_str(), MPI_INFO_NULL);
+    MPI_Barrier(MPI_COMM_WORLD);
+    start_time = MPI_Wtime();
     MPI_File_open(MPI_COMM_WORLD, fname.c_str(), MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &file);
     // Write to the file using non-collective I/O - each process writes independently at its own offset
     MPI_File_write_at(file, offset, buffer.data(), buffer.size(), MPI_DOUBLE, &status);
-
     // Close the file
     MPI_File_close(&file);
+    MPI_Barrier(MPI_COMM_WORLD);
     end_time = MPI_Wtime();
 
     // Report timing
     double local_time = end_time - start_time;
     double max_time;
     MPI_Reduce(&local_time, &max_time, 1,MPI_DOUBLE, MPI_MAX, 0,MPI_COMM_WORLD);
-    auto bandwidth = (fsize / max_time) / (1024.0 * 1024.0 * 1024.0);
+    auto bandwidth = (fsize / max_time) / (1024.0 * 1024.0);
     Rank0LocalLoggerWithTime()
         << " Completed non-collective write to "
         << fname << " in " << max_time << " seconds, "
-        << "with effective bandwidth" << bandwidth << " GB/s" << std::endl;
+        << "with effective bandwidth " << bandwidth << " MB/s" << std::endl;
 }
 
-void ReadCollective(std::string &fname, size_t fsize, std::vector<double> buffer)
+void ReadCollective(std::string &fname, size_t fsize, std::vector<double>& buffer)
 {
     Rank0LocalLoggerWithTime() << " Starting collective read from " << fname << std::endl;
 
@@ -120,31 +124,40 @@ void ReadCollective(std::string &fname, size_t fsize, std::vector<double> buffer
     // Calculate the offset based on the rank
     offset = ThisTask * buffer.size() * sizeof(double);
 
-    // Record timing of writes
+    // Record timing of reads
     double start_time, end_time;
+
+    // Open file for read
+    MPI_Barrier(MPI_COMM_WORLD);
     start_time = MPI_Wtime();
-
-    // Open file for reading
     MPI_File_open(MPI_COMM_WORLD, fname.c_str(), MPI_MODE_RDONLY, MPI_INFO_NULL, &file);
-    // Read from the file using collective I/O - all processes conrtibute to the file write
+    // Read from the file using collective I/O - all processes conrtibute to the file read
     MPI_File_read_at_all(file, offset, buffer.data(), buffer.size(), MPI_DOUBLE, &status);
-
     // Close the file
     MPI_File_close(&file);
+    MPI_Barrier(MPI_COMM_WORLD);
     end_time = MPI_Wtime();
+
+    for (double x : buffer)
+    {
+        if (x != ThisTask + 1.0)
+        {
+            Rank0LocalLoggerWithTime() << "DATA VALIDATION ERROR: Incorrect value recorded (observed " << x << ", expected " << (ThisTask + 1.0) << ")" << std::endl;
+        }
+    }
 
     // Report timing
     double local_time = end_time - start_time;
     double max_time;
     MPI_Reduce(&local_time, &max_time, 1,MPI_DOUBLE, MPI_MAX, 0,MPI_COMM_WORLD);
-    auto bandwidth = (fsize / max_time) / (1024.0 * 1024.0 * 1024.0);
+    auto bandwidth = (fsize / max_time) / (1024.0 * 1024.0);
     Rank0LocalLoggerWithTime()
         << " Completed collective read from "
         << fname << " in " << max_time << " seconds, "
-        << "with effective bandwidth" << bandwidth << " GB/s" << std::endl;
+        << "with effective bandwidth " << bandwidth << " MB/s" << std::endl;
 }
 
-void ReadNonCollective(std::string &fname, size_t fsize, std::vector<double> buffer)
+void ReadNonCollective(std::string &fname, size_t fsize, std::vector<double>& buffer)
 {
     Rank0LocalLoggerWithTime() << " Starting non-collective read from " << fname << std::endl;
 
@@ -154,28 +167,37 @@ void ReadNonCollective(std::string &fname, size_t fsize, std::vector<double> buf
     // Calculate the offset based on the rank
     offset = ThisTask * buffer.size() * sizeof(double);
 
-    // Record timing of writes
+    // Record timing of reads
     double start_time, end_time;
-    start_time = MPI_Wtime();
 
     // Open file for reading
+    MPI_Barrier(MPI_COMM_WORLD);
+    start_time = MPI_Wtime();
     MPI_File_open(MPI_COMM_WORLD, fname.c_str(), MPI_MODE_RDONLY, MPI_INFO_NULL, &file);
-    // Read from the file using non-collective I/O - each process writes independently at its own offset
+    // Read from the file using non-collective I/O - each process reads independently at its own offset
     MPI_File_read_at(file, offset, buffer.data(), buffer.size(), MPI_DOUBLE, &status);
-
     // Close the file
     MPI_File_close(&file);
+    MPI_Barrier(MPI_COMM_WORLD);
     end_time = MPI_Wtime();
+
+    for (double x : buffer)
+    {
+        if (x != ThisTask + 1.0)
+        {
+            std::cerr << "DATA VALIDATION ERROR: Incorrect value recorded (observed " << x << ", expected " << (ThisTask + 1.0) << ")" << std::endl;
+        }
+    }
 
     // Report timing
     double local_time = end_time - start_time;
     double max_time;
     MPI_Reduce(&local_time, &max_time, 1,MPI_DOUBLE, MPI_MAX, 0,MPI_COMM_WORLD);
-    auto bandwidth = (fsize / max_time) / (1024.0 * 1024.0 * 1024.0);
+    auto bandwidth = (fsize / max_time) / (1024.0 * 1024.0);
     Rank0LocalLoggerWithTime()
         << " Completed non-collective read from "
         << fname << " in " << max_time << " seconds, "
-        << "with effective bandwidth" << bandwidth << " GB/s" << std::endl;
+        << "with effective bandwidth " << bandwidth << " MB/s" << std::endl;
 }
 
 int main(int argc, char* argv[])
