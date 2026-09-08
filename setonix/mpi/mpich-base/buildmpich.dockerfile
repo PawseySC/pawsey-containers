@@ -25,7 +25,7 @@ ARG OSU_BENCHMARKS_VERSION="7.3"
 ARG PROFILE_UTIL_VERSION="main"
 
 # 0.2 Other auxiliary variables to ease building
-ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
+ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 
 
 #---------------------------------------------------------------
@@ -35,20 +35,9 @@ ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
 FROM ${BASE_IMAGE_FULL} AS basic_stage
 #---------------------------------------------------------------
 # A.0 Recall global definitions made at the top
-ARG MPICH_VERSION
-ARG OS_VERSION
-ARG DOCKER_RECIPES_DIR
 
 #---------------------------------------------------------------
-# A.1 Defining documented labels
-LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
-LABEL org.opencontainers.image.name="mpich-base"
-LABEL org.opencontainers.image.branch="mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
-LABEL org.opencontainers.image.dockerfile-internal-backup="${DOCKER_RECIPES_DIR}"
-LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawsey-containers"
-
-#---------------------------------------------------------------
-# A.2 Installing basic requirements
+# A.1 Installing basic requirements
 RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt-get update; \
@@ -116,7 +105,7 @@ ARG MPICH_MAKE_OPTIONS="-j16"
 RUN set -eux; \
     mkdir -p /tmp/mpich-build; \
     cd /tmp/mpich-build; \
-    wget "https://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz"; \
+    wget --no-hsts "https://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz"; \
     echo "${MPICH_SHA256}  mpich-${MPICH_VERSION}.tar.gz" | sha256sum -c -; \
     tar xzvf "mpich-${MPICH_VERSION}.tar.gz"; \
     cd "mpich-${MPICH_VERSION}"; \
@@ -164,7 +153,7 @@ ARG OSU_MAKE_OPTIONS="-j8"
 RUN set -eux; \
     mkdir -p /tmp/osu-benchmark-build; \
     cd /tmp/osu-benchmark-build; \
-    wget "https://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_BENCHMARKS_VERSION}.tar.gz"; \
+    wget --no-hsts "https://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_BENCHMARKS_VERSION}.tar.gz"; \
     tar xzvf "osu-micro-benchmarks-${OSU_BENCHMARKS_VERSION}.tar.gz"; \
     cd "osu-micro-benchmarks-${OSU_BENCHMARKS_VERSION}"; \
     ./configure ${OSU_CONFIGURE_OPTIONS}; \
@@ -208,14 +197,24 @@ RUN set -eux; \
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
-# H. Final settings
+# F. Final settings
 FROM other_tests AS final_settings
 #---------------------------------------------------------------
-# H.0 Recall global definitions made at the top
-ARG DOCKER_RECIPES_DIR
+# F.0 Recall global definitions made at the top
+ARG MPICH_VERSION
+ARG OS_VERSION
+ARG IMAGE_BUILD_INFO_DIR
 
 #---------------------------------------------------------------
-# H.1 Copy the recipe into the docker recipes directory
+# F.1 Defining documented labels
+LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
+LABEL org.opencontainers.image.title="mpich-base"
+LABEL org.opencontainers.image.version="mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
+LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
+
+#---------------------------------------------------------------
+# F.2 Copy the recipe into the docker recipes directory
 RUN set -eux; \
-    mkdir -p "${DOCKER_RECIPES_DIR}"
-COPY buildmpich.dockerfile "${DOCKER_RECIPES_DIR}"
+    mkdir -p "${IMAGE_BUILD_INFO_DIR}"
+COPY buildmpich.dockerfile "${IMAGE_BUILD_INFO_DIR}"
