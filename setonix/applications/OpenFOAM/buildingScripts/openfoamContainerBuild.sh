@@ -67,17 +67,17 @@
 # summary.
 #
 # Examples:
-#   openfoamContainerBuild.sh --recipe-dir v2406 --engine podman
+#   openfoamContainerBuild.sh --recipe-dir openfoam/v2406 --engine podman
 #
-#   openfoamContainerBuild.sh --recipe-dir v2406 --engine docker \
-#      --build-arg OF_COMPILE_TASKS=16
+#   openfoamContainerBuild.sh --recipe-dir openfoam/v2406 --engine docker \
+#      --build-arg WM_LABEL_SIZE=64
 #
-#   openfoamContainerBuild.sh --recipe-dir v2406 --engine podman --no-cache
+#   openfoamContainerBuild.sh --recipe-dir openfoam/v2406 --engine podman --no-cache
 #
-#   openfoamContainerBuild.sh --recipe-dir v2406 --engine podman \
+#   openfoamContainerBuild.sh --recipe-dir openfoam/v2406 --engine podman \
 #      --target openfoam-development
 #
-#   openfoamContainerBuild.sh --recipe-dir v2406 --engine podman \
+#   openfoamContainerBuild.sh --recipe-dir openfoam/v2406 --engine podman \
 #      --target openfoam-development --targetFrom openfoam-base
 #
 #   openfoamContainerBuild.sh --help

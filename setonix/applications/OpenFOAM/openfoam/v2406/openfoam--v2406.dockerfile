@@ -44,7 +44,7 @@ ARG OF_USER_DIR="/home/${OF_USER}/OpenFOAM/${OF_USER}-${OF_VERSION}"
 ARG OF_BASHRC_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/bashrc"
 
 # 0.5 Other auxiliary variables
-ARG BUILD_FILES_DIR="/opt/build-information-and-recipes"
+ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 
 
 #---------------------------------------------------------------
@@ -1062,19 +1062,19 @@ RUN sed -i 's,BASHRC_TEMPLATE_TAG,'"${OF_BASHRC_FILE}"',g' $ENVIRONMENT_FILE_SIN
 # Recall global definitions made at the top
 ARG OF_FORK
 ARG OF_VERSION
-ARG BUILD_FILES_DIR
+ARG IMAGE_BUILD_INFO_DIR
 # Auxiliary arguments
 ARG RECIPE_FILE="${OF_FORK}--${OF_VERSION}.dockerfile"
-ARG INTERNAL_DIR="${BUILD_FILES_DIR}/${OF_FORK}"
+ARG FORK_IMAGE_BUILD_INFO_DIR="${IMAGE_BUILD_INFO_DIR}/${OF_FORK}"
 # Copy all files used to build the image into the internal backup directory
-RUN mkdir -p "$INTERNAL_DIR"
+RUN mkdir -p "$FORK_IMAGE_BUILD_INFO_DIR"
 COPY $RECIPE_FILE \
      $ENTRYPOINT_FILE_TEMPLATE \
      $ENVIRONMENT_FILE_TEMPLATE \
-     $INTERNAL_DIR
+     $FORK_IMAGE_BUILD_INFO_DIR
 
 #---------------------------------------------------------------
-# H.5 Recording the effective values of the global build arguments in file $BUILD_FILES_DIR/image-build-arguments.txt
+# H.5 Recording the effective values of the global build arguments in file $IMAGE_BUILD_INFO_DIR/image-build-arguments.txt
 # The argument names are read automatically from the global ARG
 # declarations located before the first FROM instruction.
 # Global arguments marked with USER_BUILD_ARG are supported user overrides.
@@ -1102,11 +1102,11 @@ ARG OF_INSTALL_DIR
 ARG OF_USER
 ARG OF_USER_DIR
 ARG OF_BASHRC_FILE
-ARG BUILD_FILES_DIR
+ARG IMAGE_BUILD_INFO_DIR
 
 # Auxiliary arguments
-ARG INTERNAL_RECIPE_FILE="${BUILD_FILES_DIR}/${OF_FORK}--${OF_VERSION}.dockerfile"
-ARG ARGUMENTS_FILE="${BUILD_FILES_DIR}/image-build-arguments.txt"
+ARG INTERNAL_RECIPE_FILE="${FORK_IMAGE_BUILD_INFO_DIR}/${OF_FORK}--${OF_VERSION}.dockerfile"
+ARG ARGUMENTS_FILE="${FORK_IMAGE_BUILD_INFO_DIR}/image-build-arguments.txt"
 
 # The following RUN instruction reads the list of global ARG names from the recipe file
 # and writes their effective values into a record file if they have been recalled in the lines immediately above.
@@ -1165,14 +1165,14 @@ ARG WM_PRECISION_OPTION
 ARG WM_COMPILE_OPTION
 ARG BASE_IMAGE_MPICH_VERSION
 ARG BASE_IMAGE_OS_VERSION
-ARG BUILD_FILES_DIR
+ARG IMAGE_BUILD_INFO_DIR
 
 # Labels:
 LABEL org.opencontainers.image.authors="Alexis Espinosa <Alexis.Espinosa@pawsey.org.au>"
 LABEL org.opencontainers.image.title="${OF_FORK}"
 LABEL org.opencontainers.image.version="${OF_VERSION}-gcc${GCC_VERSION}${WM_PRECISION_OPTION}Int${WM_LABEL_SIZE}${WM_COMPILE_OPTION}-mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
-LABEL au.org.pawsey.image.build-files-dir="${BUILD_FILES_DIR}"
+LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
 
 #---------------------------------------------------------------
 # H.7 Starting as OF_USER by default

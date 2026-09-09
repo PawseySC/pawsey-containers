@@ -9,7 +9,9 @@
 # In local mode, --engine selects Docker or Podman. A local image name:tag may
 # be supplied as the final positional argument. If it is omitted, --recipe-dir
 # is required and the script derives the local image name from ARG instructions
-# in that version directory's Dockerfile.
+# in that version directory's Dockerfile. Repeated --build-arg NAME=VALUE options
+# can select supported source-image variants. Only Dockerfile ARG instructions
+# marked with USER_BUILD_ARG are accepted as user overrides.
 #
 # In registry mode, --fromRegistryImage supplies the complete remote image
 # reference. The docker:// prefix is optional and is added automatically when
@@ -20,7 +22,9 @@
 # oci-archive://. Remote images are read directly from their docker:// source.
 # Temporary and persistent conversion artifacts are stored under the required
 # recipe directory. The docker recipe filename is constructed from
-# OPENFOAM_FORK and OPENFOAM_VERSION in the version configuration.
+# OPENFOAM_FORK and OPENFOAM_VERSION in the version configuration. The complete
+# source image tag, including compiler and OpenFOAM build-variant settings, is
+# preserved in the resulting SIF filename.
 #
 # By default, each resulting SIF and its logs are stored together under a
 # timestamped artifacts/singularity/ directory. The latest symbolic link is
@@ -29,10 +33,14 @@
 # logs and metadata without changing the development-candidate latest link.
 #
 # Examples:
-#   openfoamSingularityBuild.sh --recipe-dir v2406 --engine podman
-#   openfoamSingularityBuild.sh --recipe-dir v2406 --engine docker \
-#      openfoam:v2406-mpich4.2.2-ubuntu24.04
-#   openfoamSingularityBuild.sh --recipe-dir v2406 --output-dir /path/to/images \
+#   openfoamSingularityBuild.sh --recipe-dir openfoam/v2606 --engine podman
+#
+#   openfoamSingularityBuild.sh --recipe-dir openfoam/v2606 --engine podman \
+#      --build-arg WM_LABEL_SIZE=64
+#
+#   openfoamSingularityBuild.sh --recipe-dir openfoam/v2606 --engine docker \
+#      openfoam:v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04
+#   openfoamSingularityBuild.sh --recipe-dir openfoam/v2406 --output-dir /path/to/images \
 #      --fromRegistryImage quay.io/example/openfoam:v2406
 #   openfoamSingularityBuild.sh --help
 #
@@ -63,14 +71,17 @@ buildLog=""
 saveLog=""
 buildCommandFile=""
 imageDetailsFile=""
+sourceBuildArgumentsFile=""
 outputDirInput=""
+buildArgs=()
+declare -A buildArgValues=()
 configFile=""
 
 # --- Command-line help
 usage() {
    cat <<USAGE
 Usage:
-  $thisScript --recipe-dir <directory> [--output-dir <directory>] --engine docker|podman [<imageFull>]
+  $thisScript --recipe-dir <directory> [--output-dir <directory>] --engine docker|podman [--build-arg NAME=VALUE]... [<imageFull>]
   $thisScript --recipe-dir <directory> [--output-dir <directory>] --fromRegistryImage <registry/imageName:imageTag>
   $thisScript --help
 
@@ -78,6 +89,7 @@ Options:
   --recipe-dir, -r <directory>  OpenFOAM version directory containing the configuration and docker recipe
   --output-dir, -o <directory>  Explicit SIF destination; does not validate or promote for production use
   --engine, -b <engine>         Local source-image engine: docker or podman
+  --build-arg NAME=VALUE        Select a source-image ARG marked with USER_BUILD_ARG; may be repeated
   --fromRegistryImage <image>   Remote registry image; docker:// is optional
   --help, -h                    Show this help message and exit
   <imageFull>                   Optional local image name:tag, including target-built image tags
@@ -115,6 +127,21 @@ while [[ $# -gt 0 ]]; do
             exit 1
          fi
          ENGINE="$2"
+         shift 2
+         ;;
+      --build-arg)
+         if [[ $# -lt 2 || "$2" != *=* ]]; then
+            echo "ERROR: --build-arg requires NAME=VALUE" >&2
+            exit 1
+         fi
+         buildArgName="${2%%=*}"
+         buildArgValue="${2#*=}"
+         if [[ ! "$buildArgName" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "ERROR: Invalid build-argument name: '$buildArgName'" >&2
+            exit 1
+         fi
+         buildArgs+=(--build-arg "$2")
+         buildArgValues["$buildArgName"]="$buildArgValue"
          shift 2
          ;;
       --fromRegistryImage)
@@ -173,6 +200,59 @@ if [[ ! -f "$recipeFile" ]]; then
    exit 1
 fi
 
+# --- Validate build-argument names against the selected recipe
+# Every Dockerfile ARG is recorded as declared. Only an ARG immediately preceded
+# by a USER_BUILD_ARG marker is exposed as a supported command-line override.
+# This catches misspelled names and prevents fixed recipe settings from being
+# changed through this builder.
+declare -A declaredBuildArgs=()
+declare -A supportedBuildArgs=()
+pendingUserBuildArg=false
+while IFS= read -r recipeLine; do
+   if [[ "$recipeLine" =~ ^[[:space:]]*#[[:space:]]*USER_BUILD_ARG[[:space:]]*$ ]]; then
+      pendingUserBuildArg=true
+      continue
+   fi
+
+   if [[ "$recipeLine" =~ ^[[:space:]]*ARG[[:space:]]+([A-Za-z_][A-Za-z0-9_]*) ]]; then
+      declaredArgumentName="${BASH_REMATCH[1]}"
+      declaredBuildArgs["$declaredArgumentName"]=1
+      if [[ "$pendingUserBuildArg" == true ]]; then
+         supportedBuildArgs["$declaredArgumentName"]=1
+      fi
+      pendingUserBuildArg=false
+      continue
+   fi
+
+   if [[ "$pendingUserBuildArg" == true && ! "$recipeLine" =~ ^[[:space:]]*$ ]]; then
+      echo "ERROR: USER_BUILD_ARG marker is not followed by an ARG instruction in: $recipeFile" >&2
+      echo "       Unexpected line: $recipeLine" >&2
+      exit 1
+   fi
+done < "$recipeFile"
+
+if [[ "$pendingUserBuildArg" == true ]]; then
+   echo "ERROR: USER_BUILD_ARG marker at the end of $recipeFile has no following ARG instruction" >&2
+   exit 1
+fi
+if (( ${#declaredBuildArgs[@]} == 0 )); then
+   echo "ERROR: No ARG instructions were found in: $recipeFile" >&2
+   exit 1
+fi
+
+for argumentName in "${!buildArgValues[@]}"; do
+   if [[ ! -v "declaredBuildArgs[$argumentName]" ]]; then
+      echo "ERROR: Unknown build argument: $argumentName" >&2
+      echo "       No ARG named '$argumentName' is declared in: $recipeFile" >&2
+      exit 1
+   fi
+   if [[ ! -v "supportedBuildArgs[$argumentName]" ]]; then
+      echo "ERROR: Build argument '$argumentName' is fixed by the selected recipe" >&2
+      echo "       and is not exposed as a supported user override." >&2
+      exit 1
+   fi
+done
+
 tmpDir="${recipeDir}/tmp"
 artifactsDir="${recipeDir}/artifacts"
 singularityArtifactsDir="${artifactsDir}/singularity"
@@ -199,6 +279,11 @@ else
 fi
 
 if [[ "$MODE" == "registry" ]]; then
+   if [[ ${#buildArgs[@]} -gt 0 ]]; then
+      echo "ERROR: --build-arg cannot be used with --fromRegistryImage" >&2
+      echo "       The explicit registry image reference already selects the source image." >&2
+      exit 1
+   fi
    # Warn and ignore --engine if provided
    if [[ -n "$ENGINE" ]]; then
       echo "WARNING: --engine '$ENGINE' ignored when using --fromRegistryImage"
@@ -232,6 +317,11 @@ else
       exit 1
    fi
    if [[ ${#positionalArgs[@]} -eq 1 ]]; then
+      if [[ ${#buildArgs[@]} -gt 0 ]]; then
+         echo "ERROR: --build-arg cannot be used with an explicit local image reference" >&2
+         echo "       The positional image name and tag already select the source image." >&2
+         exit 1
+      fi
       imageFull="${positionalArgs[0]}"
       echo "Will build singularity image from: $imageFull"
    else
@@ -262,6 +352,7 @@ buildLog="${runArtifactsDir}/build.log"
 saveLog="${runArtifactsDir}/save.log"
 buildCommandFile="${runArtifactsDir}/build-command.txt"
 imageDetailsFile="${runArtifactsDir}/image-details.txt"
+sourceBuildArgumentsFile="${runArtifactsDir}/source-image-build-arguments.txt"
 
 # Preserve the complete script output while continuing to display it.
 exec > >(tee "$runLog") 2>&1
@@ -309,20 +400,55 @@ elif [[ -n "$imageFull" ]]; then
 else
    OF_FORK=$(grep '^ARG OF_FORK=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
    OF_VERSION=$(grep '^ARG OF_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+   GCC_VERSION=$(grep '^ARG GCC_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+   WM_LABEL_SIZE=$(grep '^ARG WM_LABEL_SIZE=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+   WM_PRECISION_OPTION=$(grep '^ARG WM_PRECISION_OPTION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+   WM_COMPILE_OPTION=$(grep '^ARG WM_COMPILE_OPTION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
    OS_VERSION=$(grep '^ARG BASE_IMAGE_OS_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
    MPICH_VERSION=$(grep '^ARG BASE_IMAGE_MPICH_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
-   echo "  Source: Dockerfile defaults"
+
+   # Apply command-line overrides that affect the derived source-image reference.
+   # The last repeated --build-arg value wins.
+   OF_FORK="${buildArgValues[OF_FORK]:-$OF_FORK}"
+   OF_VERSION="${buildArgValues[OF_VERSION]:-$OF_VERSION}"
+   WM_LABEL_SIZE="${buildArgValues[WM_LABEL_SIZE]:-$WM_LABEL_SIZE}"
+   WM_PRECISION_OPTION="${buildArgValues[WM_PRECISION_OPTION]:-$WM_PRECISION_OPTION}"
+   WM_COMPILE_OPTION="${buildArgValues[WM_COMPILE_OPTION]:-$WM_COMPILE_OPTION}"
+   OS_VERSION="${buildArgValues[BASE_IMAGE_OS_VERSION]:-$OS_VERSION}"
+   MPICH_VERSION="${buildArgValues[BASE_IMAGE_MPICH_VERSION]:-$MPICH_VERSION}"
+
+   echo "  Source: Dockerfile defaults and supported build-argument overrides"
    echo "  OF_FORK: '$OF_FORK'"
    echo "  OF_VERSION: '$OF_VERSION'"
+   echo "  GCC_VERSION: '$GCC_VERSION'"
+   echo "  WM_LABEL_SIZE: '$WM_LABEL_SIZE'"
+   echo "  WM_PRECISION_OPTION: '$WM_PRECISION_OPTION'"
+   echo "  WM_COMPILE_OPTION: '$WM_COMPILE_OPTION'"
    echo "  OS_VERSION: '$OS_VERSION'"
    echo "  MPICH_VERSION: '$MPICH_VERSION'"
-   if [[ -z "$OF_FORK" || -z "$OF_VERSION" || -z "$OS_VERSION" || -z "$MPICH_VERSION" ]]; then
+   if [[ -z "$OF_FORK" || -z "$OF_VERSION" || -z "$GCC_VERSION" || \
+         -z "$WM_LABEL_SIZE" || -z "$WM_PRECISION_OPTION" || -z "$WM_COMPILE_OPTION" || \
+         -z "$OS_VERSION" || -z "$MPICH_VERSION" ]]; then
       echo "✖ Step $testNum FAIL: Failed to extract required variables from Dockerfile"
       ((totalFailed++))
       exit 1
    fi
+
+   # Record only the source-image build-argument overrides requested for this conversion.
+   {
+      echo "# Source-image build-argument overrides requested for this Singularity conversion."
+      if [[ ${#buildArgValues[@]} -eq 0 ]]; then
+         echo "# None. Dockerfile defaults were used."
+      else
+         for argumentName in "${!buildArgValues[@]}"; do
+            printf '%s=%q
+' "$argumentName" "${buildArgValues[$argumentName]}"
+         done | sort
+      fi
+   } > "$sourceBuildArgumentsFile"
+
    imageName="${OF_FORK}"
-   imageTag="${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
+   imageTag="${OF_VERSION}-gcc${GCC_VERSION}${WM_PRECISION_OPTION}Int${WM_LABEL_SIZE}${WM_COMPILE_OPTION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
    imageFull="${imageName}:${imageTag}"
 fi
 echo "  imageName: $imageName"
@@ -567,6 +693,15 @@ if [[ -f "$imageSif" && $buildExit -eq 0 ]]; then
       echo "Mode: $MODE"
       echo "Source kind: $sourceKind"
       echo "Source image: $singularitySource"
+      echo "Source image name: $imageName"
+      echo "Source image tag: $imageTag"
+      if [[ -n "${GCC_VERSION:-}" ]]; then
+         echo "GCC version: $GCC_VERSION"
+         echo "WM label size: $WM_LABEL_SIZE"
+         echo "WM precision option: $WM_PRECISION_OPTION"
+         echo "WM compile option: $WM_COMPILE_OPTION"
+         echo "Source build-argument overrides: $sourceBuildArgumentsFile"
+      fi
       echo "SIF image: $imageSif"
       echo "SIF SHA256: $imageChecksum"
       echo "Build timestamp: $buildTimestamp"

@@ -17,10 +17,14 @@
 # reference or a path to a Singularity SIF image.
 #
 # Examples:
-#   openfoamBasicTests.sh --recipe-dir v2406 --engine podman \
-#      --image openfoam:v2406
-#   openfoamBasicTests.sh --config v2406/buildAndValidationConfig/openfoamBuildAndValidation.config \
-#      --engine singularity --tool icoFoam --image openfoam--v2406.sif
+#   openfoamBasicTests.sh --recipe-dir openfoam/v2606 --engine podman \
+#      --image openfoam:v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04
+#
+#   openfoamBasicTests.sh \
+#      --config openfoam/v2606/buildAndValidationConfig/openfoamBuildAndValidation.config \
+#      --engine singularity \
+#      --tool icoFoam \
+#      --image openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
 #
 # The script stops at the first failed check and returns a nonzero exit status.
 # A successful run confirms that the engine and image are accessible, the
