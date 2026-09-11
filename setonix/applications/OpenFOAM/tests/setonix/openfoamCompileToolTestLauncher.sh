@@ -44,13 +44,13 @@
 # Examples:
 #
 #   ./openfoamCompileToolTestLauncher.sh \
-#      --recipe-dir openfoam/v2412 \
-#      --image /path/to/openfoam--v2412-mpich4.2.2-ubuntu24.04.sif
+#      --recipe-dir openfoam/v2606 \
+#      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
 #
 #   ./openfoamCompileToolTestLauncher.sh \
-#      --config openfoam/v2412/buildAndValidationConfig/openfoamBuildAndValidation.config \
-#      --image /path/to/openfoam--v2412-mpich4.2.2-ubuntu24.04.sif \
-#      --work-root "$MYSCRATCH/OpenFOAM-functional-tests/manual-v2412" \
+#      --config openfoam/v2606/buildAndValidationConfig/openfoamBuildAndValidation.config \
+#      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif \
+#      --work-root "$MYSCRATCH/OpenFOAM-functional-tests/manual-v2606" \
 #      --partition work
 #
 # Exit status:

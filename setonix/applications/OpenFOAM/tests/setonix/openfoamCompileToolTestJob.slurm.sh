@@ -25,11 +25,11 @@
 #
 # Examples:
 #   sbatch openfoamCompileToolTestJob.slurm.sh \
-#      --recipe-dir v2406 --image /path/to/openfoam-v2406.sif
+#      --recipe-dir v2406 --image /path/to/openfoam--v2406-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
 #
 #   sbatch openfoamCompileToolTestJob.slurm.sh \
 #      --config v2406/buildAndValidationConfig/openfoamBuildAndValidation.config \
-#      --image /path/to/openfoam-v2406.sif \
+#      --image /path/to/openfoam--v2406-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif \
 #      --work-root "$MYSCRATCH/OpenFOAM-functional-tests/$USER-v2406"
 #
 # Exit status:

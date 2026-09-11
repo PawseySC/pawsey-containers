@@ -31,11 +31,13 @@
 # treated as a path and causes its associated validation step to be skipped.
 #
 # Examples:
-#   openfoamImageValidation.sh --recipe-dir openfoam/v2406 --engine podman \
-#      --image openfoam:v2406-mpich4.2.2-ubuntu24.04
+#   openfoamImageValidation.sh --recipe-dir openfoam/v2606 --engine podman \
+#      --image openfoam:v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04
 #
-#   openfoamImageValidation.sh --config openfoam/v2406/buildAndValidationConfig/openfoamBuildAndValidation.config \
-#      --engine singularity --image /path/to/openfoam--v2406-mpich4.2.2-ubuntu24.04.sif
+#   openfoamImageValidation.sh \
+#      --config openfoam/v2606/buildAndValidationConfig/openfoamBuildAndValidation.config \
+#      --engine singularity \
+#      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
 #
 #   openfoamImageValidation.sh --help
 #

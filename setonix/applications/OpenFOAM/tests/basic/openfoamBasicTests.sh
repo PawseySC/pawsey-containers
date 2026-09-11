@@ -24,7 +24,7 @@
 #      --config openfoam/v2606/buildAndValidationConfig/openfoamBuildAndValidation.config \
 #      --engine singularity \
 #      --tool icoFoam \
-#      --image openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
+#      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
 #
 # The script stops at the first failed check and returns a nonzero exit status.
 # A successful run confirms that the engine and image are accessible, the
