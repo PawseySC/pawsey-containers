@@ -537,14 +537,16 @@ RUN set -eux; \
 
 #---------------------------------------------------------------
 # L.3 Defining documented labels
+ARG IMAGE_TITLE="rocm-mpich-base"
 LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
-LABEL org.opencontainers.image.title="rocm-mpich-base"
+LABEL org.opencontainers.image.title="${IMAGE_TITLE}"
 LABEL org.opencontainers.image.version="rocm${ROCM_VERSION}-mpich${MPICH_VERSION}-lustre${LUSTRE_VERSION}-ubuntu${OS_VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
 LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
 
 #---------------------------------------------------------------
 # L.4 Copy the recipe into the docker recipes directory
+ARG INTERNAL_BUILD_INFO_SUBDIR="${IMAGE_BUILD_INFO_DIR}/${IMAGE_TITLE}"
 RUN set -eux; \
-    mkdir -p "${IMAGE_BUILD_INFO_DIR}"
-COPY buildrocm-mpich-base.dockerfile "${IMAGE_BUILD_INFO_DIR}"
+    mkdir -p "${INTERNAL_BUILD_INFO_SUBDIR}"
+COPY buildrocm-mpich-base.dockerfile "${INTERNAL_BUILD_INFO_SUBDIR}"

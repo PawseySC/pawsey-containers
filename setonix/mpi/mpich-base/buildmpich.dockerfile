@@ -207,14 +207,16 @@ ARG IMAGE_BUILD_INFO_DIR
 
 #---------------------------------------------------------------
 # F.1 Defining documented labels
+ARG IMAGE_TITLE="mpich-base"
 LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
-LABEL org.opencontainers.image.title="mpich-base"
+LABEL org.opencontainers.image.title="${IMAGE_TITLE}"
 LABEL org.opencontainers.image.version="mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
 LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
 
 #---------------------------------------------------------------
 # F.2 Copy the recipe into the docker recipes directory
+ARG INTERNAL_BUILD_INFO_SUBDIR="${IMAGE_BUILD_INFO_DIR}/${IMAGE_TITLE}"
 RUN set -eux; \
-    mkdir -p "${IMAGE_BUILD_INFO_DIR}"
-COPY buildmpich.dockerfile "${IMAGE_BUILD_INFO_DIR}"
+    mkdir -p "${INTERNAL_BUILD_INFO_SUBDIR}"
+COPY buildmpich.dockerfile "${INTERNAL_BUILD_INFO_SUBDIR}"
