@@ -112,15 +112,8 @@ echo "Output directory: $OUTPUT_DIR"
 #--- Modules and settings
 module load "${SINGULARITY_MODULE}"
 
-# Special settings for specific clusters
-if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]] &&
-   specialSettingsFile="${TESTS_SUPPORT_DIR}/common.Joey.settings.sh" &&
-   [[ -f "${specialSettingsFile}" ]]; then
-    source "${specialSettingsFile}"
-elif [[ "${PAWSEY_CLUSTER:-}" == "setonix" ]] &&
-   specialSettingsFile="${TESTS_SUPPORT_DIR}/common.Setonix.settings.sh" &&
-   [[ -f "${specialSettingsFile}" ]]; then
-    source "${specialSettingsFile}"
+if [[ "${PAWSEY_CLUSTER:-}" == "joey" ]]; then
+    source "${TESTS_SUPPORT_DIR}/common.Joey.settings.sh"
 fi
 
 module list
