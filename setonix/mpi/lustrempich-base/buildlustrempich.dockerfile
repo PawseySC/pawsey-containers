@@ -32,7 +32,7 @@ ARG LINUX_KERNEL="6.8.0-31"
 ARG LUSTRE_VERSION="release"
 
 # 0.2 Other auxiliary variables to ease building
-ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
+ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
 
 
 #---------------------------------------------------------------
@@ -42,11 +42,23 @@ ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 FROM ${BASE_IMAGE_FULL} AS basic_stage
 #---------------------------------------------------------------
 # A.0 Recall global definitions made at the top
+ARG MPICH_VERSION
+ARG OS_VERSION
+ARG DOCKER_RECIPES_DIR
 ARG GCC_VERSION
 ARG LINUX_KERNEL
+ARG LUSTRE_VERSION
 
 #---------------------------------------------------------------
-# A.1 Installing basic requirements
+# A.1 Defining documented labels
+LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
+LABEL org.opencontainers.image.name="mpich-lustre-base"
+LABEL org.opencontainers.image.branch="mpich${MPICH_VERSION}-lustre${LUSTRE_VERSION}-ubuntu${OS_VERSION}"
+LABEL org.opencontainers.image.dockerfile-internal-backup="${DOCKER_RECIPES_DIR}"
+LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawsey-containers"
+
+#---------------------------------------------------------------
+# A.2 Installing basic requirements
 RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt-get update; \
@@ -195,6 +207,7 @@ RUN set -eux; \
     rm -rf /tmp/mpich-build
 
 
+
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -279,21 +292,10 @@ RUN set -eux; \
 FROM other_tests AS final_settings
 #---------------------------------------------------------------
 # G.0 Recall global definitions made at the top
-ARG MPICH_VERSION
-ARG OS_VERSION
-ARG LUSTRE_VERSION
-ARG IMAGE_BUILD_INFO_DIR
+ARG DOCKER_RECIPES_DIR
 
 #---------------------------------------------------------------
-# G.1 Defining documented labels
-LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
-LABEL org.opencontainers.image.title="mpich-lustre-base"
-LABEL org.opencontainers.image.version="mpich${MPICH_VERSION}-lustre${LUSTRE_VERSION}-ubuntu${OS_VERSION}"
-LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
-LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
-
-#---------------------------------------------------------------
-# G.2 Copy the recipe into the docker recipes directory
+# G.1 Copy the recipe into the docker recipes directory
 RUN set -eux; \
-    mkdir -p "${IMAGE_BUILD_INFO_DIR}"
-COPY buildlustrempich.dockerfile "${IMAGE_BUILD_INFO_DIR}"
+    mkdir -p "${DOCKER_RECIPES_DIR}"
+COPY buildlustrempich.dockerfile "${DOCKER_RECIPES_DIR}"

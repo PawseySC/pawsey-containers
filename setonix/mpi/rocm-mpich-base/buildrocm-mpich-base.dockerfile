@@ -45,7 +45,7 @@ ARG ARCH="amd64"
 ARG GFX_ARCH="gfx90a"
 
 # 0.2 Other auxiliary variables to ease building
-ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
+ARG DOCKER_RECIPES_DIR="/opt/docker-recipes"
 
 
 #---------------------------------------------------------------
@@ -55,11 +55,24 @@ ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 FROM ${BASE_IMAGE_FULL} AS basic_stage
 #---------------------------------------------------------------
 # A.0 Recall global definitions made at the top
+ARG MPICH_VERSION
+ARG OS_VERSION
+ARG DOCKER_RECIPES_DIR
 ARG GCC_VERSION
 ARG LINUX_KERNEL
+ARG ROCM_VERSION
+ARG LUSTRE_VERSION
 
 #---------------------------------------------------------------
-# A.1 Installing basic requirements
+# A.1 Defining documented labels
+LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
+LABEL org.opencontainers.image.name="rocm-mpich-base"
+LABEL org.opencontainers.image.branch="rocm${ROCM_VERSION}-mpich${MPICH_VERSION}-lustre${LUSTRE_VERSION}-ubuntu${OS_VERSION}"
+LABEL org.opencontainers.image.dockerfile-internal-backup="${DOCKER_RECIPES_DIR}"
+LABEL org.opencontainers.image.git-repository="https://github.com/PawseySC/pawsey-containers"
+
+#---------------------------------------------------------------
+# A.2 Installing basic requirements
 RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt-get update; \
@@ -512,11 +525,7 @@ RUN set -eux; \
 FROM other_tests AS final_settings
 #---------------------------------------------------------------
 # L.0 Recall global definitions made at the top
-ARG MPICH_VERSION
-ARG OS_VERSION
-ARG LUSTRE_VERSION
-ARG ROCM_VERSION
-ARG IMAGE_BUILD_INFO_DIR
+ARG DOCKER_RECIPES_DIR
 
 #---------------------------------------------------------------
 # L.1 Set some environment variables related to gpu communication and libfabric
@@ -525,7 +534,6 @@ ENV ROCM_PATH=/opt/rocm
 ENV HSA_FORCE_FINE_GRAIN_PCIE=1
 ENV FI_CXI_DISABLE_CQ_HUGETLB=1
 
-#---------------------------------------------------------------
 # L.2 Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
 #              Standard naming of "environment" scripts is 9X-environment.sh
 RUN mkdir -p /.singularity.d/env/
@@ -535,16 +543,7 @@ RUN set -eux; \
     echo "export HSA_FORCE_FINE_GRAIN_PCIE=${HSA_FORCE_FINE_GRAIN_PCIE}" >> /.singularity.d/env/91-environment.sh; \
     echo "export FI_CXI_DISABLE_CQ_HUGETLB=${FI_CXI_DISABLE_CQ_HUGETLB}" >> /.singularity.d/env/91-environment.sh
 
-#---------------------------------------------------------------
-# L.3 Defining documented labels
-LABEL org.opencontainers.image.authors="Pascal Jahan Elahi <pascal.elahi@pawsey.org.au>, Alexis Espinosa <alexis.espinosa@pawsey.org.au>, Craig Meyer <cmeyer@pawsey.org.au>, Deva Deeptimahanti <deva.deeptimahanti@pawsey.org.au>"
-LABEL org.opencontainers.image.title="rocm-mpich-base"
-LABEL org.opencontainers.image.version="rocm${ROCM_VERSION}-mpich${MPICH_VERSION}-lustre${LUSTRE_VERSION}-ubuntu${OS_VERSION}"
-LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
-LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
-
-#---------------------------------------------------------------
-# L.4 Copy the recipe into the docker recipes directory
+# L.3 Copy the recipe into the docker recipes directory
 RUN set -eux; \
-    mkdir -p "${IMAGE_BUILD_INFO_DIR}"
-COPY buildrocm-mpich-base.dockerfile "${IMAGE_BUILD_INFO_DIR}"
+    mkdir -p "${DOCKER_RECIPES_DIR}"
+COPY buildrocm-mpich-base.dockerfile "${DOCKER_RECIPES_DIR}"
