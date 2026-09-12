@@ -1,5 +1,5 @@
 #!/bin/bash --login
-# Run and validate the OpenFOAM v2406 periodicPlaneChannel tutorial in parallel.
+# Run and validate the version-specific OpenFOAM periodicPlaneChannel tutorial in parallel.
 #
 # This Slurm job is the final stage of the version-specific tutorial test. It
 # expects preFoam.slurm.sh to have prepared and decomposed the case. It checks the
@@ -61,13 +61,13 @@ Options:
   --image, -i <file>          Singularity image containing the OpenFOAM solver
   --work-root, -w <directory>
                              Override the shared host work root. By default, the
-                             script uses MYSCRATCH/OpenFOAM/$USER-v2406.
+                             script uses MYSCRATCH/OpenFOAM/<user>-<configured-OpenFOAM-version>.
   --config <file>                Version configuration file; required for direct execution
   --test-artifacts-dir <directory>      Test-artifact destination; defaults to <work-root>/test-output
   --help, -h                 Show this help message and exit
 
 Default work root:
-  ${MYSCRATCH:-${TMPDIR:-$HOME}}/OpenFOAM/${USER}-v2406
+  ${MYSCRATCH:-${TMPDIR:-$HOME}}/OpenFOAM/<user>-<configured-OpenFOAM-version>
 USAGE
 }
 
@@ -138,7 +138,7 @@ if [[ -n "$workRootInput" ]]; then
    workRoot=$(realpath -m "$workRootInput")
 else
    baseWorkDir=${MYSCRATCH:-${TMPDIR:-$HOME}}
-   workRoot="${baseWorkDir}/OpenFOAM/${USER}-v2406"
+   workRoot="${baseWorkDir}/OpenFOAM/${USER}-${OPENFOAM_VERSION}"
 fi
 TEST_CASE="${workRoot}/run/${CASE_NAME}"
 

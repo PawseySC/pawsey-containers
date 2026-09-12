@@ -9,7 +9,7 @@
 # The script runs directly on a login node and does not submit a Slurm job. The
 # general tutorial-test launcher is expected to call this script before it
 # submits preFoam.slurm.sh and runFoam.slurm.sh. The image is supplied by the caller. The host work root may be supplied by the
-# launcher or omitted when running directly, in which case a stable v2406 default
+# launcher or omitted when running directly, in which case a stable version-configured default
 # is used.
 #
 # Usage:
@@ -27,7 +27,7 @@
 set -u
 
 # --- Version-specific tutorial settings
-# This extraction script belongs to the same v2406 workflow as preFoam.slurm.sh
+# This extraction script belongs to the same version-specific workflow as preFoam.slurm.sh
 # and runFoam.slurm.sh, so all three scripts intentionally use the same case.
 CASE_NAME="periodicPlaneChannel"
 
@@ -51,7 +51,7 @@ Options:
   --image, -i <file>          Singularity image containing the tutorial case
   --work-root, -w <directory>
                              Override the host work root. By default, the script
-                             uses MYSCRATCH/OpenFOAM/$USER-v2406.
+                             uses MYSCRATCH/OpenFOAM/<user>-<configured-OpenFOAM-version>.
   --overwrite                  Remove the existing target case before copying
   --config <file>                Version configuration file; required for direct execution
   --test-artifacts-dir <directory>      Test-artifact destination; defaults to <work-root>/test-output
@@ -61,7 +61,7 @@ The target case is created as:
   <work-root>/run/$CASE_NAME
 
 Default work root:
-  ${MYSCRATCH:-${TMPDIR:-$HOME}}/OpenFOAM/${USER}-v2406
+  ${MYSCRATCH:-${TMPDIR:-$HOME}}/OpenFOAM/<user>-<configured-OpenFOAM-version>
 
 By default, the target case must not already exist. Use --overwrite to remove
 and replace only the target case directory.
@@ -138,7 +138,7 @@ if [[ -n "$workRootInput" ]]; then
    workRoot=$(realpath -m "$workRootInput")
 else
    baseWorkDir=${MYSCRATCH:-${TMPDIR:-$HOME}}
-   workRoot="${baseWorkDir}/OpenFOAM/${USER}-v2406"
+   workRoot="${baseWorkDir}/OpenFOAM/${USER}-${OPENFOAM_VERSION}"
 fi
 hostRunDir="${workRoot}/run"
 

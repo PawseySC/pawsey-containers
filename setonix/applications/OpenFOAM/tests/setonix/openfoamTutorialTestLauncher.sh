@@ -27,10 +27,12 @@
 #
 # Examples:
 #   tests/setonix/openfoamTutorialTestsLauncher.sh \
-#      --recipe-dir v2406 --image /path/to/openfoam-v2406.sif
+#      --recipe-dir v2406 \
+#      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
 #
 #   tests/setonix/openfoamTutorialTestsLauncher.sh \
-#      --recipe-dir v2406 --image /path/to/openfoam-v2406.sif \
+#      --recipe-dir v2406 \
+#      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif \
 #      --work-root "$MYSCRATCH/OpenFOAM-functional-tests/v2406-manual"
 #
 # Exit status:
