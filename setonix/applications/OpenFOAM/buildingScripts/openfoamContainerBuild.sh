@@ -351,6 +351,42 @@ for argumentName in "${!buildArgValues[@]}"; do
    fi
 done
 
+# --- Validate supported OpenFOAM compilation-setting overrides
+# Validate these values before starting Docker or Podman. The recipe repeats the
+# checks defensively for users who invoke the container engine directly.
+if [[ -v 'buildArgValues[WM_LABEL_SIZE]' ]]; then
+   case "${buildArgValues[WM_LABEL_SIZE]}" in
+      32|64) ;;
+      *)
+         echo "ERROR: Invalid WM_LABEL_SIZE='${buildArgValues[WM_LABEL_SIZE]}'" >&2
+         echo "       Supported values: 32, 64" >&2
+         exit 1
+         ;;
+   esac
+fi
+
+if [[ -v 'buildArgValues[WM_PRECISION_OPTION]' ]]; then
+   case "${buildArgValues[WM_PRECISION_OPTION]}" in
+      DP|SP|SPDP) ;;
+      *)
+         echo "ERROR: Invalid WM_PRECISION_OPTION='${buildArgValues[WM_PRECISION_OPTION]}'" >&2
+         echo "       Supported values: DP, SP, SPDP" >&2
+         exit 1
+         ;;
+   esac
+fi
+
+if [[ -v 'buildArgValues[WM_COMPILE_OPTION]' ]]; then
+   case "${buildArgValues[WM_COMPILE_OPTION]}" in
+      Opt|Debug|Prof) ;;
+      *)
+         echo "ERROR: Invalid WM_COMPILE_OPTION='${buildArgValues[WM_COMPILE_OPTION]}'" >&2
+         echo "       Supported values: Opt, Debug, Prof" >&2
+         exit 1
+         ;;
+   esac
+fi
+
 # --- Validate the selected container engine
 if [[ -z "$ENGINE" ]]; then
    echo "ERROR: --engine docker|podman is required" >&2

@@ -12,6 +12,7 @@ ARG OF_FORK="openfoam"
 # USER_BUILD_ARG
 ARG OF_VERSION="v2412"
 # GCC version fixed for this recipe and used for package installation, compiler selection, validation and image naming
+# GCC 13 is default for Ubuntu 24.04, and is working fine with this version of OpenFOAM. However, GCC 9 is the default for Ubuntu 20.04 and is the existing compiler when this OpenFOAM version was released. Therefore, GCC 9 is used in this recipe to ensure compatibility with the OpenFOAM version.
 ARG GCC_VERSION="13"
 
 # 0.2 OpenFOAM compilation settings supported as user build-argument overrides
@@ -133,10 +134,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 
 
 #---------------------------------------------------------------
-# B.2 Select the Ubuntu 24.04 default compiler family for all subsequent build stages
-# GCC 13 is the default GCC family for Ubuntu 24.04.
-# Versioned packages and an isolated command directory ensure that this exact
-# compiler family is selected explicitly instead of relying on unversioned defaults.
+# B.2 Explicitly select the configured GCC version
+# Versioned compiler packages and an isolated command directory ensure that
+# GCC_VERSION selects the compiler family used by all subsequent build stages.
 # Recall global definitions made at the top
 ARG GCC_VERSION
 # Create an isolated command directory for the selected compiler version
@@ -212,18 +212,9 @@ ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
 ARG OF_PREFS_HEADER_LINES=26
 
 # Validate the supported OpenFOAM compilation settings before using them
-RUN case "$WM_LABEL_SIZE" in \
-      32|64) ;; \
-      *) echo "ERROR: Invalid WM_LABEL_SIZE='$WM_LABEL_SIZE'. Supported values: 32, 64." >&2; exit 1 ;; \
-    esac \
- && case "$WM_PRECISION_OPTION" in \
-      DP|SP|SPDP) ;; \
-      *) echo "ERROR: Invalid WM_PRECISION_OPTION='$WM_PRECISION_OPTION'. Supported values: DP, SP, SPDP." >&2; exit 1 ;; \
-    esac \
- && case "$WM_COMPILE_OPTION" in \
-      Opt|Debug|Prof) ;; \
-      *) echo "ERROR: Invalid WM_COMPILE_OPTION='$WM_COMPILE_OPTION'. Supported values: Opt, Debug, Prof." >&2; exit 1 ;; \
-    esac
+RUN test "$WM_LABEL_SIZE" = "32" -o "$WM_LABEL_SIZE" = "64"
+RUN test "$WM_PRECISION_OPTION" = "DP" -o "$WM_PRECISION_OPTION" = "SP" -o "$WM_PRECISION_OPTION" = "SPDP"
+RUN test "$WM_COMPILE_OPTION" = "Opt" -o "$WM_COMPILE_OPTION" = "Debug" -o "$WM_COMPILE_OPTION" = "Prof"
 
 #Updating the prefs.sh file
 RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
@@ -305,6 +296,28 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 #--Dummy line to avoid tracking continuation lines:
  && echo ''
 
+#---------------------------------------------------------------
+# D.4 Validate and display the effective OpenFOAM compilation settings
+# The values were validated before updating prefs.sh. This final check confirms
+# that the completed OpenFOAM settings produce the requested environment.
+# Auxiliary arguments
+ARG BASHRC_OPTIONS=""
+
+RUN expectedValue="${WM_LABEL_SIZE}" \
+ && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && test "$WM_LABEL_SIZE" = "$expectedValue"
+RUN expectedValue="${WM_PRECISION_OPTION}" \
+ && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && test "$WM_PRECISION_OPTION" = "$expectedValue"
+RUN expectedValue="${WM_COMPILE_OPTION}" \
+ && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && test "$WM_COMPILE_OPTION" = "$expectedValue"
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && echo "WM_LABEL_SIZE=$WM_LABEL_SIZE" \
+ && echo "WM_PRECISION_OPTION=$WM_PRECISION_OPTION" \
+ && echo "WM_COMPILE_OPTION=$WM_COMPILE_OPTION" \
+ && echo "WM_OPTIONS=$WM_OPTIONS"
+
 
 #---------------------------------------------------------------
 #---------------------------------------------------------------
@@ -315,9 +328,6 @@ FROM update_settings AS third_party_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
-ARG WM_LABEL_SIZE
-ARG WM_PRECISION_OPTION
-ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
 # USER_BUILD_ARG
@@ -329,24 +339,7 @@ ARG TP_COMPILE_TASKS="16"
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# E.1 Validate and display the effective OpenFOAM compilation settings
-# These 3 settings have been defined as USER_BUILD_ARG and can be set at the top
-# or overridden with `--build-arg` when using the building script. Or directly
-# in the command line when using `docker build` or `podman build`.
-RUN expectedWM_LABEL_SIZE="${WM_LABEL_SIZE}" \
- && expectedWM_PRECISION_OPTION="${WM_PRECISION_OPTION}" \
- && expectedWM_COMPILE_OPTION="${WM_COMPILE_OPTION}" \
- && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
- && test "$WM_LABEL_SIZE" = "$expectedWM_LABEL_SIZE" \
- && test "$WM_PRECISION_OPTION" = "$expectedWM_PRECISION_OPTION" \
- && test "$WM_COMPILE_OPTION" = "$expectedWM_COMPILE_OPTION" \
- && echo "WM_LABEL_SIZE=$WM_LABEL_SIZE" \
- && echo "WM_PRECISION_OPTION=$WM_PRECISION_OPTION" \
- && echo "WM_COMPILE_OPTION=$WM_COMPILE_OPTION" \
- && echo "WM_OPTIONS=$WM_OPTIONS"
-
-#---------------------------------------------------------------
-# E.2 Third-Party compilation
+# E.1 Third-Party compilation
 # IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
 #            and 1 final parallel authoritative compilation pass.
 #            This because some compilation race conditions were found when compiling in a single parallel pass.
@@ -754,9 +747,6 @@ FROM pv_install AS of_install
 #---------------------------------------------------------------
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
-ARG WM_LABEL_SIZE
-ARG WM_PRECISION_OPTION
-ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 # USER_BUILD_ARG
 ARG OF_COMPILE_TASKS=16
@@ -777,24 +767,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && sed -i '1s|/bin/sh|/bin/bash|' Allwmake
 
 #---------------------------------------------------------------
-# G.2 Validate and display the effective OpenFOAM compilation settings
-# These 3 settings have been defined as USER_BUILD_ARG and can be set at the top
-# or overridden with `--build-arg` when using the building script. Or directly
-# in the command line when using `docker build` or `podman build`.
-RUN expectedWM_LABEL_SIZE="${WM_LABEL_SIZE}" \
- && expectedWM_PRECISION_OPTION="${WM_PRECISION_OPTION}" \
- && expectedWM_COMPILE_OPTION="${WM_COMPILE_OPTION}" \
- && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
- && test "$WM_LABEL_SIZE" = "$expectedWM_LABEL_SIZE" \
- && test "$WM_PRECISION_OPTION" = "$expectedWM_PRECISION_OPTION" \
- && test "$WM_COMPILE_OPTION" = "$expectedWM_COMPILE_OPTION" \
- && echo "WM_LABEL_SIZE=$WM_LABEL_SIZE" \
- && echo "WM_PRECISION_OPTION=$WM_PRECISION_OPTION" \
- && echo "WM_COMPILE_OPTION=$WM_COMPILE_OPTION" \
- && echo "WM_OPTIONS=$WM_OPTIONS"
-
-#---------------------------------------------------------------
-# G.3 OpenFOAM compilation
+# G.2 OpenFOAM compilation
 #     Adapted from OpenFoamWiki v1806 (last version documented in the wiki)
 # IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
 #            and 1 final parallel authoritative compilation pass.
@@ -943,14 +916,14 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && ./Allwmake -j"$OF_PASS_TASKS" 2>&1 | tee log.Allwmake.AuthoritativeSummary
 
 #---------------------------------------------------------------
-# G.4 Checking if a popular executable is working
+# G.3 Checking if a popular executable is working
 ARG OF_TOOL="icoFoam"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && $OF_TOOL -help 2>&1 | tee log.OF_TOOL
 
 #---------------------------------------------------------------
-# G.5 Printing out the environment variables for the installation so far:
+# G.4 Printing out the environment variables for the installation so far:
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && cd $WM_PROJECT_DIR \
  && printenv > environment_vars_raw.txt
