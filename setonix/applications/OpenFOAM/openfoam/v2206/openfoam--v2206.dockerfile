@@ -232,7 +232,7 @@ ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG OF_PREFS_TEMPLATE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh"
 ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
-ARG OF_PREFS_HEADER_LINES=23
+ARG OF_PREFS_HEADER_LINES=26
 
 # Validate the supported OpenFOAM compilation settings before using them
 RUN case "$WM_LABEL_SIZE" in \

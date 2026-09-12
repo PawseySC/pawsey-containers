@@ -3,7 +3,7 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base container to build from
-# IMPORTANT: 
+# IMPORTANT:
 # Setonix needs at least ubuntu24.04 (From August 2025)
 FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu24.04
 
@@ -129,7 +129,7 @@ ARG OFBASHRC=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/bashrc
 
 #...........
 #Defining the prefs.sh:
-RUN head -23 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh > $OFPREFS \
+RUN head -37 ${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/example/prefs.sh > $OFPREFS \
  && echo '#------------------------------------------------------------------------------' >> ${OFPREFS} \
 #Using a combination of the variable definition recommended for the use of system mpich in this link:
 #   https://bugs.openfoam.org/view.php?id=1167
@@ -171,7 +171,7 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
  && sed -i '0,/\[ "$BASH"/s//# \[ "$BASH"/' ${OFBASHRC} \
  && sed -i '0,/^# export FOAM_INST_DIR=.*/!b;//a\export FOAM_INST_DIR='"${OFINSTDIR}" ${OFBASHRC} \
 #" (This comment line is needed to let vi to show the right syntax when editing this Dockerfile)
-#Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file 
+#Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
 #   1. You can mount a directory of your local-host into this directory
 #   2. Or you can include and build stuff inside the image and save it as your own image for later use.
@@ -187,7 +187,7 @@ ARG BASHRC_OPTIONS=""
 
 #...........
 #Step 4.
-#Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
+#Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation)
 #AEG:NoThirdPartyCGAL&Boost. There is no indication for how to install CGAL or Boost here.
 #                            So, if needed, will first be tried to install with apt-get at the top of this recipe.
 #                            It seems that "foamyHexMesh" has been deprecated, so CGAL seems not to be needed.
@@ -214,9 +214,9 @@ RUN . ${OFBASHRC} ${BASHRC_OPTIONS} \
 #Install paraview for graphical postprocessing to be available in the container
 #Catalyst tools are not available for the foundation version
 
-# CMEYER: Paraview is failing to build in ubuntu24.04 with default Python and Compiler. So Paraview (or paraFoam) will not work inside this container. 
+# CMEYER: Paraview is failing to build in ubuntu24.04 with default Python and Compiler. So Paraview (or paraFoam) will not work inside this container.
 # If there is still interest to compile it, the recommendation is to try installing an old verion of Python and gcc and attempt compilation again or else
-# upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam 
+# upgrade to ParaView/6.0.0, which compiles fine with default python and compilers in container, but may have runtime issues with older openfoam
 # due to how comparaitvely new it is
 #AEG: foundation source files do not count with makeVTK script, so will not attempt to install VTK
 #NotForUb24.04#Downloading first ParaView with wget because automatic download with curl is failing

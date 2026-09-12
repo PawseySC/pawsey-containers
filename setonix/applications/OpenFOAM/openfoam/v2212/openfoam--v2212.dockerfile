@@ -232,7 +232,7 @@ ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG OF_PREFS_TEMPLATE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh"
 ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
-ARG OF_PREFS_HEADER_LINES=23
+ARG OF_PREFS_HEADER_LINES=26
 
 # Validate the supported OpenFOAM compilation settings before using them
 RUN test "$WM_LABEL_SIZE" = "32" -o "$WM_LABEL_SIZE" = "64"
@@ -323,9 +323,19 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 # D.4 Validate and display the effective OpenFOAM compilation settings
 # The values were validated before updating prefs.sh. This final check confirms
 # that the completed OpenFOAM settings produce the requested environment.
+# Recall global definitions made at the top
+ARG OF_BASHRC_FILE
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
 
+# Using bash to interpret OpenFOAM scripts (and allow `source` command)
+# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+SHELL ["/bin/bash","-o","pipefail","-c"]
+
+#Run the checks
 RUN expectedValue="${WM_LABEL_SIZE}" \
  && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && test "$WM_LABEL_SIZE" = "$expectedValue"
@@ -357,8 +367,8 @@ ARG BASHRC_OPTIONS=""
 ARG TP_COMPILE_TASKS="16"
 
 #---------------------------------------------------------------
-#Using bash to interpret OpenFOAM scripts
-#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+# Using bash to interpret OpenFOAM scripts (and allow `source` command)
+# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -531,8 +541,8 @@ ARG PV_COMPILE_TASKS=16
 #Paraview needed for catalyst module to properly compile (wont work with just VTK)
 
 #---------------------------------------------------------------
-#Using bash to interpret OpenFOAM scripts
-#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+# Using bash to interpret OpenFOAM scripts (and allow `source` command)
+# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -744,8 +754,8 @@ ARG OF_COMPILE_TASKS=16
 ARG BASHRC_OPTIONS=""
 
 #---------------------------------------------------------------
-#Using bash to interpret OpenFOAM scripts
-#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+# Using bash to interpret OpenFOAM scripts (and allow `source` command)
+# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -969,8 +979,8 @@ ARG ENTRYPOINT_FILE_TEMPLATE="docker-entrypoint-openfoam-template.sh"
 ARG ENTRYPOINT_FILE_DOCKER="/usr/local/bin/docker-entrypoint-openfoam.sh"
 #ARG ENTRYPOINT_FILE_DOCKER="/etc/profile.d/docker-entrypoint-openfoam.sh"
 
-# Using bash to interpret the entry script
-#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+# Using bash to interpret the entry script (and allow `source` command)
+# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 # Copy and update the ENTRYPOINT_FILE_DOCKER script with the right OF_BASHRC_FILE definition in this recipe
