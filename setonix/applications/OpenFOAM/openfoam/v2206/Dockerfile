@@ -1,1 +1,0 @@
-openfoam--v2206.dockerfile
