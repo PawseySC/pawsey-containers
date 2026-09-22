@@ -33,7 +33,7 @@ module load reframe/4.7.3
 export RFM_ENABLE_RESULTS_STORAGE=0
 
 # Reframe files
-RFM_TEST_FILE="${SHARED_TESTS_DIR}/lustre-mpich-base_tests.py"
+RFM_TEST_FILE="${SHARED_TESTS_DIR}/lustrempich-base_tests.py"
 RFM_SETTINGS_FILE="${TESTS_SUPPORT_DIR}/rfm_settings.py"
 
 # Run tests - store stage and output directories under $ARTIFACTS_DIR
