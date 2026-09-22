@@ -1,11 +1,11 @@
 # Build with mpich
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu24.04
+FROM quay.io/pawsey/mpich-base:mpich4.2.2-ubuntu24.04
 
 SHELL [ "/bin/bash", "-c" ]
 
 # Prefix for tarball containing source
 # Cannot provide source directly due to namd license, so this recipe requires whoever is running it to already have access to the source tarball
-ARG NAMD_SOURCE="NAMD_3.0.1_Source"
+ARG NAMD_SOURCE="NAMD_3.0.3_Source"
 
 ADD ${NAMD_SOURCE}.tar.gz /tmp/namd-build
 

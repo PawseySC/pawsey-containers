@@ -1,5 +1,5 @@
-# Build with mpich and rocm/6.3.0
-FROM quay.io/pawsey/rocm-mpich-base:rocm6.3.0-mpich3.4.3-ubuntu24.04
+# Build with mpich and rocm/7.1.0
+FROM quay.io/pawsey/rocm-mpich-base:rocm7.1.0-mpich4.2.2-lustrerelease-ubuntu24.04
 
 SHELL [ "/bin/bash", "-c" ]
 
@@ -14,7 +14,7 @@ RUN echo "Install apt packages" \
 ENV ROCM_PATH=/opt/rocm
 # Prefix for tarball containing source
 # Cannot provide source directly due to namd license, so this recipe requires whoever is running it to already have access to the source tarball
-ARG NAMD_SOURCE="NAMD_3.0.1_Source"
+ARG NAMD_SOURCE="NAMD_3.0.3_Source"
 
 ADD ${NAMD_SOURCE}.tar.gz /tmp/namd-build
 
@@ -41,11 +41,20 @@ RUN wget http://www.ks.uiuc.edu/Research/namd/libraries/tcl8.6.13-linux-x86_64.t
     && mv tcl8.6.13-linux-x86_64 tcl \
     && mv tcl8.6.13-linux-x86_64-threaded tcl-threaded
 
-# Set up build directory and compile, setting offload architecture
-# Builds GPU-resident HIP-enabled namd
+# Set up build directory and build namd, setting offload architecture
 RUN sed -i 's/--offload-arch=[^ ]*/--offload-arch=gfx908,gfx90a/' ./arch/Linux-x86_64.hip \
+    && sed -i 's/HIPARCH = [^ ]*/HIPARCH = "gfx908,gfx90a"/' ./arch/Linux-x86_64.hip \
+    # Set up FFTW inc and lib paths
+    && cat >> ./arch/Linux-x86_64.hip <<EOF
+        FFTDIR=$(pwd)/fftw
+        FFTINCL=-I$(FFTDIR)/include
+        FFTLIB=-L$(FFTDIR)/lib64 -lfftw3f
+    EOF \
+    # Build GPU-resident HIP-enabled namd with fftw3
     && ./config Linux-x86_64-g++ --charm-arch mpi-linux-x86_64-smp \
          --with-hip \
+         --with-fftw3 \
+         --fftw-prefix $(pwd)/fftw \
          --rocm-prefix $ROCM_PATH \
          --hipcub-prefix $ROCM_PATH \
          --rocprim-prefix $ROCM_PATH \
