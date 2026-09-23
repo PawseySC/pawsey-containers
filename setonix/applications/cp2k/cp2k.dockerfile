@@ -1,10 +1,27 @@
 # NOTE: This container uses the AMD Infinityhub CP2K dockerfile as a starting point - see https://github.com/amd/InfinityHub-CI/blob/main/cp2k/docker/Dockerfile
 
-# Build with mpich and rocm/7.0.1
-FROM quay.io/pawsey/rocm-mpich-base:rocm7.0.1-mpich4.2.2-lustrerelease-ubuntu24.04
-
+# Build args
 ARG APT_GET_APPS=""
 ARG AMDGPU_TARGETS="gfx90a"
+ARG CP2K_VERSION="2026.2"
+ARG ROCM_VERSION="7.0.1"
+ARG MPICH_VERSION="4.2.2"
+ARG OS_VERSION="24.04"
+
+# Additional files - building onto existing directory in rocm-mpich-base image
+ARG IMAGE_TITLE="cp2k-amd-${AMDGPU_TARGETS}"
+ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
+ARG INTERNAL_BUILD_INFO_SUBDIR="${IMAGE_BUILD_INFO_DIR}/${IMAGE_TITLE}"
+
+# Image labels
+LABEL org.opencontainers.image.authors="Craig Meyer <cmeyer@pawsey.org.au>"
+LABEL org.opencontainers.image.title="${IMAGE_TITLE}"
+LABEL org.opencontainers.image.version="cp2k${CP2K_VERSION}-rocm${ROCM_VERSION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
+LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
+
+# Build from rocm-mpich-base image
+FROM quay.io/pawsey/rocm-mpich-base:rocm${ROCM_VERSION}-mpich${MPICH_VERSION}-lustrerelease-ubuntu${OS_VERSION}
 
 # Update and Install basic Linux development tools
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
@@ -82,6 +99,13 @@ RUN chmod -R 777 /scripts
 RUN ./spack.sh
 
 ENV PATH=$PATH:/opt/cp2k/bin:/scripts
+
+# Make recipe and additional build files available in container
+RUN mkdir -p "${INTERNAL_BUILD_INFO_SUBDIR}" \
+    && mv ./cp2k_environment "${INTERNAL_BUILD_INFO_SUBDIR}" \
+    && mv ./spack.sh "${INTERNAL_BUILD_INFO_SUBDIR}" \
+    && cp /scripts "${INTERNAL_BUILD_INFO_SUBDIR}"
+COPY cp2k.dockerfile "${INTERNAL_BUILD_INFO_SUBDIR}"
 
 # cp2k can be called with cp2k.psmp without without any spack knowledge
 CMD ["/bin/bash"]
