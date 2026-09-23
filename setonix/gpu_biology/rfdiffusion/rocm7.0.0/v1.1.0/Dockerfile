@@ -71,7 +71,5 @@ ENV PATH="/app/RFdiffusion/scripts:/app/RFdiffusion/helper_scripts:/app/RFdiffus
 
 COPY Dockerfile /opt/docker-recipes/
 LABEL org.opencontainers.image.authors="Sarah Beecroft <sarah.beecroft@csiro.au>" \
-      org.opencontainers.image.title="rfdiffusion_v1.1.0_rocm7.0.0_ubuntu22.04" \
-      org.opencontainers.image.version="1.1.0" \
-      org.opencontainers.image.description="RFdiffusion v1.1.0 with ROCm 7.0.0 and DGL 2.4.0 support on Ubuntu 22.04 for AMD GPUs" \
-      org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers/tree/master/setonix/gpu_biology/rfdiffusion/rocm7.0.0/v1.1.0"
+      org.opencontainers.image.description="RfDiffusion with ROCm 7.0.0 and DGL 2.4.0 support on Ubuntu 22.04 for AMD GPUs" \
+      org.opencontainers.image.source="https://github.com/PawseySC/GPU_biology/rfdiffusion/rocm7.0.0"
