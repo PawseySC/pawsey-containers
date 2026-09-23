@@ -1,0 +1,54 @@
+# This is a Spack Environment file.
+#
+# It describes a set of packages to be installed, along with
+# configuration settings.
+spack:
+  repos:
+  - repos
+  include: [./config.yaml]
+  # add package specs to the `specs` list
+# This is a Spack Environment file.
+#
+  specs:
+    - sirius@7.11.1+rocm+fortran+vdwxc+dftd4+dftd3+pugixml+openmp+scalapack
+    - libxc@7+fortran build_system=cmake
+    - libint
+    - cosma+rocm
+    - netlib-scalapack+pic+shared
+    - spla+rocm+fortran
+    - spfft+rocm
+    - libxsmm@1.17
+    - binutils
+    - fftw+openmp
+    - autoconf@2.72
+    - libvori
+    - spglib
+    - dftd4
+    - hdf5
+    - hip
+    - hipblas
+    - hipfft
+    - hipcc
+    - trexio
+    - gcc@12
+    - dbcsr@2.9.1+mpi+rocm+openmp~tests~examples
+    - openblas
+    - libvdwxc@master
+    - tblite@0.6.0
+    - cp2k@2026.2+cosma~cuda+dbm_gpu+dftd4+grid_gpu+grpp+hdf5~ipo+libint+libxc+mpi+mpi_f08+openmp+pw_gpu+rocm+sirius+spglib+spla+tblite+trexio+vdwxc build_type=Release smm=libxsmm 
+  concretizer:
+    unify: true
+  packages:
+    all:
+      variants: +shared amdgpu_target=gfx90a amdgpu_target_sram_ecc=gfx90a
+      target: [zen3]
+      providers:
+        mpi: [mpich]
+
+    mpi:
+      buildable: false
+
+    mpich:
+      externals:
+      - spec: mpich@4.2.2
+        prefix: /usr/local
