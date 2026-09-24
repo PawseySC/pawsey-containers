@@ -21,15 +21,21 @@ ENV LD_LIBRARY_PATH $LD_LIBRARY_PATH:$ROCM_PATH/lib
 ENV JAX_PLATFORMS="rocm,cpu"
 ENV PIP_NO_CACHE_DIR=true
 
-# Install miniforge (mamba)
+# Install miniforge (mamba). Pinned versions here match the working
+# quay.io/pawsey/colabfold:1.6.1_rocm7.0.2 image.
+ARG MINIFORGE_VERSION=26.5.3-0
 RUN set -eux ; \
-    curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" ; \
-    bash Miniforge3-$(uname)-$(uname -m).sh -b -p /opt/miniforge3 -s ; \
+    curl -fsSL -O "https://github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}/Miniforge3-${MINIFORGE_VERSION}-Linux-x86_64.sh" ; \
+    bash Miniforge3-${MINIFORGE_VERSION}-Linux-x86_64.sh -b -p /opt/miniforge3 -s ; \
     rm -rf ./Miniforge3-*
 ENV PATH /opt/miniforge3/bin:$PATH
 
 RUN mamba install -y -c conda-forge -c bioconda python=3.12.3 kalign2=2.04 hhsuite=3.3.0 mmseqs2=18.8cc5c
-RUN pip install colabfold[alphafold,openmm]==1.6.1 && \
+# Pin the TensorFlow / JAX-ecosystem packages colabfold leaves open, so they stay
+# compatible with the ROCm JAX 0.6.2 installed next.
+RUN pip install colabfold[alphafold,openmm]==1.6.1 \
+        tensorflow-cpu==2.21.0 keras==3.15.1 numpy==2.5.2 scipy==1.18.0 ml-dtypes==0.6.0 \
+        chex==0.1.90 dm-haiku==0.0.16 dm-tree==0.1.10 pandas==2.3.3 && \
     pip uninstall -y jax jaxlib && \
     pip install https://github.com/ROCm/rocm-jax/releases/download/rocm-jax-v0.6.0/jax_rocm7_pjrt-0.6.0-py3-none-manylinux_2_28_x86_64.whl \
     https://github.com/ROCm/rocm-jax/releases/download/rocm-jax-v0.6.0/jax_rocm7_plugin-0.6.0-cp312-cp312-manylinux_2_28_x86_64.whl \

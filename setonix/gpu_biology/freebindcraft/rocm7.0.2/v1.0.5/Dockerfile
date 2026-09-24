@@ -33,10 +33,12 @@ ENV PIP_NO_CACHE_DIR=true
 
 WORKDIR /app
 
-# Install miniforge (mamba)
+# Install miniforge (mamba). Pinned versions here and in env.yml match the
+# working quay.io/pawsey/freebindcraft:v1.0.5_rocm7.0.2_nopyrosetta image.
+ARG MINIFORGE_VERSION=26.5.3-0
 RUN set -eux ; \
-    curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" ; \
-    bash Miniforge3-$(uname)-$(uname -m).sh -b -p /opt/miniforge3 -s ; \
+    curl -fsSL -O "https://github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}/Miniforge3-${MINIFORGE_VERSION}-Linux-x86_64.sh" ; \
+    bash Miniforge3-${MINIFORGE_VERSION}-Linux-x86_64.sh -b -p /opt/miniforge3 -s ; \
     rm -rf ./Miniforge3-*
 
 # Put mamba on PATH
@@ -54,7 +56,7 @@ COPY Dockerfile env.yml /opt/docker-recipes/
 # Install the conda environment and ColabDesign (no dependencies for ColabDesign, since they are already in the conda env).
 RUN mamba env update -n base -y -f /opt/docker-recipes/env.yml && \
     mamba clean -afy
-RUN pip install git+https://github.com/sokrypton/ColabDesign.git --no-deps
+RUN pip install git+https://github.com/sokrypton/ColabDesign.git@e31a56fe1d9b4de25c8697f3a28b75892941cc72 --no-deps
 
 # Default environment
 ENV PYTHONUNBUFFERED=1 \

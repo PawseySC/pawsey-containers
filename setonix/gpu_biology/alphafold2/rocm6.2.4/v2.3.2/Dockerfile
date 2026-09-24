@@ -34,16 +34,19 @@ RUN git clone https://github.com/deepmind/alphafold.git /app/alphafold && \
     wget -q -P /app/alphafold/alphafold/common/ \
     https://git.scicore.unibas.ch/schwede/openstructure/-/raw/7102c63615b64735c4941278d92b554ec94415f8/modules/mol/alg/src/stereo_chemical_props.txt
 
-# Install miniforge (mamba)
+# Install miniforge (mamba). Versions here and in requirements.txt match the
+# working quay.io/pawsey/alphafold2:v2.3.2_rocm6.2.4 image.
+ARG MINIFORGE_VERSION=24.11.3-0
 RUN set -eux ; \
-    curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" ; \
-    bash Miniforge3-$(uname)-$(uname -m).sh -b -p /opt/miniforge3 -s ; \
+    curl -fsSL -O "https://github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}/Miniforge3-${MINIFORGE_VERSION}-Linux-x86_64.sh" ; \
+    bash Miniforge3-${MINIFORGE_VERSION}-Linux-x86_64.sh -b -p /opt/miniforge3 -s ; \
     rm -rf ./Miniforge3-*
 ENV PATH /opt/miniforge3/bin:$PATH
 
 RUN mamba install -y -c conda-forge -c bioconda \
     python=3.11 \
     pdbfixer==1.12 \
+    openmm==8.6.0 \
     bioconda::hhsuite=3.3.0 && \
     mamba clean -afy
 

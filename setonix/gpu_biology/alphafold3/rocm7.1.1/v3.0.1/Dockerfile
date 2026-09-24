@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -q -y --no-install-recommends \
 ENV VIRTUAL_ENV=/opt/alphafold3_env
 RUN python3 -m venv ${VIRTUAL_ENV}
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
-RUN pip install --upgrade pip
+RUN pip install pip==26.2.1
 
 # ---- JAX for ROCm: pip wheels, no source build ------------------------------
 # jax (pure python) from PyPI, then override jaxlib with the ROCm build, then
@@ -75,13 +75,16 @@ RUN git clone https://github.com/google-deepmind/alphafold3.git /app/alphafold &
     cd /app/alphafold && git checkout ${AF3_COMMIT}
 
 # Drop the CUDA jax/nvidia pins (keep jax-triton/jaxtyping), then install AF3.
+# Build tools, biopython and immutabledict (not in AF3's pinned requirements)
+# match the working quay.io/pawsey/alphafold3:v3.0.1_rocm7.1.1 image; numpy
+# matches AF3's own requirements.txt.
 RUN cd /app/alphafold && \
     python3 /opt/docker-recipes/filter_af3_requirements.py requirements.txt requirements.rocm.txt && \
-    pip install --upgrade "cmake==3.28.3" ninja pybind11 scikit_build_core numpy biopython && \
+    pip install --upgrade "cmake==3.28.3" ninja==1.13.2 pybind11==3.1.0 scikit_build_core==1.0.3 numpy==2.2.6 biopython==1.88 && \
     pip install --no-build-isolation --no-deps -r requirements.rocm.txt --force-reinstall && \
     pip install -vvv --no-deps --force-reinstall --upgrade . && \
     pip install dm-haiku==0.0.16 --upgrade --no-deps --force-reinstall && \
-    pip install immutabledict --no-deps && \
+    pip install immutabledict==4.3.1 --no-deps && \
     build_data
 
 # ---- HMMER 3.4 (patched with AF3's jackhmmer sequence-limit patch) ----------
