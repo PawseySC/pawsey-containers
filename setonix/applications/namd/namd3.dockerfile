@@ -3,7 +3,7 @@ ARG NAMD_VERSION="3.0.3"
 ARG MPICH_VERSION="4.2.2"
 ARG OS_VERSION="24.04"
 
-# Additional files - building onto existing directory in rocm-mpich-base image
+# Additional files - building onto existing directory in mpich-base image
 ARG IMAGE_TITLE="namd"
 ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 ARG INTERNAL_BUILD_INFO_SUBDIR="${IMAGE_BUILD_INFO_DIR}/${IMAGE_TITLE}"
@@ -18,6 +18,10 @@ LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
 
 # Build from mpich-base image
 FROM quay.io/pawsey/mpich-base:mpich${MPICH_VERSION}-ubuntu${OS_VERSION}
+
+ARG NAMD_VERSION
+ARG MPICH_VERSION
+ARG OS_VERSION
 
 SHELL [ "/bin/bash", "-c" ]
 
@@ -66,5 +70,8 @@ WORKDIR /opt/namd
 ENV PATH=/opt/namd/bin:$PATH
 
 # Add dockerfile to container
+ARG IMAGE_TITLE
+ARG IMAGE_BUILD_INFO_DIR
+ARG INTERNAL_BUILD_INFO_SUBDIR
 RUN mkdir -p "${INTERNAL_BUILD_INFO_SUBDIR}"
 COPY namd3.dockerfile "${INTERNAL_BUILD_INFO_SUBDIR}"

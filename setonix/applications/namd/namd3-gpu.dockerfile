@@ -21,6 +21,12 @@ LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
 # Build from rocm-mpich-base image
 FROM quay.io/pawsey/rocm-mpich-base:rocm${ROCM_VERSION}-mpich${MPICH_VERSION}-lustrerelease-ubuntu${OS_VERSION}
 
+ARG AMDGPU_TARGETS
+ARG NAMD_VERSION
+ARG ROCM_VERSION
+ARG MPICH_VERSION
+ARG OS_VERSION
+
 SHELL [ "/bin/bash", "-c" ]
 
 # Install needed gfortran
@@ -65,11 +71,9 @@ RUN wget http://www.ks.uiuc.edu/Research/namd/libraries/tcl8.6.13-linux-x86_64.t
 RUN sed -i 's/--offload-arch=[^ ]*/--offload-arch=gfx908,gfx90a/' ./arch/Linux-x86_64.hip \
     && sed -i 's/HIPARCH = [^ ]*/HIPARCH = "gfx908,gfx90a"/' ./arch/Linux-x86_64.hip \
     # Set up FFTW inc and lib paths
-    && cat >> ./arch/Linux-x86_64.hip <<EOF
-        FFTDIR=$(pwd)/fftw
-        FFTINCL=-I$(FFTDIR)/include
-        FFTLIB=-L$(FFTDIR)/lib64 -lfftw3f
-    EOF \
+    && echo "FFTDIR=$(pwd)/fftw" >> ./arch/Linux-x86_64.hip \
+    && echo 'FFTINCL=-I$(FFTDIR)/include' >> ./arch/Linux-x86_64.hip \
+    && echo 'FFTLIB=-L$(FFTDIR)/lib -lfftw3f' >> ./arch/Linux-x86_64.hip \
     # Build GPU-resident HIP-enabled namd with fftw3
     && ./config Linux-x86_64-g++ --charm-arch mpi-linux-x86_64-smp \
          --with-hip \
@@ -95,5 +99,8 @@ WORKDIR /opt/namd
 ENV PATH=/opt/namd/bin:$PATH
 
 # Add dockerfile to container
+ARG IMAGE_TITLE
+ARG IMAGE_BUILD_INFO_DIR
+ARG INTERNAL_BUILD_INFO_SUBDIR
 RUN mkdir -p "${INTERNAL_BUILD_INFO_SUBDIR}"
 COPY namd3-gpu.dockerfile "${INTERNAL_BUILD_INFO_SUBDIR}"
