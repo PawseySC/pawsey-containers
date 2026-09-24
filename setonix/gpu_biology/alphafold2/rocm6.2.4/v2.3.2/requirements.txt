@@ -1,8 +1,8 @@
 absl-py==1.0.0
 biopython==1.81
-chex
+chex==0.1.90
 Cython
-dm-haiku
+dm-haiku==0.0.13
 dm-tree
 flax==0.9.0
 immutabledict
