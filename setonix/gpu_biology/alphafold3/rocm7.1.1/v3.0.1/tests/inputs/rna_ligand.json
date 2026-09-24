@@ -1,0 +1,23 @@
+{
+ "name": "rna_ligand",
+ "modelSeeds": [
+  1
+ ],
+ "sequences": [
+  {
+   "rna": {
+    "id": "A",
+    "sequence": "GGCGAUACCAGCCGAAAGGCCCUUGGCAGCGUC",
+    "unpairedMsa": ""
+   }
+  },
+  {
+   "ligand": {
+    "id": "B",
+    "smiles": "Cn1c(=O)c2[nH]cnc2n(C)c1=O"
+   }
+  }
+ ],
+ "dialect": "alphafold3",
+ "version": 3
+}

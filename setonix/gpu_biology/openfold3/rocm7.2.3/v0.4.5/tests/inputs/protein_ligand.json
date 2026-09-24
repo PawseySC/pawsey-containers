@@ -1,0 +1,26 @@
+{
+  "queries": {
+    "protein_ligand": {
+      "chains": [
+        {
+          "molecule_type": "protein",
+          "chain_ids": "A",
+          "sequence": "MAHHHHHHVAVDAVSFTLLQDQLQSVLDTLSEREAGVVRLRFGLTDGQPRTLDEIGQVYGVTRERIRQIESKTMSKLRHPSRSQVLRDYLDGSSGSGTPEERLLRAIFGEKA",
+          "main_msa_file_paths": [
+            "msas/chainA/colabfold_main.a3m"
+          ]
+        },
+        {
+          "molecule_type": "ligand",
+          "chain_ids": "B",
+          "ccd_codes": "ATP"
+        },
+        {
+          "molecule_type": "ligand",
+          "chain_ids": "C",
+          "smiles": "Cn1c(=O)c2[nH]cnc2n(C)c1=O"
+        }
+      ]
+    }
+  }
+}

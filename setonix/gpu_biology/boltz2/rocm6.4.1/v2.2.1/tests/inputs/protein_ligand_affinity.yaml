@@ -1,0 +1,12 @@
+version: 1
+sequences:
+  - protein:
+      id: A
+      sequence: MAHHHHHHVAVDAVSFTLLQDQLQSVLDTLSEREAGVVRLRFGLTDGQPRTLDEIGQVYGVTRERIRQIESKTMSKLRHPSRSQVLRDYLDGSSGSGTPEERLLRAIFGEKA
+      msa: chainA.csv
+  - ligand:
+      id: B
+      smiles: 'Cn1c(=O)c2[nH]cnc2n(C)c1=O'
+properties:
+  - affinity:
+      binder: B

@@ -1,0 +1,26 @@
+{
+  "queries": {
+    "protein_dna": {
+      "chains": [
+        {
+          "molecule_type": "protein",
+          "chain_ids": "A",
+          "sequence": "MAHHHHHHVAVDAVSFTLLQDQLQSVLDTLSEREAGVVRLRFGLTDGQPRTLDEIGQVYGVTRERIRQIESKTMSKLRHPSRSQVLRDYLDGSSGSGTPEERLLRAIFGEKA",
+          "main_msa_file_paths": [
+            "msas/chainA/colabfold_main.a3m"
+          ]
+        },
+        {
+          "molecule_type": "dna",
+          "chain_ids": "C",
+          "sequence": "GCTTGACAGGCG"
+        },
+        {
+          "molecule_type": "dna",
+          "chain_ids": "D",
+          "sequence": "CGCCTGTCAAGC"
+        }
+      ]
+    }
+  }
+}

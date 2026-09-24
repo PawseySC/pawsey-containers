@@ -1,0 +1,30 @@
+{
+  "queries": {
+    "heterodimer": {
+      "chains": [
+        {
+          "molecule_type": "protein",
+          "chain_ids": "A",
+          "sequence": "MAHHHHHHVAVDAVSFTLLQDQLQSVLDTLSEREAGVVRLRFGLTDGQPRTLDEIGQVYGVTRERIRQIESKTMSKLRHPSRSQVLRDYLDGSSGSGTPEERLLRAIFGEKA",
+          "main_msa_file_paths": [
+            "msas/chainA/colabfold_main.a3m"
+          ],
+          "paired_msa_file_paths": [
+            "msas/chainA/colabfold_paired.a3m"
+          ]
+        },
+        {
+          "molecule_type": "protein",
+          "chain_ids": "B",
+          "sequence": "MRYAFAAEATTCNAFWRNVDMTVTALYEVPLGVCTQDPDRWTTTPDDEAKTLCRACPRRWLCARDAVESAGAEGLWAGVVIPESGRARAFALGQLRSLAERNGYPVRDHRVSAQSA",
+          "main_msa_file_paths": [
+            "msas/chainB/colabfold_main.a3m"
+          ],
+          "paired_msa_file_paths": [
+            "msas/chainB/colabfold_paired.a3m"
+          ]
+        }
+      ]
+    }
+  }
+}
