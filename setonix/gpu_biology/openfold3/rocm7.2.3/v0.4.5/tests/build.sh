@@ -7,7 +7,7 @@
 #   ./build.sh
 #
 # See README.md in this directory.
-
+source /container/setup_podman.sh 
 TOOL=openfold3
 TAG=v0.4.5-rocm7.2.3
 EXPECTED_TITLE=openfold3_v0.4.5_rocm7.2.3_ubuntu24.04
@@ -20,7 +20,7 @@ SMOKE_CHECKS=(
 )
 
 # ---- settings (export before running to change) -----------------------------
-BUILD_DIR="${BUILD_DIR:-${MYSCRATCH:-${PWD}}/gpu_biology_builds}"
+BUILD_DIR="${BUILD_DIR:-/container/${USER}/pawsey-containers/setonix/gpu_biology/gpu_biology_builds}"
 PODMAN_JOBS="${PODMAN_JOBS:-4}"
 KEEP_OCI_ARCHIVE="${KEEP_OCI_ARCHIVE:-0}"
 SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/3.11.4-nompi}"
@@ -72,10 +72,6 @@ check_label() {
   [[ "${title}" == "${EXPECTED_TITLE}" ]]
 }
 
-if [[ -f /container/setup_podman.sh ]]; then
-  # shellcheck disable=SC1091
-  source /container/setup_podman.sh
-fi
 if ! command -v singularity >/dev/null 2>&1; then
   module load "${SINGULARITY_MODULE}" || { echo "ERROR: cannot load ${SINGULARITY_MODULE}" >&2; exit 1; }
 fi
