@@ -559,7 +559,7 @@ class Cp2k(MakefilePackage, CMakePackage, CudaPackage, ROCmPackage):
         # Patch for resolving inability to find custom-lapack dependency for multicharge
         if self.spec.satisfies("+dftd4"):
             file_path = join_path(
-                spec["multicharge"].prefix,
+                self.spec["multicharge"].prefix,
                 "lib",
                 "cmake",
                 "multicharge",

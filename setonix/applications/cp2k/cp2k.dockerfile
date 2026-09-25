@@ -64,6 +64,7 @@ RUN ln -s /usr/bin/gcc-12 /usr/bin/gcc
 RUN ln -s /usr/bin/g++-12 /usr/bin/g++
 RUN ln -s /usr/bin/gfortran-12 /usr/bin/gfortran
 
+ARG AMDGPU_TARGETS
 ENV ROCM_PATH=/opt/rocm \
     AMDGPU_TARGETS=${AMDGPU_TARGETS}
 
@@ -101,10 +102,11 @@ RUN ./spack.sh
 ENV PATH=$PATH:/opt/cp2k/bin:/scripts
 
 # Make recipe and additional build files available in container
+ARG INTERNAL_BUILD_INFO_SUBDIR
 RUN mkdir -p "${INTERNAL_BUILD_INFO_SUBDIR}" \
     && mv ./cp2k_environment "${INTERNAL_BUILD_INFO_SUBDIR}" \
     && mv ./spack.sh "${INTERNAL_BUILD_INFO_SUBDIR}" \
-    && cp /scripts "${INTERNAL_BUILD_INFO_SUBDIR}"
+    && cp -r /scripts "${INTERNAL_BUILD_INFO_SUBDIR}"
 COPY cp2k.dockerfile "${INTERNAL_BUILD_INFO_SUBDIR}"
 
 # cp2k can be called with cp2k.psmp without without any spack knowledge
