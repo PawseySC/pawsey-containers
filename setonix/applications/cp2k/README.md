@@ -1,4 +1,4 @@
-# NAMD Container
+# CP2K Container
 
 ## Overview
 
