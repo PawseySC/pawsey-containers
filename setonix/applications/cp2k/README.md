@@ -150,7 +150,7 @@ Output file saved to: /tmp/H2O-DFT-LS-NREP2-8ranks.txt
 This is the test case that forms the basis of our reframe CP2K tests
 ```bash
 > cp /scratch/references/reframe_input/cp2k/* .
-> sed -i '16a\      MAX_SCF 100' H2O-256.inpss
+> sed -i '16a\      MAX_SCF 100' H2O-256.inp
 
 > srun -N 1 -n 2 --gres=gpu:2 singularity exec cp2k2026.2-amd-gfx90a.sif cp2k.psmp H2O-256.inp # 10 MD steps
  CP2K                                 1  1.0    0.077    0.086  550.695  550.695
