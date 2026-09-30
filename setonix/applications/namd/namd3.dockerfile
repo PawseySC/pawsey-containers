@@ -62,12 +62,14 @@ RUN ./config Linux-x86_64-g++ --charm-arch mpi-linux-x86_64-smp \
 RUN mkdir -p /opt/namd \
     && mv ./Linux-x86_64-g++ /opt/namd/bin \
     && mv ./license.txt /opt/namd/ \
+    && mv ./fftw /opt/fftw/ \
     && rm -fr /tmp/namd-build
 
     
 WORKDIR /opt/namd
 
 ENV PATH=/opt/namd/bin:$PATH
+ENV LD_LIBRARY_PATH=/opt/fftw/lib:$LD_LIBRARY_PATH
 
 # Add dockerfile to container
 ARG IMAGE_TITLE

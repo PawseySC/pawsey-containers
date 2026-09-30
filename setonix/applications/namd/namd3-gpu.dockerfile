@@ -91,12 +91,14 @@ RUN sed -i 's/--offload-arch=[^ ]*/--offload-arch=gfx908,gfx90a/' ./arch/Linux-x
 RUN mkdir -p /opt/namd \
     && mv ./Linux-x86_64-g++ /opt/namd/bin \
     && mv ./license.txt /opt/namd/ \
+    && mv ./fftw /opt/fftw/ \
     && rm -fr /tmp/namd-build
 
     
 WORKDIR /opt/namd
 
 ENV PATH=/opt/namd/bin:$PATH
+ENV LD_LIBRARY_PATH=/opt/fftw/lib:$LD_LIBRARY_PATH
 
 # Add dockerfile to container
 ARG IMAGE_TITLE
