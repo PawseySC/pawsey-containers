@@ -1,11 +1,33 @@
-# Build with mpich
-FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu24.04
+# Build args
+ARG NAMD_VERSION="3.0.3"
+ARG MPICH_VERSION="4.2.2"
+ARG OS_VERSION="24.04"
+
+# Additional files - building onto existing directory in mpich-base image
+ARG IMAGE_TITLE="namd"
+ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
+ARG INTERNAL_BUILD_INFO_SUBDIR="${IMAGE_BUILD_INFO_DIR}/${IMAGE_TITLE}"
+
+# Image labels
+LABEL org.opencontainers.image.authors="Craig Meyer <cmeyer@pawsey.org.au>"
+LABEL org.opencontainers.image.title="${IMAGE_TITLE}"
+LABEL org.opencontainers.image.version="namd${NAMD_VERSION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
+LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
+
+
+# Build from mpich-base image
+FROM quay.io/pawsey/mpich-base:mpich${MPICH_VERSION}-ubuntu${OS_VERSION}
+
+ARG NAMD_VERSION
+ARG MPICH_VERSION
+ARG OS_VERSION
 
 SHELL [ "/bin/bash", "-c" ]
 
 # Prefix for tarball containing source
 # Cannot provide source directly due to namd license, so this recipe requires whoever is running it to already have access to the source tarball
-ARG NAMD_SOURCE="NAMD_3.0.1_Source"
+ARG NAMD_SOURCE="NAMD_${NAMD_VERSION}_Source"
 
 ADD ${NAMD_SOURCE}.tar.gz /tmp/namd-build
 
@@ -40,9 +62,18 @@ RUN ./config Linux-x86_64-g++ --charm-arch mpi-linux-x86_64-smp \
 RUN mkdir -p /opt/namd \
     && mv ./Linux-x86_64-g++ /opt/namd/bin \
     && mv ./license.txt /opt/namd/ \
+    && mv ./fftw /opt/fftw/ \
     && rm -fr /tmp/namd-build
 
     
 WORKDIR /opt/namd
 
 ENV PATH=/opt/namd/bin:$PATH
+ENV LD_LIBRARY_PATH=/opt/fftw/lib:$LD_LIBRARY_PATH
+
+# Add dockerfile to container
+ARG IMAGE_TITLE
+ARG IMAGE_BUILD_INFO_DIR
+ARG INTERNAL_BUILD_INFO_SUBDIR
+RUN mkdir -p "${INTERNAL_BUILD_INFO_SUBDIR}"
+COPY namd3.dockerfile "${INTERNAL_BUILD_INFO_SUBDIR}"

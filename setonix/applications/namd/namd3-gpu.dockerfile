@@ -1,5 +1,31 @@
-# Build with mpich and rocm/6.3.0
-FROM quay.io/pawsey/rocm-mpich-base:rocm6.3.0-mpich3.4.3-ubuntu24.04
+# Build args
+ARG AMDGPU_TARGETS="gfx90a"
+ARG NAMD_VERSION="3.0.3"
+ARG ROCM_VERSION="7.1.0"
+ARG MPICH_VERSION="4.2.2"
+ARG OS_VERSION="24.04"
+
+# Additional files - building onto existing directory in rocm-mpich-base image
+ARG IMAGE_TITLE="namd-amd-${AMDGPU_TARGETS}"
+ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
+ARG INTERNAL_BUILD_INFO_SUBDIR="${IMAGE_BUILD_INFO_DIR}/${IMAGE_TITLE}"
+
+# Image labels
+LABEL org.opencontainers.image.authors="Craig Meyer <cmeyer@pawsey.org.au>"
+LABEL org.opencontainers.image.title="${IMAGE_TITLE}"
+LABEL org.opencontainers.image.version="namd${NAMD_VERSION}-rocm${ROCM_VERSION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
+LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
+
+
+# Build from rocm-mpich-base image
+FROM quay.io/pawsey/rocm-mpich-base:rocm${ROCM_VERSION}-mpich${MPICH_VERSION}-lustrerelease-ubuntu${OS_VERSION}
+
+ARG AMDGPU_TARGETS
+ARG NAMD_VERSION
+ARG ROCM_VERSION
+ARG MPICH_VERSION
+ARG OS_VERSION
 
 SHELL [ "/bin/bash", "-c" ]
 
@@ -14,7 +40,7 @@ RUN echo "Install apt packages" \
 ENV ROCM_PATH=/opt/rocm
 # Prefix for tarball containing source
 # Cannot provide source directly due to namd license, so this recipe requires whoever is running it to already have access to the source tarball
-ARG NAMD_SOURCE="NAMD_3.0.1_Source"
+ARG NAMD_SOURCE="NAMD_${NAMD_VERSION}_Source"
 
 ADD ${NAMD_SOURCE}.tar.gz /tmp/namd-build
 
@@ -41,11 +67,18 @@ RUN wget http://www.ks.uiuc.edu/Research/namd/libraries/tcl8.6.13-linux-x86_64.t
     && mv tcl8.6.13-linux-x86_64 tcl \
     && mv tcl8.6.13-linux-x86_64-threaded tcl-threaded
 
-# Set up build directory and compile, setting offload architecture
-# Builds GPU-resident HIP-enabled namd
+# Set up build directory and build namd, setting offload architecture
 RUN sed -i 's/--offload-arch=[^ ]*/--offload-arch=gfx908,gfx90a/' ./arch/Linux-x86_64.hip \
+    && sed -i 's/HIPARCH = [^ ]*/HIPARCH = "gfx908,gfx90a"/' ./arch/Linux-x86_64.hip \
+    # Set up FFTW inc and lib paths
+    && echo "FFTDIR=$(pwd)/fftw" >> ./arch/Linux-x86_64.hip \
+    && echo 'FFTINCL=-I$(FFTDIR)/include' >> ./arch/Linux-x86_64.hip \
+    && echo 'FFTLIB=-L$(FFTDIR)/lib -lfftw3f' >> ./arch/Linux-x86_64.hip \
+    # Build GPU-resident HIP-enabled namd with fftw3
     && ./config Linux-x86_64-g++ --charm-arch mpi-linux-x86_64-smp \
          --with-hip \
+         --with-fftw3 \
+         --fftw-prefix $(pwd)/fftw \
          --rocm-prefix $ROCM_PATH \
          --hipcub-prefix $ROCM_PATH \
          --rocprim-prefix $ROCM_PATH \
@@ -58,9 +91,18 @@ RUN sed -i 's/--offload-arch=[^ ]*/--offload-arch=gfx908,gfx90a/' ./arch/Linux-x
 RUN mkdir -p /opt/namd \
     && mv ./Linux-x86_64-g++ /opt/namd/bin \
     && mv ./license.txt /opt/namd/ \
+    && mv ./fftw /opt/fftw/ \
     && rm -fr /tmp/namd-build
 
     
 WORKDIR /opt/namd
 
 ENV PATH=/opt/namd/bin:$PATH
+ENV LD_LIBRARY_PATH=/opt/fftw/lib:$LD_LIBRARY_PATH
+
+# Add dockerfile to container
+ARG IMAGE_TITLE
+ARG IMAGE_BUILD_INFO_DIR
+ARG INTERNAL_BUILD_INFO_SUBDIR
+RUN mkdir -p "${INTERNAL_BUILD_INFO_SUBDIR}"
+COPY namd3-gpu.dockerfile "${INTERNAL_BUILD_INFO_SUBDIR}"
