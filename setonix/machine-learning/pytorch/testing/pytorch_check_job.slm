@@ -11,6 +11,7 @@
 #SBATCH --nodes=2
 #SBATCH --account=pawsey0001-gpu
 
+module load singularity/4.3.5-mpi
 export OMP_NUM_THREADS=8
 export MPICH_ENV_DISPLAY=1
 export MPICH_MEMORY_REPORT=1
