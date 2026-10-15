@@ -53,6 +53,10 @@ ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 #---------------------------------------------------------------
 # A. Basic Stage.
 FROM $BASE_IMAGE_FULL AS basic_stage
+#AEG: Testing permission, remove these lines after test
+RUN echo "Permissions inherited from the base image:" \
+ && stat -c '%A %a %U:%G %n' /opt \
+ && echo "Active umask: $(umask)"
 #---------------------------------------------------------------
 # A.1 Installing additional tools useful for interactive sessions,
 #     downloading and other checks
@@ -1041,6 +1045,13 @@ RUN sed -i 's,BASHRC_TEMPLATE_TAG,'"${OF_BASHRC_FILE}"',g' $ENVIRONMENT_FILE_SIN
 #        If you found that OpenFOAM's bashrc sourcing still has bashisms that require forced `bash` interpretation, then read the mentioned link for alternatives (not implemented here.)
 
 #---------------------------------------------------------------
+#AEG.Testing permissions. Remove these RUN after test.:
+RUN echo "Permissions immediately before H.4:" \
+ && stat -c '%A %a %U:%G %n' \
+      /opt \
+      "$IMAGE_BUILD_INFO_DIR" \
+      2>/dev/null || true \
+ && echo "Active umask: $(umask)"
 # H.4 Backup into the image the recipe and all files "called" during building
 # Recall global definitions made at the top
 ARG OF_FORK
@@ -1050,25 +1061,73 @@ ARG IMAGE_BUILD_INFO_DIR
 ARG RECIPE_FILE="${OF_FORK}--${OF_VERSION}.dockerfile"
 ARG FORK_IMAGE_BUILD_INFO_DIR="${IMAGE_BUILD_INFO_DIR}/${OF_FORK}"
 # Copy all files used to build the image into the internal backup directory
-RUN mkdir -p "$FORK_IMAGE_BUILD_INFO_DIR"
-COPY $RECIPE_FILE \
+#AEG.Testing. Remove the following RUN, and activate the offcial RUN command (the simple commented line)after test.
+RUN mkdir -p "$FORK_IMAGE_BUILD_INFO_DIR" \
+ && echo "Permissions immediately after mkdir:" \
+ && stat -c '%A %a %U:%G %n' \
+      /opt \
+      "$IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR" \
+ && echo "Active umask: $(umask)"
+#AEG.Testing. Activate the followign RUN after test.
+#RUN mkdir -p "$FORK_IMAGE_BUILD_INFO_DIR"
+COPY --chmod=0644 \
+     $RECIPE_FILE \
      $ENTRYPOINT_FILE_TEMPLATE \
      $ENVIRONMENT_FILE_TEMPLATE \
      $FORK_IMAGE_BUILD_INFO_DIR
+#AEG.Testing. Remove the following 3 RUNs after test.
+RUN echo "Permissions immediately after COPY:" \
+ && stat -c '%A %a %U:%G %n' \
+      "$IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR"/*
+RUN chmod 0755 "$IMAGE_BUILD_INFO_DIR" \
+ && chmod 0755 "$FORK_IMAGE_BUILD_INFO_DIR" \
+ && chmod 0644 "$FORK_IMAGE_BUILD_INFO_DIR"/* \
+ && echo "Permissions immediately after explicit chmod:" \
+ && stat -c '%A %a %U:%G %n' \
+      "$IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR"/*
+RUN echo "Permissions immediately after The Fix:" \
+ && stat -c '%A %a %U:%G %n' \
+      "$IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR"/*
 
 #---------------------------------------------------------------
 # H.5 Recording the effective values of the global build arguments in file $IMAGE_BUILD_INFO_DIR/image-build-arguments.txt
-# The argument names are read automatically from the global ARG
-# declarations located before the first FROM instruction.
-# Global arguments marked with USER_BUILD_ARG are supported user overrides.
-# Other global arguments are fixed recipe settings, but their effective values are also recorded.
+# The argument names and recipe defaults are read automatically from the global
+# ARG declarations located before the first FROM instruction.
+#
+# For each argument, the logic reconstructs:
+# 1. Its value using only the recipe defaults.
+# 2. Its expected value using the effective values of its dependencies.
+# 3. Its actual effective value during the build.
+#
+# This allows the generated record to distinguish arguments overridden directly
+# from derived values that changed because one of their dependencies was overridden.
+#
+# The USER_BUILD_ARG comments are not required or used by this logic. They remain
+# optional documentation indicating which arguments users are expected to consider
+# overriding for a particular build.
+#
 # Every global argument MUST ALSO be recalled in this section for the recording to work.
-# If a developer adds a new global ARG at the top, but does not recall it here,
-# the build stops with an explanatory error instead of generating
-# an incomplete build-arguments record.
+# If a developer adds a new global ARG at the top but does not recall it here,
+# the build stops with an explanatory error instead of generating an incomplete
+# build-arguments record.
+#
+# The default-value reconstruction supports the controlled global ARG syntax
+# used by this recipe:
+#   ARG NAME="literal value"
+#   ARG NAME="${PREVIOUS_ARGUMENT}/derived/value"
+#
+# Referenced arguments must have been declared earlier in the global ARG block.
 
 # Recall all global build arguments defined before the first FROM
-# in order to have a full match in the list to be recorded by the RUN instruction immediately below.
+# in order to have a full match in the list to be recorded by the
+# RUN instruction immediately below.
 ARG OF_FORK
 ARG OF_VERSION
 ARG GCC_VERSION
@@ -1091,54 +1150,145 @@ ARG IMAGE_BUILD_INFO_DIR
 ARG INTERNAL_RECIPE_FILE="${FORK_IMAGE_BUILD_INFO_DIR}/${OF_FORK}--${OF_VERSION}.dockerfile"
 ARG ARGUMENTS_FILE="${FORK_IMAGE_BUILD_INFO_DIR}/image-build-arguments.txt"
 
-# The following RUN instruction reads the list of global ARG names from the recipe file
-# and writes their effective values into a record file if they have been recalled in the lines immediately above.
-# If a global ARG is not recalled, the build stops with an error.
+# The following RUN instruction:
+# 1. Reads the global ARG declarations from the embedded recipe.
+# 2. Reconstructs the default value of each argument in declaration order.
+# 3. Reconstructs each derived value using the effective values of its dependencies.
+# 4. Compares those values with the actual effective build value.
+# 5. Annotates direct overrides and dependency-driven changes.
+#
+# If a global ARG has not been recalled above, the build stops with an error.
 RUN test -f "$INTERNAL_RECIPE_FILE" \
-# Read all global ARG names declared before the first FROM instruction:
- && mapfile -t argumentNames < <( \
+# Read all global ARG declarations before the first FROM instruction:
+ && mapfile -t argumentDeclarations < <( \
       sed -n '1,/^[[:space:]]*FROM[[:space:]]/p' "$INTERNAL_RECIPE_FILE" \
       | grep -E '^[[:space:]]*ARG[[:space:]]+' \
-      | sed -E ' \
-           s/^[[:space:]]*ARG[[:space:]]+//; \
-           s/[[:space:]]*=.*$//; \
-           s/[[:space:]].*$// \
-        ' \
+      | sed -E 's/^[[:space:]]*ARG[[:space:]]+//' \
     ) \
 # Verify that global arguments were found:
- && if (( ${#argumentNames[@]} == 0 )); then \
+ && if (( ${#argumentDeclarations[@]} == 0 )); then \
       echo "ERROR: No global ARG declarations were found in $INTERNAL_RECIPE_FILE" >&2; \
       exit 1; \
     fi \
+# Prepare structures for the argument names and reconstructed values:
+ && declare -a argumentNames=() \
+ && declare -A recipeDefaults=() \
+ && declare -A expectedBuildValues=() \
+# Reconstruct the recipe-default and expected build value of every global argument:
+ && for declaration in "${argumentDeclarations[@]}"; do \
+      # Check for basic assignment
+      if [[ "$declaration" != *=* ]]; then \
+         echo "ERROR: Global build argument declaration has no recipe default:" >&2; \
+         echo "       ARG $declaration" >&2; \
+         exit 1; \
+      fi; \
+      argumentName=${declaration%%=*}; \
+      defaultExpression=${declaration#*=}; \
+      argumentName=${argumentName%%[[:space:]]*}; \
+      # Check for correct naming
+      if [[ ! "$argumentName" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then \
+         echo "ERROR: Invalid global build argument name '$argumentName'." >&2; \
+         exit 1; \
+      fi; \
+      # If quotes are used, remove them
+      if [[ "$defaultExpression" == \"*\" ]]; then \
+          defaultExpression=${defaultExpression:1:${#defaultExpression}-2}; \
+      elif [[ "$defaultExpression" == \'*\' ]]; then \
+          defaultExpression=${defaultExpression:1:${#defaultExpression}-2}; \
+      fi; \
+      recipeDefault=$defaultExpression; \
+      expectedBuildValue=$defaultExpression; \
+      # Find variables that depend on other global arguments and perform the substitututions with default values
+      # Only patterns of the form ${ARG_NAME} are supported, not $ARG_NAME or ${ARG_NAME:-default}
+      while [[ "$recipeDefault" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; do \
+         dependencyName=${BASH_REMATCH[1]}; \
+         if [[ ! -v "recipeDefaults[$dependencyName]" ]]; then \
+            echo "ERROR: Default for '$argumentName' refers to '$dependencyName'" >&2; \
+            echo "       before that dependency has been defined as a global ARG." >&2; \
+            exit 1; \
+         fi; \
+         recipeDefault=${recipeDefault//\$\{$dependencyName\}/${recipeDefaults[$dependencyName]}}; \
+      done; \
+      # Find variables that depend on other global arguments and perform the substitututions with active values
+      # Only patterns of the form ${ARG_NAME} are supported, not $ARG_NAME or ${ARG_NAME:-default}
+      while [[ "$expectedBuildValue" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; do \
+         dependencyName=${BASH_REMATCH[1]}; \
+         if [[ ! -v "$dependencyName" ]]; then \
+            echo "ERROR: Dependency '$dependencyName' required by '$argumentName'" >&2; \
+            echo "       is not available in the final stage." >&2; \
+            exit 1; \
+         fi; \
+         dependencyValue=${!dependencyName}; \
+         expectedBuildValue=${expectedBuildValue//\$\{$dependencyName\}/$dependencyValue}; \
+      done; \
+      # Check for unsupported expansions in the recipe default and expected build value
+      if [[ "$recipeDefault" == *'$'* || "$expectedBuildValue" == *'$'* ]]; then \
+         echo "ERROR: Unsupported expansion in the recipe default for '$argumentName':" >&2; \
+         echo "       $defaultExpression" >&2; \
+         exit 1; \
+      fi; \
+      # Record the argument name and its reconstructed values for later comparison with the effective build value:
+      argumentNames+=("$argumentName"); \
+      recipeDefaults["$argumentName"]=$recipeDefault; \
+      expectedBuildValues["$argumentName"]=$expectedBuildValue; \
+    done \
 # Create the build-arguments record:
  && printf '%s\n' \
       "# Effective global Dockerfile arguments used in the build process." \
-      "# Arguments marked with USER_BUILD_ARG in the recipe are supported user overrides." \
-      "# Other arguments are fixed recipe settings whose effective values are recorded for provenance." \
+      "# Values that differ from their recipe defaults are annotated." \
+      "# Derived values are distinguished from arguments overridden directly." \
       "#" \
       "# The record was generated during the build process" \
-      "#  following the instructions in the last stage in $INTERNAL_RECIPE_FILE ." \
+      "# following the instructions in the last stage in $INTERNAL_RECIPE_FILE ." \
       "" \
       > "$ARGUMENTS_FILE" \
-# Write the effective value of every discovered global argument:
+# Write and classify the effective value of every global argument:
  && for argumentName in "${argumentNames[@]}"; do \
+      # Check that the argument has been recalled in this stage:
       if [[ ! -v "$argumentName" ]]; then \
          echo "ERROR: Global build argument '$argumentName' is defined in the recipe" >&2; \
          echo "       but is not available in the final stage." >&2; \
          echo "       Add a recall instruction: 'ARG $argumentName' in the final stage before this RUN instruction." >&2; \
          exit 1; \
       fi; \
-      printf '%s=%q\n' \
+      effectiveValue=${!argumentName}; \
+      recipeDefault=${recipeDefaults[$argumentName]}; \
+      expectedBuildValue=${expectedBuildValues[$argumentName]}; \
+      annotation=""; \
+      # If the effective value differs, indicate it with an annotation
+      if [[ "$effectiveValue" != "$recipeDefault" ]]; then \
+         if [[ "$effectiveValue" == "$expectedBuildValue" && "$expectedBuildValue" != "$recipeDefault" ]]; then \
+            annotation="  # Changed because a dependency was overridden; recipe default: \"$recipeDefault\""; \
+         else \
+            annotation="  # Overridden during build; recipe default: \"$recipeDefault\""; \
+         fi; \
+      fi; \
+      # Write the argument name, effective value, and annotation to the record file:
+      printf '%s="%s"%s\n' \
          "$argumentName" \
-         "${!argumentName}" \
-         >> "$ARGUMENTS_FILE"; \
+         "$effectiveValue" \
+         "$annotation" \
+      >> "$ARGUMENTS_FILE"; \
     done \
  && chmod a+r "$ARGUMENTS_FILE" \
  && echo "Created build-argument record: $ARGUMENTS_FILE" \
  && cat "$ARGUMENTS_FILE"
 
 #---------------------------------------------------------------
-# H.6 Defining documented labels
+# H.6 Normalising permissions of the build-info-directory to allow read access to all users
+# Recall global definitions made at the top
+ARG IMAGE_BUILD_INFO_DIR
+# Change permissions
+RUN find "$IMAGE_BUILD_INFO_DIR" -type d -exec chmod 0700 {} + \
+ && find "$IMAGE_BUILD_INFO_DIR" -type f -exec chmod 0600 {} + \
+ && echo "Permissions immediately after final chmod:" \
+ && stat -c '%A %a %U:%G %n' \
+      "$IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR" \
+      "$FORK_IMAGE_BUILD_INFO_DIR"/*
+
+#---------------------------------------------------------------
+# H.7 Defining documented labels
 # Recall global definitions made at the top
 ARG OF_FORK
 ARG OF_VERSION
@@ -1158,7 +1308,7 @@ LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-contai
 LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
 
 #---------------------------------------------------------------
-# H.7 Starting as OF_USER by default
+# H.8 Starting as OF_USER by default
 # Recall global definitions made at the top
 ARG OF_USER
 # Avoid permission problems with the home directory of OF_USER
