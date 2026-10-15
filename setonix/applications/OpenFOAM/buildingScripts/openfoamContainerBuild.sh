@@ -652,7 +652,7 @@ if [[ ${#buildArgs[@]} -gt 0 ]]; then
 fi
 
 # Pass the recipe relative to the build context.
-recipeRelative=$(realpath --relative-to="$recipeDir" "$recipeFile")
+recipeRelative=${recipeFile#"$recipeDir"/}
 buildCommand=(
    "$ENGINE" build
    "${buildOptions[@]}"
