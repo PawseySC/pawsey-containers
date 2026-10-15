@@ -53,10 +53,6 @@ ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 #---------------------------------------------------------------
 # A. Basic Stage.
 FROM $BASE_IMAGE_FULL AS basic_stage
-#AEG: Testing permission, remove these lines after test
-RUN echo "Permissions inherited from the base image:" \
- && stat -c '%A %a %U:%G %n' /opt \
- && echo "Active umask: $(umask)"
 #---------------------------------------------------------------
 # A.1 Installing additional tools useful for interactive sessions,
 #     downloading and other checks
@@ -1045,13 +1041,6 @@ RUN sed -i 's,BASHRC_TEMPLATE_TAG,'"${OF_BASHRC_FILE}"',g' $ENVIRONMENT_FILE_SIN
 #        If you found that OpenFOAM's bashrc sourcing still has bashisms that require forced `bash` interpretation, then read the mentioned link for alternatives (not implemented here.)
 
 #---------------------------------------------------------------
-#AEG.Testing permissions. Remove these RUN after test.:
-RUN echo "Permissions immediately before H.4:" \
- && stat -c '%A %a %U:%G %n' \
-      /opt \
-      "$IMAGE_BUILD_INFO_DIR" \
-      2>/dev/null || true \
- && echo "Active umask: $(umask)"
 # H.4 Backup into the image the recipe and all files "called" during building
 # Recall global definitions made at the top
 ARG OF_FORK
@@ -1061,40 +1050,11 @@ ARG IMAGE_BUILD_INFO_DIR
 ARG RECIPE_FILE="${OF_FORK}--${OF_VERSION}.dockerfile"
 ARG FORK_IMAGE_BUILD_INFO_DIR="${IMAGE_BUILD_INFO_DIR}/${OF_FORK}"
 # Copy all files used to build the image into the internal backup directory
-#AEG.Testing. Remove the following RUN, and activate the offcial RUN command (the simple commented line)after test.
-RUN mkdir -p "$FORK_IMAGE_BUILD_INFO_DIR" \
- && echo "Permissions immediately after mkdir:" \
- && stat -c '%A %a %U:%G %n' \
-      /opt \
-      "$IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR" \
- && echo "Active umask: $(umask)"
-#AEG.Testing. Activate the followign RUN after test.
-#RUN mkdir -p "$FORK_IMAGE_BUILD_INFO_DIR"
-COPY --chmod=0644 \
-     $RECIPE_FILE \
+RUN mkdir -p "$FORK_IMAGE_BUILD_INFO_DIR"
+COPY $RECIPE_FILE \
      $ENTRYPOINT_FILE_TEMPLATE \
      $ENVIRONMENT_FILE_TEMPLATE \
      $FORK_IMAGE_BUILD_INFO_DIR
-#AEG.Testing. Remove the following 3 RUNs after test.
-RUN echo "Permissions immediately after COPY:" \
- && stat -c '%A %a %U:%G %n' \
-      "$IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR"/*
-RUN chmod 0755 "$IMAGE_BUILD_INFO_DIR" \
- && chmod 0755 "$FORK_IMAGE_BUILD_INFO_DIR" \
- && chmod 0644 "$FORK_IMAGE_BUILD_INFO_DIR"/* \
- && echo "Permissions immediately after explicit chmod:" \
- && stat -c '%A %a %U:%G %n' \
-      "$IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR"/*
-RUN echo "Permissions immediately after The Fix:" \
- && stat -c '%A %a %U:%G %n' \
-      "$IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR"/*
 
 #---------------------------------------------------------------
 # H.5 Recording the effective values of the global build arguments in file $IMAGE_BUILD_INFO_DIR/image-build-arguments.txt
@@ -1275,17 +1235,13 @@ RUN test -f "$INTERNAL_RECIPE_FILE" \
  && cat "$ARGUMENTS_FILE"
 
 #---------------------------------------------------------------
-# H.6 Normalising permissions of the build-info-directory to allow read access to all users
+# H.6 Normalising permissions of the build-info-directory
 # Recall global definitions made at the top
 ARG IMAGE_BUILD_INFO_DIR
 # Change permissions
-RUN find "$IMAGE_BUILD_INFO_DIR" -type d -exec chmod 0700 {} + \
- && find "$IMAGE_BUILD_INFO_DIR" -type f -exec chmod 0600 {} + \
- && echo "Permissions immediately after final chmod:" \
- && stat -c '%A %a %U:%G %n' \
-      "$IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR" \
-      "$FORK_IMAGE_BUILD_INFO_DIR"/*
+RUN find "$IMAGE_BUILD_INFO_DIR" -type d -exec chmod 0755 {} + \
+ && find "$IMAGE_BUILD_INFO_DIR" -type f ! -perm /111 -exec chmod 0644 {} + \
+ && find "$IMAGE_BUILD_INFO_DIR" -type f -perm /111 -exec chmod 0755 {} +
 
 #---------------------------------------------------------------
 # H.7 Defining documented labels
