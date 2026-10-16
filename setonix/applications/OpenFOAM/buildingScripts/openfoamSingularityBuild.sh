@@ -11,7 +11,9 @@
 # is required and the script derives the local image name from ARG instructions
 # in that version directory's Dockerfile. Repeated --build-arg NAME=VALUE options
 # can select supported source-image variants. Only Dockerfile ARG instructions
-# marked with USER_BUILD_ARG are accepted as user overrides.
+# marked with USER_BUILD_ARG are accepted as user overrides. Overrides that form
+# the image tag are used to identify the local source image. Other accepted
+# overrides are recorded but are not applied during the Singularity conversion.
 #
 # In registry mode, --fromRegistryImage supplies the complete remote image
 # reference. The docker:// prefix is optional and is added automatically when
@@ -51,7 +53,9 @@
 # NOTE: This script was originally developed under the supervision of Alexis Espinosa at Pawsey Supercomputing Centre with the aid of Microsoft 365 Copilot (GPT 5.6).
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
 
-# --- Initial settings
+# =============================================================================
+# Initial settings
+# =============================================================================
 # Runtime state is initialized before command-line values are parsed.
 thisScript=$(basename "$0")
 scriptDir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -77,7 +81,364 @@ buildArgs=()
 declare -A buildArgValues=()
 configFile=""
 
-# --- Command-line help
+
+# =============================================================================
+# Isolated-operation cleanup and stall supervision
+# =============================================================================
+# Long operations run in uniquely named transient systemd user services.
+# This cgroup boundary contains Podman, Buildah, FUSE helpers, compilers,
+# and other descendants without targeting unrelated work owned by the user.
+#
+# The subsystem validates configurable timeouts, transfers the required
+# environment, monitors log activity, captures stall diagnostics, requests
+# orderly Podman cleanup, and verifies storage health before returning.
+# Broad process killing, global unmounting, pruning, and storage reset are
+# deliberately excluded from automatic cleanup.
+# Each long container operation runs in its own transient systemd user service.
+# Cleanup therefore targets only this invocation, not unrelated container builds.
+# All supported builders use this generic systemd service family.
+# The script name and operation label remain in each unit for diagnostics.
+CONTAINER_BUILD_SERVICE_PREFIX="container-build"
+activeOperationUnit=""
+operationRunnerPid=""
+watchdogPid=""
+operationCounter=0
+# Production defaults can be overridden through the environment for controlled tests.
+STALL_SILENCE_SECONDS=${STALL_SILENCE_SECONDS:-1800}
+STALL_CONFIRMATION_SECONDS=${STALL_CONFIRMATION_SECONDS:-180}
+STALL_CHECK_INTERVAL=${STALL_CHECK_INTERVAL:-60}
+STORAGE_SETTLE_SECONDS=${STORAGE_SETTLE_SECONDS:-90}
+STORAGE_CHECK_INTERVAL=${STORAGE_CHECK_INTERVAL:-5}
+PODMAN_MAIN_TERM_GRACE_SECONDS=${PODMAN_MAIN_TERM_GRACE_SECONDS:-60}
+PODMAN_CGROUP_TERM_GRACE_SECONDS=${PODMAN_CGROUP_TERM_GRACE_SECONDS:-10}
+PODMAN_TERM_STATUS_INTERVAL=${PODMAN_TERM_STATUS_INTERVAL:-10}
+serviceEnvironment=()
+podmanEnvironmentReady=false
+podmanGraphRoot=""
+operationWasStarted=false
+storageVerifiedAfterOperation=false
+# -----------------------------------------------------------------------------
+# Helper: prepare the transient-service environment
+# -----------------------------------------------------------------------------
+
+build_service_environment() {
+   local variableName
+   local -a variableNames=(
+      HOME USER LOGNAME PATH SHELL TMPDIR
+      XDG_DATA_HOME XDG_CONFIG_HOME XDG_RUNTIME_DIR
+      CONTAINERS_CONF CONTAINERS_STORAGE_CONF REGISTRY_AUTH_FILE
+      DBUS_SESSION_BUS_ADDRESS SSH_AUTH_SOCK
+   )
+
+   serviceEnvironment=()
+   for variableName in "${variableNames[@]}"; do
+      if [[ -v "$variableName" ]]; then
+         serviceEnvironment+=(--setenv="${variableName}=${!variableName}")
+      fi
+   done
+}
+# -----------------------------------------------------------------------------
+# Helper: probe Podman storage health
+# -----------------------------------------------------------------------------
+
+podman_storage_healthy() {
+   local mountTarget
+
+   # Bound every metadata query so unhealthy storage cannot block cleanup forever.
+   timeout 30 podman images --no-trunc >/dev/null 2>&1 || return 1
+   timeout 30 podman ps -a >/dev/null 2>&1 || return 1
+   timeout 30 podman ps --all --external --no-trunc >/dev/null 2>&1 || return 1
+
+   # Probe visible FUSE overlay mountpoints below this Podman GraphRoot. Healthy
+   # mounts are allowed, including mounts belonging to unrelated concurrent builds.
+   # Only an inaccessible or disconnected endpoint makes the check fail.
+   while IFS= read -r mountTarget; do
+      [[ -n "$mountTarget" ]] || continue
+      [[ "$mountTarget" == "$podmanGraphRoot"/overlay/*/merged ]] || continue
+      timeout 5 stat "$mountTarget" >/dev/null 2>&1 || return 1
+   done < <(
+      {
+         findmnt -rn -t fuse.fuse-overlayfs,fuse-overlayfs -o TARGET 2>/dev/null || true
+         podman unshare findmnt -rn -t fuse.fuse-overlayfs,fuse-overlayfs -o TARGET 2>/dev/null || true
+      } | sort -u
+   )
+
+   return 0
+}
+# -----------------------------------------------------------------------------
+# Helper: write Podman storage diagnostics
+# -----------------------------------------------------------------------------
+
+write_podman_storage_diagnostics() {
+   local diagnosticsFile=$1
+   {
+      echo "Timestamp: $(date --iso-8601=seconds)"
+      echo "Podman GraphRoot: $podmanGraphRoot"
+      echo
+      echo "===== relevant processes ====="
+      ps -u "$USER" -o pid,ppid,stat,%cpu,%mem,etime,wchan:32,cmd --sort=-%cpu 2>&1 || true
+      echo
+      echo "===== container-build transient services ====="
+      systemctl --user list-units --all "${CONTAINER_BUILD_SERVICE_PREFIX}-*.service" 2>&1 || true
+      echo
+      echo "===== visible FUSE overlay mounts ====="
+      findmnt -rn -t fuse.fuse-overlayfs,fuse-overlayfs -o TARGET,SOURCE,FSTYPE,OPTIONS 2>&1 || true
+      podman unshare findmnt -rn -t fuse.fuse-overlayfs,fuse-overlayfs -o TARGET,SOURCE,FSTYPE,OPTIONS 2>&1 || true
+      echo
+      echo "===== Podman storage probes ====="
+      timeout 30 podman images --no-trunc 2>&1 || true
+      timeout 30 podman ps -a 2>&1 || true
+      echo
+      echo "===== external Buildah containers ====="
+      timeout 30 podman ps --all --external --no-trunc 2>&1 || true
+   } > "$diagnosticsFile"
+}
+# -----------------------------------------------------------------------------
+# Helper: wait for Podman storage recovery
+# -----------------------------------------------------------------------------
+
+wait_for_podman_storage() {
+   local reason=$1
+   local maximumWait=${2:-$STORAGE_SETTLE_SECONDS}
+   local deadline=$(( $(date +%s) + maximumWait ))
+   local diagnosticsFile
+
+   [[ "$podmanEnvironmentReady" == true ]] || return 0
+   [[ "${ENGINE:-}" == "podman" ]] || return 0
+
+   echo "$reason"
+   echo "Waiting up to ${maximumWait} seconds for Podman storage to become healthy."
+   while (( $(date +%s) <= deadline )); do
+      if podman_storage_healthy; then
+         echo "Podman storage cleanup verification passed."
+         echo "It is safe to start another operation using this Podman storage."
+         return 0
+      fi
+      sleep "$STORAGE_CHECK_INTERVAL"
+   done
+
+   diagnosticsFile="${runArtifactsDir:-$PWD}/podman-storage-unhealthy.txt"
+   write_podman_storage_diagnostics "$diagnosticsFile"
+   echo "ERROR: Podman storage did not become healthy within ${maximumWait} seconds." >&2
+   echo "       Do not start another build on this node yet." >&2
+   echo "       Diagnostics: $diagnosticsFile" >&2
+   return 1
+}
+# -----------------------------------------------------------------------------
+# Helper: require systemd user-service support
+# -----------------------------------------------------------------------------
+
+require_operation_scope_support() {
+   if ! command -v systemd-run >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
+      echo "ERROR: systemd-run and systemctl are required for isolated service cleanup." >&2
+      return 1
+   fi
+   if ! systemctl --user show-environment >/dev/null 2>&1; then
+      echo "ERROR: The systemd user manager is not accessible." >&2
+      echo "       Refusing to start a long operation without isolated cleanup." >&2
+      return 1
+   fi
+}
+# -----------------------------------------------------------------------------
+# Helper: create a unique transient-service name
+# -----------------------------------------------------------------------------
+
+new_operation_unit() {
+   local operationLabel=$1
+   ((++operationCounter))
+   activeOperationUnit="${CONTAINER_BUILD_SERVICE_PREFIX}-${thisScript//[^A-Za-z0-9_.-]/-}-$$-${operationCounter}-${operationLabel}.service"
+}
+# -----------------------------------------------------------------------------
+# Helper: stop and reap the watchdog
+# -----------------------------------------------------------------------------
+
+stop_watchdog() {
+   if [[ -n "${watchdogPid:-}" ]]; then
+      kill -TERM "$watchdogPid" 2>/dev/null || true
+      wait "$watchdogPid" 2>/dev/null || true
+      watchdogPid=""
+   fi
+}
+# -----------------------------------------------------------------------------
+# Helper: terminate one supervised operation
+# -----------------------------------------------------------------------------
+
+# Stop one transient service in stages so Podman can run its own cleanup first.
+# SIGTERM initially targets only MainPID. Descendants remain alive while Podman
+# unwinds Buildah working containers and FUSE mounts. The entire cgroup is touched
+# only if the service remains active after the main-process grace period.
+terminate_operation_unit() {
+   local unit=$1
+   local elapsed=0
+   local nextStatus=$PODMAN_TERM_STATUS_INTERVAL
+
+   [[ -n "$unit" ]] || return 0
+
+   echo
+   echo "Requesting orderly Podman cleanup through the service main process: $unit" >&2
+   # Signal only MainPID first so Podman can unwind its own Buildah and FUSE state.
+   systemctl --user kill --kill-whom=main --signal=TERM "$unit" 2>/dev/null || true
+
+   while (( elapsed < PODMAN_MAIN_TERM_GRACE_SECONDS )); do
+      if ! systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+         return 0
+      fi
+      sleep 1
+      ((++elapsed))
+      if (( elapsed >= nextStatus )); then
+         echo "Waiting for Podman cleanup: ${elapsed}/${PODMAN_MAIN_TERM_GRACE_SECONDS} seconds" >&2
+         nextStatus=$((nextStatus + PODMAN_TERM_STATUS_INTERVAL))
+      fi
+   done
+
+   echo "Podman did not finish cleanup; sending SIGTERM to the complete operation cgroup." >&2
+   # Escalate to all cgroup processes only after Podman exhausts its cleanup window.
+   systemctl --user kill --kill-whom=all --signal=TERM "$unit" 2>/dev/null || true
+   elapsed=0
+   while (( elapsed < PODMAN_CGROUP_TERM_GRACE_SECONDS )); do
+      if ! systemctl --user is-active --quiet "$unit" 2>/dev/null; then
+         return 0
+      fi
+      sleep 1
+      ((++elapsed))
+   done
+
+   echo "The operation still remains active; sending SIGKILL to the complete cgroup: $unit" >&2
+   # SIGKILL is the bounded final fallback for a service that still cannot stop.
+   systemctl --user kill --kill-whom=all --signal=KILL "$unit" 2>/dev/null || true
+   systemctl --user stop "$unit" 2>/dev/null || true
+}
+# -----------------------------------------------------------------------------
+# Helper: stop the tracked active operation
+# -----------------------------------------------------------------------------
+
+stop_active_operation() {
+   local unit="${activeOperationUnit:-}"
+   [[ -n "$unit" ]] || return 0
+   terminate_operation_unit "$unit"
+   activeOperationUnit=""
+}
+# -----------------------------------------------------------------------------
+# Helper: capture one stall diagnostic snapshot
+# -----------------------------------------------------------------------------
+
+capture_stall_diagnostics() {
+   local unit=$1
+   local diagnosticsFile=$2
+   {
+      echo "Timestamp: $(date --iso-8601=seconds)"
+      echo "Operation service: $unit"
+      echo
+      echo "===== systemctl status ====="
+      systemctl --user status "$unit" --no-pager 2>&1 || true
+      echo
+      echo "===== service properties ====="
+      systemctl --user show "$unit" \
+         -p ActiveState -p SubState -p ControlGroup -p CPUUsageNSec \
+         -p MemoryCurrent -p TasksCurrent 2>&1 || true
+      echo
+      echo "===== user processes ====="
+      ps -u "$USER" -o pid,ppid,stat,%cpu,%mem,etime,wchan:32,cmd --sort=-%cpu 2>&1 || true
+      echo
+      echo "===== load and memory ====="
+      uptime 2>&1 || true
+      free -h 2>&1 || true
+   } >> "$diagnosticsFile"
+}
+# -----------------------------------------------------------------------------
+# Helper: monitor operation progress
+# -----------------------------------------------------------------------------
+
+monitor_operation_progress() {
+   local unit=$1
+   local runnerPid=$2
+   local monitoredLog=$3
+   local stallMarker=$4
+   local diagnosticsFile=$5
+   local previousSize=-1
+   local lastProgress
+   local currentSize
+   local now
+   local confirmationDeadline
+
+   previousSize=$(stat -c %s "$monitoredLog" 2>/dev/null || printf '0')
+   lastProgress=$(date +%s)
+
+   while kill -0 "$runnerPid" 2>/dev/null; do
+      sleep "$STALL_CHECK_INTERVAL"
+      kill -0 "$runnerPid" 2>/dev/null || return 0
+
+      currentSize=$(stat -c %s "$monitoredLog" 2>/dev/null || printf '0')
+      now=$(date +%s)
+      if [[ "$currentSize" != "$previousSize" ]]; then
+         previousSize=$currentSize
+         lastProgress=$now
+         continue
+      fi
+
+      if (( now - lastProgress < STALL_SILENCE_SECONDS )); then
+         continue
+      fi
+
+      {
+         echo "ERROR: The operation has produced no new log output for ${STALL_SILENCE_SECONDS} seconds."
+         echo "A bounded ${STALL_CONFIRMATION_SECONDS}-second confirmation and diagnostics period has started."
+         echo "The operation will be stopped when that period expires, even if its state remains ambiguous."
+         echo "Operation service: $unit"
+         echo "Diagnostics file: $diagnosticsFile"
+      } | tee -a "$monitoredLog" >&2
+
+      : > "$diagnosticsFile"
+      confirmationDeadline=$((now + STALL_CONFIRMATION_SECONDS))
+      while kill -0 "$runnerPid" 2>/dev/null && (( $(date +%s) < confirmationDeadline )); do
+         capture_stall_diagnostics "$unit" "$diagnosticsFile"
+         sleep "$STALL_CHECK_INTERVAL"
+      done
+      kill -0 "$runnerPid" 2>/dev/null || return 0
+
+      {
+         echo "ERROR: The operation remained silent throughout the ${STALL_CONFIRMATION_SECONDS}-second confirmation period."
+         echo "Stopping the isolated operation service and failing this script."
+      } | tee -a "$monitoredLog" >&2
+      printf '%s\n' "stalled" > "$stallMarker"
+      terminate_operation_unit "$unit"
+      return 0
+   done
+}
+# -----------------------------------------------------------------------------
+# Helper: perform centralized exit cleanup
+# -----------------------------------------------------------------------------
+
+cleanup_on_exit() {
+   local exitStatus=$?
+   trap - EXIT HUP INT TERM
+   stop_watchdog
+   stop_active_operation
+   if [[ -n "${operationRunnerPid:-}" ]]; then
+      kill -TERM "$operationRunnerPid" 2>/dev/null || true
+      wait "$operationRunnerPid" 2>/dev/null || true
+   fi
+   if [[ "$operationWasStarted" == true && "$storageVerifiedAfterOperation" != true ]]; then
+      if wait_for_podman_storage \
+         "Verifying Podman storage after the interrupted or failed operation."; then
+         storageVerifiedAfterOperation=true
+      else
+         exitStatus=1
+      fi
+   fi
+   exit "$exitStatus"
+}
+
+# EXIT covers normal and error returns. HUP, INT, and TERM cover terminal
+# loss, Ctrl-C, and ordinary kill requests; SIGKILL cannot be trapped.
+trap cleanup_on_exit EXIT HUP INT TERM
+
+# =============================================================================
+# Command-line help
+# =============================================================================
+# -----------------------------------------------------------------------------
+# Helper: print command-line usage
+# -----------------------------------------------------------------------------
 usage() {
    cat <<USAGE
 Usage:
@@ -89,14 +450,17 @@ Options:
   --recipe-dir, -r <directory>  OpenFOAM version directory containing the configuration and docker recipe
   --output-dir, -o <directory>  Explicit SIF destination; does not validate or promote for production use
   --engine, -b <engine>         Local source-image engine: docker or podman
-  --build-arg NAME=VALUE        Select a source-image ARG marked with USER_BUILD_ARG; may be repeated
+  --build-arg NAME=VALUE        Describe a supported source-image override; may be repeated. Tag-forming
+                                  overrides identify the local image; other overrides are recorded only
   --fromRegistryImage <image>   Remote registry image; docker:// is optional
   --help, -h                    Show this help message and exit
   <imageFull>                   Optional local image name:tag, including target-built image tags
 USAGE
 }
 
-# --- Parse and validate command-line arguments
+# =============================================================================
+# Parse and validate command-line arguments
+# =============================================================================
 ENGINE=""
 REGO_IMAGE=""
 positionalArgs=()
@@ -169,7 +533,9 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 
-# --- Require and resolve the recipe directory
+# =============================================================================
+# Require and resolve the recipe directory
+# =============================================================================
 if [[ -z "$recipeDirInput" ]]; then
    echo "ERROR: --recipe-dir <directory> is required" >&2
    usage >&2
@@ -200,7 +566,9 @@ if [[ ! -f "$recipeFile" ]]; then
    exit 1
 fi
 
-# --- Validate build-argument names against the selected recipe
+# =============================================================================
+# Validate build-argument names against the selected recipe
+# =============================================================================
 # Every Dockerfile ARG is recorded as declared. Only an ARG immediately preceded
 # by a USER_BUILD_ARG marker is exposed as a supported command-line override.
 # This catches misspelled names and prevents fixed recipe settings from being
@@ -269,7 +637,9 @@ fi
 echo "This directory contains disposable temporary files only. It can be removed anytime." > "${tmpDir}/README.txt"
 echo "This directory contains timestamped build artifacts. The latest link identifies the most recent tracked build invocation. If the link is absent, the most recent command failed before invocation tracking was established." > "${singularityArtifactsDir}/README.txt"
 
-# --- Select and validate the source-image mode
+# =============================================================================
+# Select and validate the source-image mode
+# =============================================================================
 # Registry mode uses --fromRegistryImage. Otherwise, local mode requires Docker
 # or Podman and accepts at most one positional local image reference.
 if [[ -n "$REGO_IMAGE" ]]; then
@@ -329,7 +699,9 @@ else
    fi
 fi
 
-# --- Create the persistent artifact directory for this invocation
+# =============================================================================
+# Create the persistent artifact directory for this invocation
+# =============================================================================
 # The source mode identifies the invocation without requiring inspection of its
 # contents. The latest link is deliberately updated only after a successful SIF
 # build, so automated tests never default to a failed candidate.
@@ -361,7 +733,9 @@ echo "Invocation artifacts: $runArtifactsDir"
 echo "Complete run log: $runLog"
 echo
 
-# --- Step 1: Resolve the source and output image names
+# =============================================================================
+# Step 1: Resolve the source and output image names
+# =============================================================================
 # Registry and explicit local references provide their own name and tag. When a
 # local reference is omitted, derive both from the recipe Dockerfile defaults.
 ((++testNum))
@@ -450,6 +824,29 @@ else
    imageName="${OF_FORK}"
    imageTag="${OF_VERSION}-gcc${GCC_VERSION}${WM_PRECISION_OPTION}Int${WM_LABEL_SIZE}${WM_COMPILE_OPTION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
    imageFull="${imageName}:${imageTag}"
+
+   # Explain how each override is handled by this conversion. Tag-forming
+   # arguments identify the existing local source image. Other arguments may
+   # describe how that image was built, but Singularity cannot apply them while
+   # converting the already-built image.
+   declare -A tagFormingBuildArgs=(
+      [OF_FORK]=1
+      [OF_VERSION]=1
+      [GCC_VERSION]=1
+      [WM_LABEL_SIZE]=1
+      [WM_PRECISION_OPTION]=1
+      [WM_COMPILE_OPTION]=1
+      [BASE_IMAGE_OS_VERSION]=1
+      [BASE_IMAGE_MPICH_VERSION]=1
+   )
+   for argumentName in "${!buildArgValues[@]}"; do
+      if [[ -v "tagFormingBuildArgs[$argumentName]" ]]; then
+         echo "NOTICE: --build-arg ${argumentName}=${buildArgValues[$argumentName]} is used to identify the local source-image tag."
+      else
+         echo "NOTICE: --build-arg ${argumentName}=${buildArgValues[$argumentName]} is accepted by the selected recipe but does not form part of the image tag."
+         echo "        It is not applied during the Singularity conversion; the existing local image '${imageFull}' will be converted."
+      fi
+   done
 fi
 echo "  imageName: $imageName"
 echo "  imageTag:  $imageTag"
@@ -464,7 +861,9 @@ fi
 echo "✓ Step $testNum PASS: Source image name starts with '$expectedSourcePrefix'"
 echo
 
-# --- Step 2: Set up the local source-image engine
+# =============================================================================
+# Step 2: Set up the local source-image engine
+# =============================================================================
 # This step is skipped for registry mode. Docker Desktop is started when needed,
 # while Pawsey Podman builds source the site container setup script.
 ((++testNum))
@@ -502,9 +901,15 @@ else
    fi
    echo "✓ Step $testNum PASS: ${ENGINE^} ready"
 fi
+
+# Preserve the invoking shell environment that the selected local engine or
+# Singularity requires when an operation runs in a transient user service.
+build_service_environment
 echo
 
-# --- Step 3: Confirm that the local container engine is accessible
+# =============================================================================
+# Step 3: Confirm that the local container engine is accessible
+# =============================================================================
 # Registry mode does not need a local engine. Podman also requires XDG_DATA_HOME
 # to have been initialized by the Pawsey setup script.
 ((++testNum))
@@ -534,7 +939,9 @@ else
 fi
 echo
 
-# --- Step 4: Set up the Singularity environment
+# =============================================================================
+# Step 4: Set up the Singularity environment
+# =============================================================================
 # Docker-hosted conversion uses the local setup_singularity.sh environment.
 # Podman and remote-registry conversion use Pawsey's Singularity module.
 ((++testNum))
@@ -558,7 +965,9 @@ fi
 echo "✓ Step $testNum PASS"
 echo
 
-# --- Step 5: Confirm that Singularity is accessible
+# =============================================================================
+# Step 5: Confirm that Singularity is accessible
+# =============================================================================
 # A nonempty version response confirms that the Singularity command is ready.
 ((++testNum))
 echo "$thisScript: -----------------------------------------"
@@ -573,7 +982,9 @@ echo "✓ Step $testNum singularityVersion=$singularityVersion"
 echo "✓ Step $testNum PASS"
 echo
 
-# --- Step 6: Verify the source image in the local image store
+# =============================================================================
+# Step 6: Verify the source image in the local image store
+# =============================================================================
 # This check is skipped for remote registry sources. Podman normally stores an
 # unqualified image below localhost/, while Docker uses the reference directly.
 ((++testNum))
@@ -609,7 +1020,12 @@ else
 fi
 echo
 
-# --- Step 7: Export a Podman source image as an OCI archive
+# =============================================================================
+# Step 7: Export a Podman source image as an OCI archive
+# =============================================================================
+# podman save reads the existing image store but does not create Buildah working
+# containers. This path therefore uses service isolation and storage/FUSE health
+# checks without the build-specific external-container removal fallback.
 # Singularity can read Docker directly, but the Podman path uses an OCI archive.
 # Registry mode also skips this step because Singularity pulls the image itself.
 ((++testNum))
@@ -622,9 +1038,71 @@ elif [[ "$ENGINE" == "podman" ]]; then
    logFile="$saveLog"
    echo "Step $testNum - Saving the podman image ${imageFull} in oci-archive format"
    echo "Log of the process in $logFile"
-   "$ENGINE" save --format=oci-archive "localhost/${imageFull}" -o "$imageTar" |& tee "$logFile"
-   statusAll=(${PIPESTATUS[@]})
-   saveExit="${statusAll[0]}"
+   require_operation_scope_support || exit 1
+
+   # Ensure that Podman sees the same storage inside the transient service.
+   shellGraphRoot=$(podman info --format '{{.Store.GraphRoot}}')
+   preflightUnit="${CONTAINER_BUILD_SERVICE_PREFIX}-${thisScript//[^A-Za-z0-9_.-]/-}-$$-podman-environment-check.service"
+   serviceGraphRoot=$(
+      systemd-run --user --wait --pipe --quiet --collect --service-type=exec \
+         --unit="$preflightUnit" "${serviceEnvironment[@]}" -- \
+         podman info --format '{{.Store.GraphRoot}}'
+   )
+   preflightExit=$?
+   if [[ $preflightExit -ne 0 || -z "$serviceGraphRoot" ]]; then
+      echo "ERROR: Podman failed inside the isolated systemd user service." >&2
+      echo "       The OCI archive export has not been started." >&2
+      exit 1
+   fi
+   if [[ "$serviceGraphRoot" != "$shellGraphRoot" ]]; then
+      echo "ERROR: Podman storage differs inside the isolated systemd user service." >&2
+      echo "       Shell GraphRoot:   $shellGraphRoot" >&2
+      echo "       Service GraphRoot: $serviceGraphRoot" >&2
+      echo "       The OCI archive export has not been started." >&2
+      exit 1
+   fi
+   podmanGraphRoot="$shellGraphRoot"
+   podmanEnvironmentReady=true
+   echo "Podman storage identity check passed: GraphRoot=$podmanGraphRoot"
+   wait_for_podman_storage \
+      "Performing the pre-operation Podman storage-health check." 60 || exit 1
+   new_operation_unit save
+   stallMarker="${runArtifactsDir}/save-stalled.marker"
+   stallDiagnostics="${runArtifactsDir}/save-stall-diagnostics.txt"
+   operationStatusFile="${runArtifactsDir}/save-operation.status"
+   rm -f "$stallMarker" "$stallDiagnostics" "$operationStatusFile"
+   echo "Save process service: $activeOperationUnit"
+   echo "Save inactivity limit: ${STALL_SILENCE_SECONDS} seconds plus a bounded ${STALL_CONFIRMATION_SECONDS}-second confirmation period"
+   (
+      systemd-run --user --wait --pipe --quiet --collect --service-type=exec \
+         --unit="$activeOperationUnit" "${serviceEnvironment[@]}" -- \
+         "$ENGINE" save --format=oci-archive "localhost/${imageFull}" -o "$imageTar"
+      printf '%s\n' "$?" > "$operationStatusFile"
+   ) |& tee "$logFile" &
+   operationWasStarted=true
+   storageVerifiedAfterOperation=false
+   operationRunnerPid=$!
+   monitor_operation_progress "$activeOperationUnit" "$operationRunnerPid" \
+      "$logFile" "$stallMarker" "$stallDiagnostics" &
+   watchdogPid=$!
+   wait "$operationRunnerPid"
+   operationRunnerPid=""
+   stop_watchdog
+   saveExit=$(cat "$operationStatusFile" 2>/dev/null || printf '1')
+   statusAll=("$saveExit" "0")
+   activeOperationUnit=""
+   if [[ $saveExit -ne 0 || -f "$stallMarker" ]]; then
+      if wait_for_podman_storage \
+         "Verifying Podman storage after the stopped or failed OCI archive export."; then
+         :
+      fi
+      storageVerifiedAfterOperation=true
+   fi
+   if [[ -f "$stallMarker" ]]; then
+      echo "ERROR: The Podman save was terminated by the inactivity supervisor."
+      echo "Diagnostics: $stallDiagnostics"
+      exit 1
+   fi
    #echo "saveExit=$saveExit"
    #echo "statusAll=${statusAll[*]}"
    if [[ -f "$imageTar" && $saveExit -eq 0 ]]; then
@@ -641,7 +1119,9 @@ else
 fi
 echo
 
-# --- Step 8: Build the Singularity SIF image
+# =============================================================================
+# Step 8: Build the Singularity SIF image
+# =============================================================================
 # Select docker://, docker-daemon://, or oci-archive:// according to the source
 # mode. The default SIF destination is the invocation artifact directory.
 ((++testNum))
@@ -679,9 +1159,38 @@ printf ' %q' "${buildCommand[@]}"
 printf '\n'
 printf '%q ' "${buildCommand[@]}" > "$buildCommandFile"
 printf '\n' >> "$buildCommandFile"
-"${buildCommand[@]}" |& tee "$logFile"
-statusAll=(${PIPESTATUS[@]})
-buildExit="${statusAll[0]}"
+require_operation_scope_support || exit 1
+new_operation_unit singularity-build
+stallMarker="${runArtifactsDir}/singularity-build-stalled.marker"
+stallDiagnostics="${runArtifactsDir}/singularity-build-stall-diagnostics.txt"
+operationStatusFile="${runArtifactsDir}/singularity-build-operation.status"
+rm -f "$stallMarker" "$stallDiagnostics" "$operationStatusFile"
+echo "Build process service: $activeOperationUnit"
+echo "Build inactivity limit: ${STALL_SILENCE_SECONDS} seconds plus a bounded ${STALL_CONFIRMATION_SECONDS}-second confirmation period"
+(
+   systemd-run --user --wait --pipe --quiet --collect --service-type=exec \
+      --unit="$activeOperationUnit" "${serviceEnvironment[@]}" -- \
+      "${buildCommand[@]}"
+   printf '%s\n' "$?" > "$operationStatusFile"
+) |& tee "$logFile" &
+operationWasStarted=true
+storageVerifiedAfterOperation=false
+operationRunnerPid=$!
+monitor_operation_progress "$activeOperationUnit" "$operationRunnerPid" \
+   "$logFile" "$stallMarker" "$stallDiagnostics" &
+watchdogPid=$!
+wait "$operationRunnerPid"
+operationRunnerPid=""
+stop_watchdog
+buildExit=$(cat "$operationStatusFile" 2>/dev/null || printf '1')
+statusAll=("$buildExit" "0")
+activeOperationUnit=""
+operationWasStarted=false
+if [[ -f "$stallMarker" ]]; then
+   echo "ERROR: The Singularity build was terminated by the inactivity supervisor."
+   echo "Diagnostics: $stallDiagnostics"
+   exit 1
+fi
 #echo "buildExit=$buildExit"
 #echo "statusAll=${statusAll[*]}"
 if [[ -f "$imageSif" && $buildExit -eq 0 ]]; then
@@ -725,7 +1234,9 @@ else
 fi
 echo
 
-# --- Final summary
+# =============================================================================
+# Final summary
+# =============================================================================
 # Return success only after the requested SIF exists and singularity build exits
 # successfully. All earlier setup and source-image failures return status 1.
 echo "======================================================"

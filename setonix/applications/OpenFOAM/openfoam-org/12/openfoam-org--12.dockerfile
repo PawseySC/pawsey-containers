@@ -2,32 +2,50 @@
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # 0. Initial main definition of global parameters
-# IMPORTANT: All these settings can be overriden with the use of `--build-arg <Name>=<Value>`
-# IMPORTANT: Recipe needs to re-call them at each stage to recover their values
+# IMPORTANT: Global arguments marked with USER_BUILD_ARG can be overridden with `--build-arg <Name>=<Value>` when using the building script.
+# IMPORTANT: Other global arguments are fixed recipe settings and are not supported as user overrides.
+# IMPORTANT: Recipe needs to re-call global arguments at each stage to recover their values.
 # IMPORTANT: Developers should check that ALL the ARG definitions here are recalled in the "recording_arguments" section of the final stage.
-# 0.1 Main global arguments (related to the OpenFOAM version)
+# 0.1 Main global arguments related to the OpenFOAM version and compiler
+# USER_BUILD_ARG
 ARG OF_FORK="openfoam-org"
+# USER_BUILD_ARG
 ARG OF_VERSION="12"
+# GCC version fixed for this recipe and used for package installation, compiler selection, validation and image naming
+# GCC 13 is the default compiler for Ubuntu 24.04 and is used explicitly to make the selected compiler family reproducible.
+ARG GCC_VERSION="13"
 
-# 0.1 Main arguments related to the base container to use
+# 0.2 OpenFOAM compilation settings supported as user build-argument overrides
+# USER_BUILD_ARG
+ARG WM_LABEL_SIZE="32"
+# USER_BUILD_ARG
+ARG WM_PRECISION_OPTION="DP"
+# USER_BUILD_ARG
+ARG WM_COMPILE_OPTION="Opt"
+
+# 0.3 Main arguments related to the base container to use
 # Defining the base container to use
 # IMPORTANT: Setonix mpi containers need at least ubuntu24.04 (From August 2025)
+# USER_BUILD_ARG
 ARG BASE_IMAGE_REGISTRY="quay.io/pawsey"
+# USER_BUILD_ARG
 ARG BASE_IMAGE_NAME="mpich-base"
+# USER_BUILD_ARG
 ARG BASE_IMAGE_OS_VERSION="24.04"
+# USER_BUILD_ARG
 ARG BASE_IMAGE_MPICH_VERSION="4.2.2"
 ARG BASE_IMAGE_TAG="mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
 ARG BASE_IMAGE_FULL="${BASE_IMAGE_REGISTRY}/${BASE_IMAGE_NAME}:${BASE_IMAGE_TAG}"
 
 #---------------------------------------------------------------
-# 0.2 Auxiliary global arguments of definitions used in multiple stages
+# 0.4 Auxiliary global arguments of definitions used in multiple stages
 ARG OF_INSTALL_DIR="/opt/OpenFOAM"
 ARG OF_USER="ofuser"
 ARG OF_USER_DIR="/home/${OF_USER}/OpenFOAM/${OF_USER}-${OF_VERSION}"
 ARG OF_BASHRC_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/bashrc"
 
-# 0.3 Other auxiliary variables
-ARG BUILD_FILES_DIR="/opt/build-information-and-recipes"
+# 0.5 Other auxiliary variables
+ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 
 
 #---------------------------------------------------------------
@@ -35,6 +53,14 @@ ARG BUILD_FILES_DIR="/opt/build-information-and-recipes"
 #---------------------------------------------------------------
 # A. Basic Stage.
 FROM $BASE_IMAGE_FULL AS basic_stage
+#---------------------------------------------------------------
+# A.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
+
 #---------------------------------------------------------------
 # A.1 Installing additional tools useful for interactive sessions,
 #     downloading and other checks
@@ -79,6 +105,14 @@ RUN mkdir -p ${OF_USER_DIR} \
 # B. Install dependencies
 FROM basic_stage AS install_dependencies
 #---------------------------------------------------------------
+# B.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
+
+#---------------------------------------------------------------
 # B.1 Install OpenFOAM dependencies
 # Will follow PARTIALLY the official installation instructions:
 # [1] https://openfoam.org/download/source/
@@ -99,7 +133,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  && apt-get --no-install-recommends --no-install-suggests --yes install \
     # As indicated in the official documentation:
     # Tools for repositories and compilation:
-    build-essential cmake ca-certificates flex \
+    build-essential gcc-${GCC_VERSION} g++-${GCC_VERSION} gfortran-${GCC_VERSION} \
+    cmake ca-certificates flex \
     # Tools for ThirdParty:
     # paraview-dev is installed in the ParaView stage below. \
     # Tools in the openfoam-nopv-deps list (not repeating ones already included):
@@ -124,10 +159,55 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 
 
 #---------------------------------------------------------------
+# B.2 Explicitly select the configured GCC version
+# Versioned compiler packages and an isolated command directory ensure that
+# GCC_VERSION selects the compiler family used by all subsequent build stages.
+# Recall global definitions made at the top
+ARG GCC_VERSION
+# Create an isolated command directory for the selected compiler version
+RUN mkdir -p /opt/gcc${GCC_VERSION}/bin \
+ && ln -sf /usr/bin/gcc-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/gcc \
+ && ln -sf /usr/bin/g++-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/g++ \
+ && ln -sf /usr/bin/gcc-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/cc \
+ && ln -sf /usr/bin/g++-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/c++ \
+ && ln -sf /usr/bin/gfortran-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/gfortran \
+ && ln -sf /usr/bin/gfortran-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/f95 \
+ && ln -sf /usr/bin/gfortran-${GCC_VERSION} /opt/gcc${GCC_VERSION}/bin/f77
+
+ENV PATH="/opt/gcc${GCC_VERSION}/bin:${PATH}"
+ENV CC="gcc"
+ENV CXX="g++"
+ENV FC="gfortran"
+ENV F77="gfortran"
+ENV F90="gfortran"
+
+# Validate the selected compiler family and display the compilers used by the MPI wrappers
+RUN test "$(command -v gcc)" = "/opt/gcc${GCC_VERSION}/bin/gcc" \
+ && test "$(command -v g++)" = "/opt/gcc${GCC_VERSION}/bin/g++" \
+ && test "$(command -v gfortran)" = "/opt/gcc${GCC_VERSION}/bin/gfortran" \
+ && test "$(gcc -dumpfullversion -dumpversion | cut -d. -f1)" = "$GCC_VERSION" \
+ && test "$(g++ -dumpfullversion -dumpversion | cut -d. -f1)" = "$GCC_VERSION" \
+ && test "$(gfortran -dumpfullversion -dumpversion | cut -d. -f1)" = "$GCC_VERSION" \
+ && gcc -dumpfullversion -dumpversion \
+ && g++ -dumpfullversion -dumpversion \
+ && gfortran -dumpfullversion -dumpversion \
+ && mpicc -show \
+ && mpicxx -show
+
+
+#---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # C. Download OpenFOAM source-files
 FROM install_dependencies AS download
+#---------------------------------------------------------------
+# C.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
+
 #---------------------------------------------------------------
 # C.1 Download
 # Recall global definitions made at the top
@@ -152,18 +232,47 @@ RUN git clone --depth 1 --branch version-${OF_VERSION} \
 # D. Update OpenFOAM settings pre-installation
 FROM download AS update_settings
 #---------------------------------------------------------------
+# D.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
+
+#---------------------------------------------------------------
 # D.1 Update of the prefs.sh file settings
 # Recall global definitions made at the top
 ARG OF_VERSION
 ARG OF_INSTALL_DIR
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG OF_PREFS_TEMPLATE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/example/prefs.sh"
 ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
 ARG OF_PREFS_HEADER_LINES=37
 
-#Updating the prefs.sh file
+# Validate the supported OpenFOAM compilation settings before writing prefs.sh.
+RUN case "$WM_LABEL_SIZE" in \
+      32|64) ;; \
+      *) echo "ERROR: Invalid WM_LABEL_SIZE='$WM_LABEL_SIZE'. Supported values: 32, 64." >&2; exit 1 ;; \
+    esac \
+ && case "$WM_PRECISION_OPTION" in \
+      SP|DP|LP) ;; \
+      *) echo "ERROR: Invalid WM_PRECISION_OPTION='$WM_PRECISION_OPTION'. Supported values: SP, DP, LP." >&2; exit 1 ;; \
+    esac \
+ && case "$WM_COMPILE_OPTION" in \
+      Opt|Debug|Prof) ;; \
+      *) echo "ERROR: Invalid WM_COMPILE_OPTION='$WM_COMPILE_OPTION'. Supported values: Opt, Debug, Prof." >&2; exit 1 ;; \
+    esac
+
+# Update prefs.sh and preserve the existing Foundation-specific MPI configuration.
 RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
  && echo '#------------------------------------------------------------------------------' >> ${OF_PREFS_FILE} \
+# Apply the requested OpenFOAM compilation settings after the bashrc defaults.
+ && echo "export WM_LABEL_SIZE=${WM_LABEL_SIZE}" >> ${OF_PREFS_FILE} \
+ && echo "export WM_PRECISION_OPTION=${WM_PRECISION_OPTION}" >> ${OF_PREFS_FILE} \
+ && echo "export WM_COMPILE_OPTION=${WM_COMPILE_OPTION}" >> ${OF_PREFS_FILE} \
 #Using a combination of the variable definition recommended for the use of system mpich in this link:
 #   https://bugs.openfoam.org/view.php?id=1167
 #And in the file .../OpenFOAM-${OF_VERSION}/wmake/rules/General/mplibMPICH
@@ -237,6 +346,35 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 
 
 #---------------------------------------------------------------
+# D.4 Validate and display the effective OpenFOAM compilation settings
+# The values were validated before updating prefs.sh. This final check confirms
+# that the completed Foundation OpenFOAM settings produce the requested environment.
+# Recall global definitions made at the top
+ARG OF_BASHRC_FILE
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
+# Auxiliary arguments
+ARG BASHRC_OPTIONS=""
+
+# Run the checks
+RUN expectedValue="${WM_LABEL_SIZE}" \
+ && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && test "$WM_LABEL_SIZE" = "$expectedValue"
+RUN expectedValue="${WM_PRECISION_OPTION}" \
+ && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && test "$WM_PRECISION_OPTION" = "$expectedValue"
+RUN expectedValue="${WM_COMPILE_OPTION}" \
+ && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && test "$WM_COMPILE_OPTION" = "$expectedValue"
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && echo "WM_LABEL_SIZE=$WM_LABEL_SIZE" \
+ && echo "WM_PRECISION_OPTION=$WM_PRECISION_OPTION" \
+ && echo "WM_COMPILE_OPTION=$WM_COMPILE_OPTION" \
+ && echo "WM_OPTIONS=$WM_OPTIONS"
+
+
+#---------------------------------------------------------------
 #---------------------------------------------------------------
 #---------------------------------------------------------------
 # E. Third-Party installation
@@ -246,19 +384,23 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 # It seems that foamyHexMesh has been deprecated, so CGAL seems not to be needed.
 FROM update_settings AS third_party_install
 #---------------------------------------------------------------
+# E.0 General settings for this stage
+#-----
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
+# USER_BUILD_ARG
 ARG TP_COMPILE_TASKS="16"
 
-#---------------------------------------------------------------
-#Using bash to interpret OpenFOAM scripts
-#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
-# Third-Party compilation
+# E.1 Third-Party compilation
 # IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
 #            and 1 final parallel authoritative compilation pass.
 #            This because some compilation race conditions were found when compiling in a single parallel pass.
@@ -404,6 +546,20 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # F. ParaView installation
 FROM third_party_install AS pv_install
 #---------------------------------------------------------------
+# F.0 General settings for this stage
+#-----
+# Recall global definitions made at the top
+ARG OF_BASHRC_FILE
+# Auxiliary arguments
+ARG BASHRC_OPTIONS=""
+
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
+
+#-----
 # ParaView or VTK historically needed for runTimePostprocessing of OpenFOAM to properly compile
 # ParaView needed for graphical postprocessing to be available in the container
 # Catalyst tools are not available for the Foundation version
@@ -445,15 +601,19 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
 FROM pv_install AS of_install
 #FROM third_party_install AS of_install
 #---------------------------------------------------------------
+# G.0 General settings for this stage
+#-----
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
-ARG OF_COMPILE_TASKS=16
+# USER_BUILD_ARG
+ARG OF_COMPILE_TASKS="16"
 ARG BASHRC_OPTIONS=""
 
-#---------------------------------------------------------------
-#Using bash to interpret OpenFOAM scripts
-#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -621,6 +781,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 FROM of_install AS final_settings
 #FROM update_settings AS final_settings
 #FROM basic_stage AS final_settings
+#---------------------------------------------------------------
+# H.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
 # H.1 Avoid permission problems with files in the installation directory
@@ -645,10 +812,6 @@ ARG ENTRYPOINT_FILE_TEMPLATE="docker-entrypoint-openfoam-template.sh"
 #ARG ENTRYPOINT_FILE_TEMPLATE="auxiliaryScripts/docker-entrypoint-openfoam-template-debugging.sh"
 ARG ENTRYPOINT_FILE_DOCKER="/usr/local/bin/docker-entrypoint-openfoam.sh"
 #ARG ENTRYPOINT_FILE_DOCKER="/etc/profile.d/docker-entrypoint-openfoam.sh"
-
-# Using bash to interpret the entry script
-#Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
-SHELL ["/bin/bash","-o","pipefail","-c"]
 
 # Copy and update the ENTRYPOINT_FILE_DOCKER script with the right OF_BASHRC_FILE definition in this recipe
 COPY $ENTRYPOINT_FILE_TEMPLATE $ENTRYPOINT_FILE_DOCKER
@@ -720,29 +883,55 @@ RUN sed -i 's,BASHRC_TEMPLATE_TAG,'"${OF_BASHRC_FILE}"',g' $ENVIRONMENT_FILE_SIN
 # Recall global definitions made at the top
 ARG OF_FORK
 ARG OF_VERSION
-ARG BUILD_FILES_DIR
+ARG IMAGE_BUILD_INFO_DIR
 # Auxiliary arguments
 ARG RECIPE_FILE="${OF_FORK}--${OF_VERSION}.dockerfile"
+ARG FORK_IMAGE_BUILD_INFO_DIR="${IMAGE_BUILD_INFO_DIR}/${OF_FORK}"
 # Copy all files used to build the image into the internal backup directory
-RUN mkdir -p "$BUILD_FILES_DIR"
+RUN mkdir -p "$FORK_IMAGE_BUILD_INFO_DIR"
 COPY $RECIPE_FILE \
      $ENTRYPOINT_FILE_TEMPLATE \
      $ENVIRONMENT_FILE_TEMPLATE \
-     $BUILD_FILES_DIR
+     $FORK_IMAGE_BUILD_INFO_DIR
 
 #---------------------------------------------------------------
-# H.5 Recording the effective values of the global build arguments in file $BUILD_FILES_DIR/image-build-arguments.txt
-# The argument names are read automatically from the global ARG
-# declarations located before the first FROM instruction.
-# But every global argument MUST ALSO be recalled in this section for the recording to work.
-# If a developer adds a new global ARG at the top, but does not recall it here,
-# the build stops with an explanatory error instead of generating
-# an incomplete build-arguments record.
+# H.5 Recording the effective values of the global build arguments in file $IMAGE_BUILD_INFO_DIR/image-build-arguments.txt
+# The argument names and recipe defaults are read automatically from the global
+# ARG declarations located before the first FROM instruction.
+#
+# For each argument, the logic reconstructs:
+# 1. Its value using only the recipe defaults.
+# 2. Its expected value using the effective values of its dependencies.
+# 3. Its actual effective value during the build.
+#
+# This allows the generated record to distinguish arguments overridden directly
+# from derived values that changed because one of their dependencies was overridden.
+#
+# The USER_BUILD_ARG comments are not required or used by this logic. They remain
+# optional documentation indicating which arguments users are expected to consider
+# overriding for a particular build.
+#
+# Every global argument MUST ALSO be recalled in this section for the recording to work.
+# If a developer adds a new global ARG at the top but does not recall it here,
+# the build stops with an explanatory error instead of generating an incomplete
+# build-arguments record.
+#
+# The default-value reconstruction supports the controlled global ARG syntax
+# used by this recipe:
+#   ARG NAME="literal value"
+#   ARG NAME="${PREVIOUS_ARGUMENT}/derived/value"
+#
+# Referenced arguments must have been declared earlier in the global ARG block.
 
 # Recall all global build arguments defined before the first FROM
-# in order to have a full match in the list to be recorded by the RUN instruction immediately below.
+# in order to have a full match in the list to be recorded by the
+# RUN instruction immediately below.
 ARG OF_FORK
 ARG OF_VERSION
+ARG GCC_VERSION
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 ARG BASE_IMAGE_REGISTRY
 ARG BASE_IMAGE_NAME
 ARG BASE_IMAGE_OS_VERSION
@@ -753,76 +942,167 @@ ARG OF_INSTALL_DIR
 ARG OF_USER
 ARG OF_USER_DIR
 ARG OF_BASHRC_FILE
-ARG BUILD_FILES_DIR
+ARG IMAGE_BUILD_INFO_DIR
 
 # Auxiliary arguments
-ARG INTERNAL_RECIPE_FILE="${BUILD_FILES_DIR}/${OF_FORK}--${OF_VERSION}.dockerfile"
-ARG ARGUMENTS_FILE="${BUILD_FILES_DIR}/image-build-arguments.txt"
+ARG INTERNAL_RECIPE_FILE="${FORK_IMAGE_BUILD_INFO_DIR}/${OF_FORK}--${OF_VERSION}.dockerfile"
+ARG ARGUMENTS_FILE="${FORK_IMAGE_BUILD_INFO_DIR}/image-build-arguments.txt"
 
-# The following RUN instruction reads the list of global ARG names from the recipe file
-# and writes their effective values into a record file if they have been recalled in the lines immediately above.
-# If a global ARG is not recalled, the build stops with an error.
+# The following RUN instruction:
+# 1. Reads the global ARG declarations from the embedded recipe.
+# 2. Reconstructs the default value of each argument in declaration order.
+# 3. Reconstructs each derived value using the effective values of its dependencies.
+# 4. Compares those values with the actual effective build value.
+# 5. Annotates direct overrides and dependency-driven changes.
+#
+# If a global ARG has not been recalled above, the build stops with an error.
 RUN test -f "$INTERNAL_RECIPE_FILE" \
-# Read all global ARG names declared before the first FROM instruction:
- && mapfile -t argumentNames < <( \
+# Read all global ARG declarations before the first FROM instruction:
+ && mapfile -t argumentDeclarations < <( \
       sed -n '1,/^[[:space:]]*FROM[[:space:]]/p' "$INTERNAL_RECIPE_FILE" \
       | grep -E '^[[:space:]]*ARG[[:space:]]+' \
-      | sed -E ' \
-           s/^[[:space:]]*ARG[[:space:]]+//; \
-           s/[[:space:]]*=.*$//; \
-           s/[[:space:]].*$// \
-        ' \
+      | sed -E 's/^[[:space:]]*ARG[[:space:]]+//' \
     ) \
 # Verify that global arguments were found:
- && if (( ${#argumentNames[@]} == 0 )); then \
+ && if (( ${#argumentDeclarations[@]} == 0 )); then \
       echo "ERROR: No global ARG declarations were found in $INTERNAL_RECIPE_FILE" >&2; \
       exit 1; \
     fi \
+# Prepare structures for the argument names and reconstructed values:
+ && declare -a argumentNames=() \
+ && declare -A recipeDefaults=() \
+ && declare -A expectedBuildValues=() \
+# Reconstruct the recipe-default and expected build value of every global argument:
+ && for declaration in "${argumentDeclarations[@]}"; do \
+      # Check for basic assignment
+      if [[ "$declaration" != *=* ]]; then \
+         echo "ERROR: Global build argument declaration has no recipe default:" >&2; \
+         echo "       ARG $declaration" >&2; \
+         exit 1; \
+      fi; \
+      argumentName=${declaration%%=*}; \
+      defaultExpression=${declaration#*=}; \
+      argumentName=${argumentName%%[[:space:]]*}; \
+      # Check for correct naming
+      if [[ ! "$argumentName" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then \
+         echo "ERROR: Invalid global build argument name '$argumentName'." >&2; \
+         exit 1; \
+      fi; \
+      # If quotes are used, remove them
+      if [[ "$defaultExpression" == \"*\" ]]; then \
+          defaultExpression=${defaultExpression:1:${#defaultExpression}-2}; \
+      elif [[ "$defaultExpression" == \'*\' ]]; then \
+          defaultExpression=${defaultExpression:1:${#defaultExpression}-2}; \
+      fi; \
+      recipeDefault=$defaultExpression; \
+      expectedBuildValue=$defaultExpression; \
+      # Find variables that depend on other global arguments and perform the substitututions with default values
+      # Only patterns of the form ${ARG_NAME} are supported, not $ARG_NAME or ${ARG_NAME:-default}
+      while [[ "$recipeDefault" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; do \
+         dependencyName=${BASH_REMATCH[1]}; \
+         if [[ ! -v "recipeDefaults[$dependencyName]" ]]; then \
+            echo "ERROR: Default for '$argumentName' refers to '$dependencyName'" >&2; \
+            echo "       before that dependency has been defined as a global ARG." >&2; \
+            exit 1; \
+         fi; \
+         recipeDefault=${recipeDefault//\$\{$dependencyName\}/${recipeDefaults[$dependencyName]}}; \
+      done; \
+      # Find variables that depend on other global arguments and perform the substitututions with active values
+      # Only patterns of the form ${ARG_NAME} are supported, not $ARG_NAME or ${ARG_NAME:-default}
+      while [[ "$expectedBuildValue" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; do \
+         dependencyName=${BASH_REMATCH[1]}; \
+         if [[ ! -v "$dependencyName" ]]; then \
+            echo "ERROR: Dependency '$dependencyName' required by '$argumentName'" >&2; \
+            echo "       is not available in the final stage." >&2; \
+            exit 1; \
+         fi; \
+         dependencyValue=${!dependencyName}; \
+         expectedBuildValue=${expectedBuildValue//\$\{$dependencyName\}/$dependencyValue}; \
+      done; \
+      # Check for unsupported expansions in the recipe default and expected build value
+      if [[ "$recipeDefault" == *'$'* || "$expectedBuildValue" == *'$'* ]]; then \
+         echo "ERROR: Unsupported expansion in the recipe default for '$argumentName':" >&2; \
+         echo "       $defaultExpression" >&2; \
+         exit 1; \
+      fi; \
+      # Record the argument name and its reconstructed values for later comparison with the effective build value:
+      argumentNames+=("$argumentName"); \
+      recipeDefaults["$argumentName"]=$recipeDefault; \
+      expectedBuildValues["$argumentName"]=$expectedBuildValue; \
+    done \
 # Create the build-arguments record:
  && printf '%s\n' \
       "# Effective global Dockerfile arguments used in the build process." \
-      "# If effective values differ from their defaults (defined at the top before the first FROM instruction)," \
-      "#  that means that the user has overridden the default values in the building command line." \
+      "# Values that differ from their recipe defaults are annotated." \
+      "# Derived values are distinguished from arguments overridden directly." \
       "#" \
       "# The record was generated during the build process" \
-      "#  following the instructions in the last stage in $INTERNAL_RECIPE_FILE ." \
+      "# following the instructions in the last stage in $INTERNAL_RECIPE_FILE ." \
       "" \
       > "$ARGUMENTS_FILE" \
-# Write the effective value of every discovered global argument:
+# Write and classify the effective value of every global argument:
  && for argumentName in "${argumentNames[@]}"; do \
+      # Check that the argument has been recalled in this stage:
       if [[ ! -v "$argumentName" ]]; then \
          echo "ERROR: Global build argument '$argumentName' is defined in the recipe" >&2; \
          echo "       but is not available in the final stage." >&2; \
          echo "       Add a recall instruction: 'ARG $argumentName' in the final stage before this RUN instruction." >&2; \
          exit 1; \
       fi; \
-      printf '%s=%q\n' \
+      effectiveValue=${!argumentName}; \
+      recipeDefault=${recipeDefaults[$argumentName]}; \
+      expectedBuildValue=${expectedBuildValues[$argumentName]}; \
+      annotation=""; \
+      # If the effective value differs, indicate it with an annotation
+      if [[ "$effectiveValue" != "$recipeDefault" ]]; then \
+         if [[ "$effectiveValue" == "$expectedBuildValue" && "$expectedBuildValue" != "$recipeDefault" ]]; then \
+            annotation="  # Changed because a dependency was overridden; recipe default: \"$recipeDefault\""; \
+         else \
+            annotation="  # Overridden during build; recipe default: \"$recipeDefault\""; \
+         fi; \
+      fi; \
+      # Write the argument name, effective value, and annotation to the record file:
+      printf '%s="%s"%s\n' \
          "$argumentName" \
-         "${!argumentName}" \
-         >> "$ARGUMENTS_FILE"; \
+         "$effectiveValue" \
+         "$annotation" \
+      >> "$ARGUMENTS_FILE"; \
     done \
  && chmod a+r "$ARGUMENTS_FILE" \
  && echo "Created build-argument record: $ARGUMENTS_FILE" \
  && cat "$ARGUMENTS_FILE"
 
 #---------------------------------------------------------------
-# H.6 Defining documented labels
+# H.6 Normalising permissions of the build-info-directory
+# Recall global definitions made at the top
+ARG IMAGE_BUILD_INFO_DIR
+# Change permissions
+RUN find "$IMAGE_BUILD_INFO_DIR" -type d -exec chmod 0755 {} + \
+ && find "$IMAGE_BUILD_INFO_DIR" -type f ! -perm /111 -exec chmod 0644 {} + \
+ && find "$IMAGE_BUILD_INFO_DIR" -type f -perm /111 -exec chmod 0755 {} +
+
+#---------------------------------------------------------------
+# H.7 Defining documented labels
 # Recall global definitions made at the top
 ARG OF_FORK
 ARG OF_VERSION
+ARG GCC_VERSION
+ARG WM_LABEL_SIZE
+ARG WM_PRECISION_OPTION
+ARG WM_COMPILE_OPTION
 ARG BASE_IMAGE_MPICH_VERSION
 ARG BASE_IMAGE_OS_VERSION
-ARG BUILD_FILES_DIR
+ARG IMAGE_BUILD_INFO_DIR
 
 # Labels:
 LABEL org.opencontainers.image.authors="Alexis Espinosa <Alexis.Espinosa@pawsey.org.au>"
 LABEL org.opencontainers.image.title="${OF_FORK}"
-LABEL org.opencontainers.image.version="${OF_VERSION}-mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
+LABEL org.opencontainers.image.version="${OF_VERSION}-gcc${GCC_VERSION}${WM_PRECISION_OPTION}Int${WM_LABEL_SIZE}${WM_COMPILE_OPTION}-mpich${BASE_IMAGE_MPICH_VERSION}-ubuntu${BASE_IMAGE_OS_VERSION}"
 LABEL org.opencontainers.image.source="https://github.com/PawseySC/pawsey-containers"
-LABEL au.org.pawsey.image.build-files-dir="${BUILD_FILES_DIR}"
+LABEL au.org.pawsey.image.build-info-dir="${IMAGE_BUILD_INFO_DIR}"
 
 #---------------------------------------------------------------
-# H.7 Starting as OF_USER by default
+# H.8 Starting as OF_USER by default
 # Recall global definitions made at the top
 ARG OF_USER
 # Avoid permission problems with the home directory of OF_USER

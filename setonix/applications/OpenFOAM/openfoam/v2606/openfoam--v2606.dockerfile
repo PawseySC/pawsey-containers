@@ -199,6 +199,14 @@ RUN wget --no-hsts -O ThirdParty-${OF_VERSION}.tar.gz \
 # D. Update OpenFOAM settings pre-installation
 FROM download AS update_settings
 #---------------------------------------------------------------
+# D.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
+
+#---------------------------------------------------------------
 # D.1 Update of the prefs.sh file settings
 # Recall global definitions made at the top
 ARG OF_VERSION
@@ -212,9 +220,18 @@ ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
 ARG OF_PREFS_HEADER_LINES=26
 
 # Validate the supported OpenFOAM compilation settings before using them
-RUN test "$WM_LABEL_SIZE" = "32" -o "$WM_LABEL_SIZE" = "64"
-RUN test "$WM_PRECISION_OPTION" = "DP" -o "$WM_PRECISION_OPTION" = "SP" -o "$WM_PRECISION_OPTION" = "SPDP"
-RUN test "$WM_COMPILE_OPTION" = "Opt" -o "$WM_COMPILE_OPTION" = "Debug" -o "$WM_COMPILE_OPTION" = "Prof"
+RUN case "$WM_LABEL_SIZE" in \
+      32|64) ;; \
+      *) echo "ERROR: Invalid WM_LABEL_SIZE='$WM_LABEL_SIZE'. Supported values: 32, 64." >&2; exit 1 ;; \
+    esac \
+ && case "$WM_PRECISION_OPTION" in \
+      DP|SP|SPDP) ;; \
+      *) echo "ERROR: Invalid WM_PRECISION_OPTION='$WM_PRECISION_OPTION'. Supported values: DP, SP, SPDP." >&2; exit 1 ;; \
+    esac \
+ && case "$WM_COMPILE_OPTION" in \
+      Opt|Debug|Prof) ;; \
+      *) echo "ERROR: Invalid WM_COMPILE_OPTION='$WM_COMPILE_OPTION'. Supported values: Opt, Debug, Prof." >&2; exit 1 ;; \
+    esac
 
 #Updating the prefs.sh file
 RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
@@ -308,10 +325,6 @@ ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
 
-# Using bash to interpret OpenFOAM scripts (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
-SHELL ["/bin/bash","-o","pipefail","-c"]
-
 #Run the checks
 RUN expectedValue="${WM_LABEL_SIZE}" \
  && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -336,6 +349,8 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #    Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation)
 FROM update_settings AS third_party_install
 #---------------------------------------------------------------
+# E.0 General settings for this stage
+#-----
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
@@ -343,9 +358,10 @@ ARG BASHRC_OPTIONS=""
 # USER_BUILD_ARG
 ARG TP_COMPILE_TASKS="16"
 
-#---------------------------------------------------------------
-# Using bash to interpret OpenFOAM scripts (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -503,6 +519,8 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # F. ParaView installation
 FROM third_party_install AS pv_install
 #---------------------------------------------------------------
+# F.0 General settings for this stage
+#-----
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
@@ -514,15 +532,15 @@ ARG PV_COMPILE_TASKS=16
 #NotWorkingAsWished: #ARG PV_COMPILE_OPTIONS="-DCMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS}"
 #                    Then, CMAKE_BUILD_PARALLEL_LEVEL will be exported directly in the RUN instruction with the correct value
 
-
-#---------------------------------------------------------------
+#-----
 #ParaView or VTK historically needed for runTimePostprocessing of OpenFOAM to properly compile
 #Paraview needed for graphical postprocessing to be available in the container
 #Paraview needed for catalyst module to properly compile (wont work with just VTK)
 
-#---------------------------------------------------------------
-# Using bash to interpret OpenFOAM scripts (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -755,6 +773,8 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 FROM pv_install AS of_install
 #FROM third_party_install AS of_install
 #---------------------------------------------------------------
+# G.0 General settings for this stage
+#-----
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
@@ -762,9 +782,10 @@ ARG OF_BASHRC_FILE
 ARG OF_COMPILE_TASKS=16
 ARG BASHRC_OPTIONS=""
 
-#---------------------------------------------------------------
-# Using bash to interpret OpenFOAM scripts (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -946,6 +967,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 FROM of_install AS final_settings
 #FROM update_settings AS final_settings
 #FROM basic_stage AS final_settings
+#---------------------------------------------------------------
+# H.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
 # H.1 Avoid permission problems with files in the installation directory
@@ -970,10 +998,6 @@ ARG ENTRYPOINT_FILE_TEMPLATE="docker-entrypoint-openfoam-template.sh"
 #ARG ENTRYPOINT_FILE_TEMPLATE="auxiliaryScripts/docker-entrypoint-openfoam-template-debugging.sh"
 ARG ENTRYPOINT_FILE_DOCKER="/usr/local/bin/docker-entrypoint-openfoam.sh"
 #ARG ENTRYPOINT_FILE_DOCKER="/etc/profile.d/docker-entrypoint-openfoam.sh"
-
-# Using bash to interpret the entry script (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
-SHELL ["/bin/bash","-o","pipefail","-c"]
 
 # Copy and update the ENTRYPOINT_FILE_DOCKER script with the right OF_BASHRC_FILE definition in this recipe
 COPY $ENTRYPOINT_FILE_TEMPLATE $ENTRYPOINT_FILE_DOCKER
