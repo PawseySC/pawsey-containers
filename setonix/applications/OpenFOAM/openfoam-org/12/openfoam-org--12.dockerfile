@@ -54,14 +54,6 @@ ARG IMAGE_BUILD_INFO_DIR="/opt/build-info-and-recipes"
 # A. Basic Stage.
 FROM $BASE_IMAGE_FULL AS basic_stage
 #---------------------------------------------------------------
-# A.0 General settings for this stage
-#-----
-# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
-# and catches errors in pipelines that include commands such as `tee`.
-# Repeated per stage to preserve these requirements if stage inheritance changes.
-SHELL ["/bin/bash","-o","pipefail","-c"]
-
-#---------------------------------------------------------------
 # A.1 Installing additional tools useful for interactive sessions,
 #     downloading and other checks
  RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
@@ -105,15 +97,9 @@ RUN mkdir -p ${OF_USER_DIR} \
 # B. Install dependencies
 FROM basic_stage AS install_dependencies
 #---------------------------------------------------------------
-# B.0 General settings for this stage
-#-----
-# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
-# and catches errors in pipelines that include commands such as `tee`.
-# Repeated per stage to preserve these requirements if stage inheritance changes.
-SHELL ["/bin/bash","-o","pipefail","-c"]
-
-#---------------------------------------------------------------
 # B.1 Install OpenFOAM dependencies
+# Recall global definitions made at the top
+ARG GCC_VERSION
 # Will follow PARTIALLY the official installation instructions:
 # [1] https://openfoam.org/download/source/
 #
@@ -136,7 +122,6 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
     build-essential gcc-${GCC_VERSION} g++-${GCC_VERSION} gfortran-${GCC_VERSION} \
     cmake ca-certificates flex \
     # Tools for ThirdParty:
-    # paraview-dev is installed in the ParaView stage below. \
     # Tools in the openfoam-nopv-deps list (not repeating ones already included):
     # No OpenMPI because MPICH will be used (installed in the parent FROM image): \
     # libopenmpi-dev \
@@ -150,13 +135,15 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
     # Tools not officially listed, but needed in the past:
     libfl-dev bison libboost-system-dev libboost-thread-dev \
     libreadline-dev libncurses-dev \
-    # Expanded set of Qt5 libraries suggested for older OpenFOAM versions:
-    # qt5-default \
-    # qtbase5-dev qttools5-dev qttools5-dev-tools qtchooser qt5-qmake qtbase5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
+    # Additional dependencies required to compile ParaView 5.11.2 from source:
+    # qttools5-dev, libqt5x11extras5-dev, libqt5svg5-dev and
+    # qtxmlpatterns5-dev-tools are already installed above.
+    qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
+    qttools5-dev-tools libqt5opengl5-dev \
+    libgl1-mesa-dev libglu1-mesa-dev freeglut3-dev \
 # cleaning at the end:
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
-
 
 #---------------------------------------------------------------
 # B.2 Explicitly select the configured GCC version
@@ -201,14 +188,6 @@ RUN test "$(command -v gcc)" = "/opt/gcc${GCC_VERSION}/bin/gcc" \
 # C. Download OpenFOAM source-files
 FROM install_dependencies AS download
 #---------------------------------------------------------------
-# C.0 General settings for this stage
-#-----
-# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
-# and catches errors in pipelines that include commands such as `tee`.
-# Repeated per stage to preserve these requirements if stage inheritance changes.
-SHELL ["/bin/bash","-o","pipefail","-c"]
-
-#---------------------------------------------------------------
 # C.1 Download
 # Recall global definitions made at the top
 ARG OF_VERSION
@@ -252,7 +231,7 @@ ARG OF_PREFS_TEMPLATE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/config.sh/ex
 ARG OF_PREFS_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/prefs.sh"
 ARG OF_PREFS_HEADER_LINES=37
 
-# Validate the supported OpenFOAM compilation settings before writing prefs.sh.
+# Validate the supported OpenFOAM compilation settings before using them
 RUN case "$WM_LABEL_SIZE" in \
       32|64) ;; \
       *) echo "ERROR: Invalid WM_LABEL_SIZE='$WM_LABEL_SIZE'. Supported values: 32, 64." >&2; exit 1 ;; \
@@ -266,13 +245,15 @@ RUN case "$WM_LABEL_SIZE" in \
       *) echo "ERROR: Invalid WM_COMPILE_OPTION='$WM_COMPILE_OPTION'. Supported values: Opt, Debug, Prof." >&2; exit 1 ;; \
     esac
 
-# Update prefs.sh and preserve the existing Foundation-specific MPI configuration.
+# Updating the prefs.sh file
 RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
  && echo '#------------------------------------------------------------------------------' >> ${OF_PREFS_FILE} \
-# Apply the requested OpenFOAM compilation settings after the bashrc defaults.
+# Defining the OpenFOAM compilation settings selected for this image:
  && echo "export WM_LABEL_SIZE=${WM_LABEL_SIZE}" >> ${OF_PREFS_FILE} \
  && echo "export WM_PRECISION_OPTION=${WM_PRECISION_OPTION}" >> ${OF_PREFS_FILE} \
  && echo "export WM_COMPILE_OPTION=${WM_COMPILE_OPTION}" >> ${OF_PREFS_FILE} \
+# Use the ParaView installation built by the Foundation ThirdParty machinery.
+ && echo 'export ParaView_TYPE=ThirdParty' >> ${OF_PREFS_FILE} \
 #Using a combination of the variable definition recommended for the use of system mpich in this link:
 #   https://bugs.openfoam.org/view.php?id=1167
 #And in the file .../OpenFOAM-${OF_VERSION}/wmake/rules/General/mplibMPICH
@@ -313,6 +294,7 @@ RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
 ARG OF_INSTALL_DIR
 ARG OF_USER_DIR
 ARG OF_BASHRC_FILE
+
 # Updating the bashrc file (also saving a backup of the original)
 RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
 #Changing the installation directory within the bashrc file (This is not in the openfoamwiki instructions)
@@ -322,7 +304,7 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
  && sed -i '0,/^# export FOAM_INST_DIR=.*/!b;//a\export FOAM_INST_DIR='"${OF_INSTALL_DIR}" ${OF_BASHRC_FILE} \
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
-#   1. You can mount a directory of your local-host into this directory
+#   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
 #   2. Or you can include and build stuff inside the image and save it as your own image for later use.
  && sed -i '/^export WM_PROJECT_USER_DIR=.*/aexport WM_PROJECT_USER_DIR='"${OF_USER_DIR}" ${OF_BASHRC_FILE} \
  && sed -i '0,/^export WM_PROJECT_USER_DIR/s//# export WM_PROJECT_USER_DIR/' ${OF_BASHRC_FILE} \
@@ -334,6 +316,7 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
 # Recall global definitions made at the top
 ARG OF_INSTALL_DIR
 ARG OF_VERSION
+
 #Auxiliary arguments
 ARG OF_CONTROL_FILE="${OF_INSTALL_DIR}/OpenFOAM-${OF_VERSION}/etc/controlDict"
 #Defining Pawsey Best Practices as defaults of the controlDict (also creating a backup of the original)
@@ -344,11 +327,10 @@ RUN cp ${OF_CONTROL_FILE} ${OF_CONTROL_FILE}.original \
 #--Dummy line to avoid tracking continuation lines:
  && echo ''
 
-
 #---------------------------------------------------------------
 # D.4 Validate and display the effective OpenFOAM compilation settings
 # The values were validated before updating prefs.sh. This final check confirms
-# that the completed Foundation OpenFOAM settings produce the requested environment.
+# that the completed OpenFOAM settings produce the requested environment.
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 ARG WM_LABEL_SIZE
@@ -414,6 +396,7 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple preliminary passes were needed to warranty proper compilation in our builidng nodes.
 
+#-----
 # First preliminary compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -454,6 +437,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Second preliminary compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -491,6 +475,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Third preliminary compilation pass, performed serially.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -528,9 +513,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
-# Final authoritative compilation pass, performed in parallel.
-# This failure is not masked. With pipefail enabled, any remaining
-# compilation failure stops the Podman build.
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
 ARG TP_PASS_NUMBER="authoritative"
 ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -549,9 +536,15 @@ FROM third_party_install AS pv_install
 # F.0 General settings for this stage
 #-----
 # Recall global definitions made at the top
+ARG GCC_VERSION
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
+# ParaView version fixed for this recipe and matched by the patch supplied with ThirdParty-12
+ARG PV_VERSION="5.11.2"
+# Defining the maximum number of parallel tasks to use for compilation
+# USER_BUILD_ARG
+ARG PV_COMPILE_TASKS="16"
 
 #-----
 # Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
@@ -559,39 +552,226 @@ ARG BASHRC_OPTIONS=""
 # Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
+#---------------------------------------------------------------
+# F.1 Validate and prepare the ParaView build environment.
 #-----
 # ParaView or VTK historically needed for runTimePostprocessing of OpenFOAM to properly compile
 # ParaView needed for graphical postprocessing to be available in the container
 # Catalyst tools are not available for the Foundation version
 # Foundation source files do not include a makeVTK script, so VTK will not be installed separately
 
-#---------------------------------------------------------------
-# F.1 Install ParaView as a system package
-RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
- && apt-get --no-install-recommends --no-install-suggests --yes install \
-    paraview-dev \
-# cleaning at the end:
- && apt-get clean all \
- && rm -r /var/lib/apt/lists/*
+#-----
+# Validate the existing Foundation ParaView machinery and the build environment
+# before downloading or compiling ParaView.
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && cd "$WM_THIRD_PARTY_DIR" \
+ && test -x ./makeParaView \
+ && test -f ./etc/tools/ParaViewFunctions \
+ && test -f "./ParaView-${PV_VERSION}.patch" \
+ && test "$WM_MPLIB" = "SYSTEMMPI" \
+ && test "$ParaView_TYPE" = "ThirdParty" \
+ && command -v cmake \
+ && command -v qmake \
+ && command -v gcc \
+ && command -v g++ \
+ && command -v make \
+ && test "$(gcc -dumpfullversion -dumpversion | cut -d. -f1)" = "$GCC_VERSION" \
+ && test "$(g++ -dumpfullversion -dumpversion | cut -d. -f1)" = "$GCC_VERSION" \
+ && if dpkg-query -W -f='${binary:Package}\n' \
+      | grep -Eq '^(openmpi-bin|openmpi-common|libopenmpi[0-9])(:[^[:space:]]+)?$'; then \
+      echo "ERROR: OpenMPI packages are present before the ParaView source build." >&2; \
+      exit 1; \
+    fi \
+ && echo "Foundation makeParaView: $WM_THIRD_PARTY_DIR/makeParaView" \
+ && echo "ParaView version: $PV_VERSION" \
+ && echo "Parallel compilation tasks: $PV_COMPILE_TASKS" \
+ && echo "WM_OPTIONS: $WM_OPTIONS" \
+ && echo "WM_MPLIB: $WM_MPLIB" \
+ && echo "Configured ParaView_TYPE: $ParaView_TYPE" \
+ && cmake --version \
+ && qmake --version \
+ && gcc -dumpfullversion -dumpversion \
+ && g++ -dumpfullversion -dumpversion \
+ && echo "Available processors: $(nproc)" \
+ && echo "Open file soft limit: $(ulimit -Sn)" \
+ && echo "Open file hard limit: $(ulimit -Hn)" \
+ && grep -i 'Max open files' /proc/self/limits
 
 #---------------------------------------------------------------
-# F.2 Alternative installation of ParaView from source
-# (ParaView download address copied from ThirdParty-<Version>/README.org)
-#NotUsed:ARG PVverFull="5.11.2"
-#NotUsed:ARG PVverMajor="5.11"
-#NotUsed:RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-#NotUsed: && cd $WM_THIRD_PARTY_DIR \
-#NotUsed: && export QT_SELECT=qt5 \
-#NotUsed: && wget --no-check-certificate http://www.paraview.org/files/v${PVverMajor}/ParaView-v${PVverFull}.tar.gz \
-#NotUsed: && tar xvf ParaView-v${PVverFull}.tar.gz \
-#NotUsed: && rm ParaView-v${PVverFull}.tar.gz \
-#NotUsed: && mv ParaView-v${PVverFull} ParaView-${PVverFull}
+# F.2 ParaView compilation
+# IMPORTANT: We are using 3 preliminary compilation passes (2 in parallel, 1 in serial)
+#            and 1 final parallel authoritative compilation pass.
+#            This because some compilation race conditions were found when compiling in a single parallel pass.
+#            The preliminary compilation passes are "sheltered" to avoid the building to break.
+#            The only compilation pass that causes the building to break if there are issues is the final authoritative pass.
+# IMPORTANT: A successful preliminary compilation pass creates a component-specific
+#            sentinel file. Later preliminary compilation passes skip their
+#            compilation when that sentinel exists. The final authoritative
+#            compilation pass always runs. The sentinel is retained as provenance.
+# NOTE:      In a "normal" recipe only a single compilation pass would have been used,
+#            (in this case just the final authoritative pass would exist). But, as mentioned above,
+#            the multiple passes were needed to warranty proper compilation in our builidng nodes.
+# NOTE:      The Foundation makeParaView machinery automatically downloads ParaView,
+#            applies ParaView-${PV_VERSION}.patch, configures, compiles and installs it.
+#            MPI and Python are disabled explicitly, while Qt is enabled explicitly.
 
-# ParaView compilation according to instructions from the official site
-#NotUsed:RUN echo 'export ParaView_TYPE=ThirdParty' >> ${OF_PREFS_FILE} \
-#NotUsed: && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
-#NotUsed: && cd $WM_THIRD_PARTY_DIR \
-#NotUsed: && ./makeParaView -version ${PVverFull} 2>&1 | tee log.makePVOfficial
+#-----
+# First ParaView preliminary compilation pass, performed in parallel.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
+ARG PV_PASS_NUMBER="1"
+ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Continue from the component source directory:
+ && cd "$WM_THIRD_PARTY_DIR" \
+ && export WM_NCOMPPROCS="$PV_PASS_TASKS" \
+ && { \
+      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
+      passLog="log.makePV.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ParaView preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
+      fi; \
+      echo "Starting ParaView preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
+      rebuildOption=""; \
+      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
+      # ----- The compilation command:
+      ./makeParaView $rebuildOption \
+          -version "$PV_VERSION" \
+          -no-mpi \
+          -no-python \
+          -qt \
+          2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ParaView preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
+      exit 0; \
+    }
+
+#-----
+# Second ParaView preliminary compilation pass, performed in parallel.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
+ARG PV_PASS_NUMBER="2"
+ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Continue from the component source directory:
+ && cd "$WM_THIRD_PARTY_DIR" \
+ && export WM_NCOMPPROCS="$PV_PASS_TASKS" \
+ && { \
+      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
+      passLog="log.makePV.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ParaView preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
+      fi; \
+      echo "Starting ParaView preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
+      rebuildOption=""; \
+      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
+      # ----- The compilation command:
+      ./makeParaView $rebuildOption \
+          -version "$PV_VERSION" \
+          -no-mpi \
+          -no-python \
+          -qt \
+          2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ParaView preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
+      exit 0; \
+    }
+
+#-----
+# Third ParaView preliminary compilation pass, performed in serial.
+# A compilation failure is recorded but does not stop the image build,
+# allowing partial build products to be committed into this layer.
+ARG PV_PASS_NUMBER="3"
+ARG PV_PASS_TASKS="1"
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+# Continue from the component source directory:
+ && cd "$WM_THIRD_PARTY_DIR" \
+ && export WM_NCOMPPROCS="$PV_PASS_TASKS" \
+ && { \
+      passInfo="pass-${PV_PASS_NUMBER}-tasks-${PV_PASS_TASKS}"; \
+      passLog="log.makePV.${passInfo}"; \
+      sentinelFile="$WM_THIRD_PARTY_DIR/.paraview-preliminary-compilation-succeeded"; \
+      if [[ -f "$sentinelFile" ]]; then \
+          echo "Skipping ParaView preliminary compilation $passInfo."; \
+          echo "First successful preliminary compilation: $(cat "$sentinelFile")"; \
+          printf '%s\n' "SKIPPED" > "${passLog}.status"; \
+          exit 0; \
+      fi; \
+      echo "Starting ParaView preliminary compilation $passInfo"; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_BEGIN component=ParaView pass=${PV_PASS_NUMBER}"; \
+      rebuildOption=""; \
+      if (( PV_PASS_NUMBER > 1 )); then rebuildOption="-rebuild"; fi; \
+      # ----- The compilation command:
+      ./makeParaView $rebuildOption \
+          -version "$PV_VERSION" \
+          -no-mpi \
+          -no-python \
+          -qt \
+          2>&1 | tee "$passLog"; \
+      compileStatus=${PIPESTATUS[0]}; \
+      echo "ParaView preliminary compilation $passInfo exit status: $compileStatus"; \
+      printf '%s\n' "$compileStatus" > "${passLog}.exit-status"; \
+      if [[ $compileStatus -eq 0 ]]; then \
+          printf '%s\n' "$passInfo" > "$sentinelFile"; \
+          echo "ParaView preliminary compilation $passInfo completed successfully."; \
+          echo "Later preliminary compilation passes can be skipped."; \
+      else \
+          echo "WARNING: ParaView preliminary compilation $passInfo failed with exit status $compileStatus."; \
+          echo "Partial compilation results will be retained for the next compilation pass."; \
+      fi; \
+      echo "OPENFOAM_BUILD_SCAN_IGNORE_END component=ParaView pass=${PV_PASS_NUMBER}"; \
+      exit 0; \
+    }
+
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
+ARG PV_PASS_NUMBER="authoritative"
+ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
+RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+ && cd "$WM_THIRD_PARTY_DIR" \
+ && export WM_NCOMPPROCS="$PV_PASS_TASKS" \
+ && echo "Starting authoritative ParaView compilation pass" \
+ && echo "WM_NCOMPPROCS=$WM_NCOMPPROCS" \
+ && ./makeParaView \
+      -rebuild \
+      -version "$PV_VERSION" \
+      -no-mpi \
+      -no-python \
+      -qt \
+      2>&1 | tee log.makePV.AuthoritativeSummary
 
 
 #---------------------------------------------------------------
@@ -618,6 +798,12 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
 # G.1 Preparatory updates
+# Setting shebang to bash in Allwmake.
+# This because compilation of "Additional components/modules" used to fail in previous versions due to bash-isms.
+##RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
+## && cd $WM_PROJECT_DIR \
+## && cp Allwmake Allwmake.original \
+## && sed -i '1s|/bin/sh|/bin/bash|' Allwmake
 
 #---------------------------------------------------------------
 # G.2 OpenFOAM compilation
@@ -635,6 +821,7 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 
+#-----
 # First parallel preliminary compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -673,6 +860,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Second parallel preliminary compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -711,6 +899,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Third preliminary compilation pass, performed serially.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -749,8 +938,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
-# Final authoritative parallel pass and summary of the OpenFOAM compilation.
-# With pipefail enabled, any remaining compilation failure stops building process.
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
 ARG OF_PASS_NUMBER="authoritative"
 ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \

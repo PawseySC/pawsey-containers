@@ -22,8 +22,8 @@
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
 
 #SBATCH --job-name=runFoam-tutorialCase
-#SBATCH --partition=debug
-##SBATCH --partition=work
+##SBATCH --partition=debug
+#SBATCH --partition=work
 #SBATCH --nodes=2
 #SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=2
@@ -34,7 +34,7 @@
 set -u
 
 # --- Version-specific tutorial settings
-CASE_NAME="periodicPlaneChannel"
+CASE_NAME="channel395"
 SOLVER="pimpleFoam"
 nProcs=4 # Number of processors in the decomposition
 mGroup=2 # Size of the groups for collated file handling

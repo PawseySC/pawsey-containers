@@ -63,6 +63,7 @@ overwriteCase=false
 partitionInput="${PARTITION:-}"
 reservationInput="${RESERVATION:-}"
 pollInterval=${POLL_INTERVAL_SECONDS:-20}
+submitOnly=false
 
 # --- Command-line help
 usage() {
@@ -81,6 +82,7 @@ Optional settings:
                                  under MYSCRATCH, TMPDIR, or HOME.
   --partition, -p <name>        Override the partition in both Slurm scripts
   --reservation <name>          Submit both Slurm jobs using this reservation
+  --submit-only                 Submit both jobs and return without waiting
   --overwrite                   Replace an existing extracted case. This is useful
                                  when intentionally reusing --work-root.
   --help, -h                    Show this help message and exit
@@ -115,6 +117,10 @@ while [[ $# -gt 0 ]]; do
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --partition requires <name>" >&2; usage >&2; exit 1; }
          partitionInput="$2"
          shift 2
+         ;;
+      --submit-only)
+         submitOnly=true
+         shift
          ;;
       --reservation)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --reservation requires <name>" >&2; usage >&2; exit 1; }
@@ -250,7 +256,9 @@ ln -sfn "$outputDir" "$workOutputPath"
 } > "$testDetailsFile"
 
 # --- Verify the Slurm client commands
-for commandName in sbatch squeue sacct; do
+requiredSlurmCommands=(sbatch)
+if [[ "$submitOnly" != true ]]; then requiredSlurmCommands+=(squeue sacct); fi
+for commandName in "${requiredSlurmCommands[@]}"; do
    command -v "$commandName" >/dev/null 2>&1 || {
       echo "ERROR: $commandName not found. Run this launcher on a Slurm login node." >&2
       exit 1
@@ -278,6 +286,7 @@ echo "Tutorial scripts   : $tutorialScriptDir"
 echo "Image              : $SINGULARITY_CONTAINER"
 echo "Work root          : $workRoot"
 echo "Output directory   : $outputDir"
+echo "Launcher mode      : $([[ "$submitOnly" == true ]] && echo "submit only" || echo "submit and wait")"
 if [[ "$overwriteCase" == "true" ]]; then
    echo "Overwrite case     : yes"
 else
@@ -331,7 +340,12 @@ echo
 preOutput="${outputDir}/slurm-preFoam-%j.out"
 echo "$thisScript: -----------------------------------------"
 echo "Stage 2 - Submitting tutorial preparation"
-preSubmission=$(sbatch --parsable \
+preSubmission=$(env \
+   -u SLURM_MEM_PER_CPU \
+   -u SLURM_MEM_PER_GPU \
+   -u SLURM_MEM_PER_NODE \
+   SLURM_EXPORT_ENV=ALL \
+   sbatch --export=NONE --parsable \
    "${submissionOverrides[@]}" \
    --output="$preOutput" \
    "$preScript" \
@@ -357,7 +371,12 @@ echo
 runOutput="${outputDir}/slurm-runFoam-%j.out"
 echo "$thisScript: -----------------------------------------"
 echo "Stage 3 - Submitting tutorial solver execution"
-runSubmission=$(sbatch --parsable \
+runSubmission=$(env \
+   -u SLURM_MEM_PER_CPU \
+   -u SLURM_MEM_PER_GPU \
+   -u SLURM_MEM_PER_NODE \
+   SLURM_EXPORT_ENV=ALL \
+   sbatch --export=NONE --parsable \
    "${submissionOverrides[@]}" \
    --dependency="afterok:${preJobId}" \
    --kill-on-invalid-dep=yes \
@@ -379,6 +398,17 @@ echo "Solver job: $runJobId"
 echo "Solver dependency: afterok:$preJobId"
 echo "Solver log: ${outputDir}/slurm-runFoam-${runJobId}.out"
 echo
+
+# Return immediately after both dependent jobs are accepted when requested.
+if [[ "$submitOnly" == true ]]; then
+   printf '%s
+' SUBMITTED > "$statusFile"
+   trap - EXIT
+   { echo "Result: SUBMITTED"; echo "SIF image: $SINGULARITY_CONTAINER"; echo "SIF SHA256: $imageChecksum"; echo "Preparation job: $preJobId"; echo "Solver job: $runJobId"; echo "Solver dependency: afterok:$preJobId"; } > "$testSummaryFile"
+   echo "RESULT: SUBMITTED"
+   echo "The launcher will not wait for Slurm jobs $preJobId and $runJobId."
+   exit 0
+fi
 
 # --- Stage 4: Wait for both Slurm jobs
 # A job remains active while squeue reports it as pending or running.

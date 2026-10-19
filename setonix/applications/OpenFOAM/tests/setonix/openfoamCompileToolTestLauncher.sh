@@ -77,6 +77,7 @@ workRootInput=""
 partitionInput="${PARTITION:-}"
 reservationInput="${RESERVATION:-}"
 pollInterval=${POLL_INTERVAL_SECONDS:-20}
+submitOnly=false
 
 # --- Command-line help
 usage() {
@@ -96,6 +97,7 @@ Optional settings:
   --work-root <directory>       Host OpenFOAM user-development directory
   --partition, -p <name>        Override the Slurm job partition
   --reservation <name>          Submit the Slurm job using this reservation
+  --submit-only                 Submit the job and return without waiting
   --help, -h                    Show this help message and exit
 
 Run this launcher directly. It submits openfoamCompileToolTestJob.slurm.sh with
@@ -150,6 +152,10 @@ while [[ $# -gt 0 ]]; do
          }
          partitionInput="$2"
          shift 2
+         ;;
+      --submit-only)
+         submitOnly=true
+         shift
          ;;
       --reservation)
          [[ $# -ge 2 && -n "$2" ]] || {
@@ -260,7 +266,9 @@ echo
 
 # --- Step 3: Verify the Slurm client and job script
 jobScript="${scriptDir}/openfoamCompileToolTestJob.slurm.sh"
-for commandName in sbatch squeue sacct; do
+requiredSlurmCommands=(sbatch)
+if [[ "$submitOnly" != true ]]; then requiredSlurmCommands+=(squeue sacct); fi
+for commandName in "${requiredSlurmCommands[@]}"; do
    command -v "$commandName" >/dev/null 2>&1 || {
       echo "ERROR: $commandName not found. Run this launcher on a Slurm login node." >&2
       exit 1
@@ -347,6 +355,7 @@ Work-root override : ${workRootInput:-none}
 Partition override : ${partitionInput:-none}
 Reservation        : ${reservationInput:-none}
 Artifact directory : $runDir
+Launcher mode      : $([[ "$submitOnly" == true ]] && echo "submit only" || echo "submit and wait")
 ============================================================
 PLAN
 
@@ -369,7 +378,12 @@ fi
 
 echo "$thisScript: -----------------------------------------"
 echo "Step 5 - Submitting the compile-tool Slurm job"
-submission=$(sbatch --parsable \
+submission=$(env \
+   -u SLURM_MEM_PER_CPU \
+   -u SLURM_MEM_PER_GPU \
+   -u SLURM_MEM_PER_NODE \
+   SLURM_EXPORT_ENV=ALL \
+   sbatch --export=NONE --parsable \
    "${submissionOptions[@]}" \
    --output="${runDir}/slurm-%j.out" \
    "$jobScript" \
@@ -400,6 +414,17 @@ echo "Submitted compile-tool test job: $jobId"
 echo "Slurm output: $slurmOutput"
 echo "PASS: Slurm job submitted successfully"
 echo
+
+# Return immediately after a successful submission when requested.
+if [[ "$submitOnly" == true ]]; then
+   printf '%s
+' SUBMITTED > "$statusFile"
+   trap - EXIT
+   { echo "Result: SUBMITTED"; echo "Slurm job ID: $jobId"; echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; echo "Slurm output: $slurmOutput"; } > "$summaryFile"
+   echo "RESULT: SUBMITTED"
+   echo "The launcher will not wait for Slurm job $jobId."
+   exit 0
+fi
 
 # --- Step 6: Wait for the Slurm job to finish
 # A job remains active while squeue reports it as pending or running.

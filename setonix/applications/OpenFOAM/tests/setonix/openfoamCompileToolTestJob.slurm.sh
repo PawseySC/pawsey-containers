@@ -40,7 +40,8 @@
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
 
 #SBATCH --job-name=openfoam-compile-tool-test
-#SBATCH --partition=debug
+##SBATCH --partition=debug
+#SBATCH --partition=work
 #SBATCH --nodes=1
 #SBATCH --mem=14GB
 #SBATCH --time=00:10:00

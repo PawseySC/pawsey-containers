@@ -12,7 +12,7 @@ ARG OF_FORK="openfoam"
 # USER_BUILD_ARG
 ARG OF_VERSION="v2606"
 # GCC version fixed for this recipe and used for package installation, compiler selection, validation and image naming
-# GCC 13 is default for Ubuntu 24.04, and is working fine with this version of OpenFOAM. However, GCC 9 is the default for Ubuntu 20.04 and is the existing compiler when this OpenFOAM version was released. Therefore, GCC 9 is used in this recipe to ensure compatibility with the OpenFOAM version.
+# GCC 13 is the default compiler for Ubuntu 24.04 and is used explicitly to make the selected compiler family reproducible.
 ARG GCC_VERSION="13"
 
 # 0.2 OpenFOAM compilation settings supported as user build-argument overrides
@@ -132,7 +132,6 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update -qq \
  && apt-get clean all \
  && rm -r /var/lib/apt/lists/*
 
-
 #---------------------------------------------------------------
 # B.2 Explicitly select the configured GCC version
 # Versioned compiler packages and an isolated command directory ensure that
@@ -233,10 +232,10 @@ RUN case "$WM_LABEL_SIZE" in \
       *) echo "ERROR: Invalid WM_COMPILE_OPTION='$WM_COMPILE_OPTION'. Supported values: Opt, Debug, Prof." >&2; exit 1 ;; \
     esac
 
-#Updating the prefs.sh file
+# Updating the prefs.sh file
 RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
  && echo '#------------------------------------------------------------------------------' >> ${OF_PREFS_FILE} \
-#Defining the OpenFOAM compilation settings selected for this image:
+# Defining the OpenFOAM compilation settings selected for this image:
  && echo "export WM_LABEL_SIZE=${WM_LABEL_SIZE}" >> ${OF_PREFS_FILE} \
  && echo "export WM_PRECISION_OPTION=${WM_PRECISION_OPTION}" >> ${OF_PREFS_FILE} \
  && echo "export WM_COMPILE_OPTION=${WM_COMPILE_OPTION}" >> ${OF_PREFS_FILE} \
@@ -290,7 +289,7 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
 #   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
-#   2. Or you can include and build stuff inside the container and save it as your own image for later use.
+#   2. Or you can include and build stuff inside the image and save it as your own image for later use.
  && sed -i '/^export WM_PROJECT_USER_DIR=.*/aexport WM_PROJECT_USER_DIR='"${OF_USER_DIR}" ${OF_BASHRC_FILE} \
  && sed -i '0,/^export WM_PROJECT_USER_DIR/s//# export WM_PROJECT_USER_DIR/' ${OF_BASHRC_FILE} \
 #--Dummy line to avoid tracking continuation lines:
@@ -325,7 +324,7 @@ ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
 
-#Run the checks
+# Run the checks
 RUN expectedValue="${WM_LABEL_SIZE}" \
  && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && test "$WM_LABEL_SIZE" = "$expectedValue"
@@ -379,6 +378,7 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple preliminary passes were needed to warranty proper compilation in our builidng nodes.
 
+#-----
 # First preliminary compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -421,6 +421,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Second preliminary compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -460,6 +461,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Third preliminary compilation pass, performed serially.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -499,9 +501,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
-# Final authoritative compilation pass, performed in parallel.
-# This failure is not masked. With pipefail enabled, any remaining
-# compilation failure stops the Podman build.
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
 ARG TP_PASS_NUMBER="authoritative"
 ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -527,7 +531,7 @@ ARG OF_BASHRC_FILE
 ARG BASHRC_OPTIONS=""
 # Defining the maximum number of parallel tasks to use for compilation
 # USER_BUILD_ARG
-ARG PV_COMPILE_TASKS=16
+ARG PV_COMPILE_TASKS="16"
 #NotAcceptedBy makeParaView:#ARG PV_COMPILE_OPTIONS="-j${PV_COMPILE_TASKS}"
 #NotWorkingAsWished: #ARG PV_COMPILE_OPTIONS="-DCMAKE_BUILD_PARALLEL_LEVEL=${PV_COMPILE_TASKS}"
 #                    Then, CMAKE_BUILD_PARALLEL_LEVEL will be exported directly in the RUN instruction with the correct value
@@ -596,6 +600,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 
+#-----
 # First ParaView preliminary compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -646,6 +651,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Second ParaView preliminary compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -696,6 +702,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Third ParaView preliminary compilation pass, performed in serial.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -746,8 +753,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
-# This final pass is performed in parallel and its failure is not masked.
-# With pipefail enabled, a failure from makeParaView stops the building process.
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
 ARG PV_PASS_NUMBER="authoritative"
 ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -779,7 +789,7 @@ FROM pv_install AS of_install
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
 # USER_BUILD_ARG
-ARG OF_COMPILE_TASKS=16
+ARG OF_COMPILE_TASKS="16"
 ARG BASHRC_OPTIONS=""
 
 #-----
@@ -813,6 +823,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 
+#-----
 # First parallel preliminary compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -853,6 +864,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Second parallel preliminary compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -893,6 +905,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Third preliminary compilation pass, performed serially.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -933,8 +946,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
-# Final authoritative parallel pass and summary of the OpenFOAM compilation.
-# With pipefail enabled, any remaining compilation failure stops building process.
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
 ARG OF_PASS_NUMBER="authoritative"
 ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \

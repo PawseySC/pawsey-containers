@@ -3,7 +3,7 @@
 #---------------------------------------------------------------
 # 0. Initial main definition
 # Defining the base container to build from
-# IMPORTANT: 
+# IMPORTANT:
 # Setonix needs at least ubuntu20.04 (From August 2023)
 FROM quay.io/pawsey/mpich-base:3.4.3_ubuntu20.04
 
@@ -96,7 +96,7 @@ RUN apt-get update -qq\
 #AEG:No OpenMPI because MPICH will be used (installed in the parent FROM image)
 #AEG:NoOpenMPI:   libopenmpi-dev openmpi-bin \
    gnuplot libreadline-dev libncurses-dev libxt-dev \
-#AEG:NoQt4:   qt4-dev-tools libqt4-dev libqt4-opengl-dev libqtwebkit-dev\ 
+#AEG:NoQt4:   qt4-dev-tools libqt4-dev libqt4-opengl-dev libqtwebkit-dev\
 #AEG:Not installing qt4 (as in the official instructions), but qt5 as in the 3rd party requirements list
    qtbase5-dev qttools5-dev qttools5-dev-tools libqt5opengl5-dev libqt5x11extras5-dev libxt-dev \
 #AEG:And these other suggested in the wiki:
@@ -181,10 +181,10 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
  && sed -i '0,/\[ -n "$projectDir"/s//# \[ -n "$projectDir"/' ${OFBASHRC} \
  && sed -i '0,/^# projectDir="$HOME.*/!b;//a\projectDir="'"${OFINSTDIR}"'/OpenFOAM-$WM_PROJECT_VERSION"' ${OFBASHRC} \
 #" (This comment line is needed to let vi to show the right syntax)
-#Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file 
+#Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
 #   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
-#   2. Or you can include and build stuff inside the container and save it as your own image for later use.
+#   2. Or you can include and build stuff inside the image and save it as your own image for later use.
  && sed -i '/^export WM_PROJECT_USER_DIR=.*/aexport WM_PROJECT_USER_DIR="'"${OFUSERDIR}/ofuser"'-$WM_PROJECT_VERSION"' ${OFBASHRC} \
  && sed -i '0,/^export WM_PROJECT_USER_DIR/s//# export WM_PROJECT_USER_DIR/' ${OFBASHRC} \
 #" (This comment line is needed to let vi to show the right syntax)
@@ -196,7 +196,7 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 #Install one or the other: paraview or VTK
 #Install paraview or VTK for runTimePostprocessing of OpenFOAM to properly compile
 #Install paraview for catalyst module to properly compile (wont work with just VTK)
-#Install paraview for graphical postprocessing to be available in the container 
+#Install paraview for graphical postprocessing to be available in the container
 
 ##VTK compilation
 ##@@-@@#:##VTK compilation (Adapted alternative instructions)(working)
@@ -217,7 +217,7 @@ RUN cp ${OFBASHRC} ${OFBASHRC}.original \
 ##@@-@@#: && sed -i 's,^#!/bin/sh,###!/bin/sh,' $conFile \
 ##@@-@@#:#AEG: system mesa is 19.2.1, but setting is really for ThirdParty mesa, so it is not needed
 ##@@-@@#:# && sed -i '/^mesa=.*/amesa=mesa-19.2.1' $conFile \
-##@@-@@#: && sed -i '0,/^mesa/s//# mesa/' $conFile \ 
+##@@-@@#: && sed -i '0,/^mesa/s//# mesa/' $conFile \
 ##@@-@@#:#AEG: removing the mesa set up and the weird vtk line
 ##@@-@@#: && sed -i -e '/-osmesa/d' -e '/-mesa-prefix/d' -e '/$vtk/d' $conFile \
 ##@@-@@#:#AEG: makeVTK is still called by $conFile, but  scritps are failing with /bin/sh, change to bash:
@@ -248,7 +248,7 @@ RUN . ${OFBASHRC} \
 
 #...........
 #Step 5.
-#Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation) 
+#Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation)
 #Updating the BOOST version to be used:
 ARG OFCGAL=${OFINSTDIR}/OpenFOAM-${OFVERSION}/etc/config.sh/CGAL
 RUN cp ${OFCGAL} ${OFCGAL}.original \
@@ -285,7 +285,7 @@ RUN . ${OFBASHRC} \
 ##-##: && export QT_SELECT=qt5 \
 ##-##: && ./Allwmake $OFNUMPROCOPTION 2>&1 | tee log.Allwmake
 
-##Obtaining a  summary 
+##Obtaining a  summary
 ##-##:RUN . ${OFBASHRC} \
 ##-##: && cd $WM_PROJECT_DIR \
 ##-##: && export QT_SELECT=qt5 \

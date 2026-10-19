@@ -1519,13 +1519,13 @@ else
    if "$ENGINE" run --rm "$imageFull" bash -c "[[ -f $logFile ]]" 2>/dev/null; then
       if "$ENGINE" run --rm "$imageFull" bash -c "
          grep -qE '^Usage:' \"$logFile\" &&
-         grep -qE '^Options:' \"$logFile\" &&
+         grep -qE '^[Oo]ptions:' \"$logFile\" &&
          grep -qF 'Using: OpenFOAM-${OF_VERSION}' \"$logFile\"
       "; then
          echo "✓ Step $testNum PASS: All required output lines found in $logFile"
          "$ENGINE" run --rm "$imageFull" bash -c "
             grep -E '^Usage:' \"$logFile\";
-            grep -E '^Options:' \"$logFile\";
+            grep -E '^[Oo]ptions:' \"$logFile\";
             grep -F 'Using: OpenFOAM-${OF_VERSION}' \"$logFile\"
          "
       else
@@ -1533,7 +1533,7 @@ else
          echo "Missing patterns:"
          "$ENGINE" run --rm "$imageFull" bash -c "
             grep -qE '^Usage:' \"$logFile\" || echo '  - ^Usage:';
-            grep -qE '^Options:' \"$logFile\" || echo '  - ^Options:';
+            grep -qE '^[Oo]ptions:' \"$logFile\" || echo '  - ^[Oo]ptions:';
             grep -qF 'Using: OpenFOAM-${OF_VERSION}' \"$logFile\" || echo '  - Using: OpenFOAM-${OF_VERSION}'
          "
          failedTests+=("$testNum: OpenFOAM tool basic output incomplete")

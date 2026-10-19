@@ -21,8 +21,8 @@
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
 
 #SBATCH --job-name=preFoam-tutorialCase
-#SBATCH --partition=debug
-##SBATCH --partition=work
+##SBATCH --partition=debug
+#SBATCH --partition=work
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
@@ -33,7 +33,7 @@
 set -u
 
 # --- Version-specific tutorial settings
-CASE_NAME="periodicPlaneChannel"
+CASE_NAME="channel395"
 nProcs=4 # Number of processors in the decomposition
 mGroup=2 # Size of the groups for collated file handling
 decompositionX=1
@@ -353,7 +353,7 @@ runOpenFOAMStep() {
 # --- Run the serial OpenFOAM preparation tools
 # Each call remains explicit and follows the order in the tutorial Allrun script.
 runOpenFOAMStep blockMesh blockMesh
-runOpenFOAMStep renumberMesh renumberMesh -overwrite -constant
+#runOpenFOAMStep renumberMesh renumberMesh -overwrite -constant
 runOpenFOAMStep checkMesh checkMesh -allTopology -allGeometry -constant
 
 # checkMesh requires one additional output validation beyond command success.

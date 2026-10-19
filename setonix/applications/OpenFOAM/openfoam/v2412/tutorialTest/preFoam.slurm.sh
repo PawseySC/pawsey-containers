@@ -21,8 +21,8 @@
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
 
 #SBATCH --job-name=preFoam-tutorialCase
-#SBATCH --partition=debug
-##SBATCH --partition=work
+##SBATCH --partition=debug
+#SBATCH --partition=work
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1

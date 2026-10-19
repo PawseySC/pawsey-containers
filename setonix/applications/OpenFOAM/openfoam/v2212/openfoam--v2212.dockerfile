@@ -223,6 +223,14 @@ RUN wget --no-hsts -O ThirdParty-${OF_VERSION}.tgz \
 # D. Update OpenFOAM settings pre-installation
 FROM download AS update_settings
 #---------------------------------------------------------------
+# D.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
+
+#---------------------------------------------------------------
 # D.1 Update of the prefs.sh file settings
 # Recall global definitions made at the top
 ARG OF_VERSION
@@ -249,10 +257,10 @@ RUN case "$WM_LABEL_SIZE" in \
       *) echo "ERROR: Invalid WM_COMPILE_OPTION='$WM_COMPILE_OPTION'. Supported values: Opt, Debug, Prof." >&2; exit 1 ;; \
     esac
 
-#Updating the prefs.sh file
+# Updating the prefs.sh file
 RUN head -${OF_PREFS_HEADER_LINES} $OF_PREFS_TEMPLATE > $OF_PREFS_FILE \
  && echo '#------------------------------------------------------------------------------' >> ${OF_PREFS_FILE} \
-#Defining the OpenFOAM compilation settings selected for this image:
+# Defining the OpenFOAM compilation settings selected for this image:
  && echo "export WM_LABEL_SIZE=${WM_LABEL_SIZE}" >> ${OF_PREFS_FILE} \
  && echo "export WM_PRECISION_OPTION=${WM_PRECISION_OPTION}" >> ${OF_PREFS_FILE} \
  && echo "export WM_COMPILE_OPTION=${WM_COMPILE_OPTION}" >> ${OF_PREFS_FILE} \
@@ -306,7 +314,7 @@ RUN cp ${OF_BASHRC_FILE} ${OF_BASHRC_FILE}.original \
 #Changing the place for your own tools/solvers (WM_PROJECT_USER_DIR directory) within the bashrc file
 #IMPORTANT:When using this container, you have two options when building your own tools/solvers:
 #   1. You can mount a directory of your local-host into this directory (as explained at the end of the Dockerfile)
-#   2. Or you can include and build stuff inside the container and save it as your own image for later use.
+#   2. Or you can include and build stuff inside the image and save it as your own image for later use.
  && sed -i '/^export WM_PROJECT_USER_DIR=.*/aexport WM_PROJECT_USER_DIR='"${OF_USER_DIR}" ${OF_BASHRC_FILE} \
  && sed -i '0,/^export WM_PROJECT_USER_DIR/s//# export WM_PROJECT_USER_DIR/' ${OF_BASHRC_FILE} \
 #--Dummy line to avoid tracking continuation lines:
@@ -341,11 +349,7 @@ ARG WM_COMPILE_OPTION
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
 
-# Using bash to interpret OpenFOAM scripts (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
-SHELL ["/bin/bash","-o","pipefail","-c"]
-
-#Run the checks
+# Run the checks
 RUN expectedValue="${WM_LABEL_SIZE}" \
  && source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
  && test "$WM_LABEL_SIZE" = "$expectedValue"
@@ -369,6 +373,8 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #    Install Third Party tools (preferred to do it as a separate step and not together with the full openfoam compilation)
 FROM update_settings AS third_party_install
 #---------------------------------------------------------------
+# E.0 General settings for this stage
+#-----
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
@@ -376,9 +382,10 @@ ARG BASHRC_OPTIONS=""
 # USER_BUILD_ARG
 ARG TP_COMPILE_TASKS="16"
 
-#---------------------------------------------------------------
-# Using bash to interpret OpenFOAM scripts (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -396,6 +403,7 @@ SHELL ["/bin/bash","-o","pipefail","-c"]
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple preliminary passes were needed to warranty proper compilation in our builidng nodes.
 
+#-----
 # First preliminary compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -438,6 +446,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Second preliminary compilation pass, performed in parallel.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -477,6 +486,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Third preliminary compilation pass, performed serially.
 # A failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -516,9 +526,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
-# Final authoritative compilation pass, performed in parallel.
-# This failure is not masked. With pipefail enabled, any remaining
-# compilation failure stops the Podman build.
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
 ARG TP_PASS_NUMBER="authoritative"
 ARG TP_PASS_TASKS="${TP_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -536,23 +548,25 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 # F. ParaView installation
 FROM third_party_install AS pv_install
 #---------------------------------------------------------------
+# F.0 General settings for this stage
+#-----
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
 ARG BASHRC_OPTIONS=""
 # Defining the maximum number of parallel tasks to use for compilation
 # USER_BUILD_ARG
-ARG PV_COMPILE_TASKS=16
+ARG PV_COMPILE_TASKS="16"
 
-
-#---------------------------------------------------------------
+#-----
 #ParaView or VTK historically needed for runTimePostprocessing of OpenFOAM to properly compile
 #Paraview needed for graphical postprocessing to be available in the container
 #Paraview needed for catalyst module to properly compile (wont work with just VTK)
 
-#---------------------------------------------------------------
-# Using bash to interpret OpenFOAM scripts (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -603,6 +617,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #            due to the installation of this old OpenFOAM version in a more modern ubuntu version
 #            is causing too much problems.
 
+#-----
 # First ParaView preliminary compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -645,6 +660,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Second ParaView preliminary compilation pass, performed in parallel.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -687,6 +703,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Third ParaView preliminary compilation pass, performed in serial.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -729,8 +746,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
-# This final pass is performed in parallel and its failure is not masked.
-# With pipefail enabled, a failure from makeParaView stops the building process.
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
 ARG PV_PASS_NUMBER="authoritative"
 ARG PV_PASS_TASKS="${PV_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -752,16 +772,19 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 FROM pv_install AS of_install
 #FROM third_party_install AS of_install
 #---------------------------------------------------------------
+# G.0 General settings for this stage
+#-----
 # Recall global definitions made at the top
 ARG OF_BASHRC_FILE
 # Auxiliary arguments
 # USER_BUILD_ARG
-ARG OF_COMPILE_TASKS=16
+ARG OF_COMPILE_TASKS="16"
 ARG BASHRC_OPTIONS=""
 
-#---------------------------------------------------------------
-# Using bash to interpret OpenFOAM scripts (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
 SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
@@ -806,6 +829,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 #            (in this case just the final authoritative pass would exist). But, as mentioned above,
 #            the multiple passes were needed to warranty proper compilation in our builidng nodes.
 
+#-----
 # First parallel preliminary compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -846,6 +870,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Second parallel preliminary compilation pass.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -886,6 +911,7 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
+#-----
 # Third preliminary compilation pass, performed serially.
 # A compilation failure is recorded but does not stop the image build,
 # allowing partial build products to be committed into this layer.
@@ -926,8 +952,11 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
       exit 0; \
     }
 
-# Final authoritative parallel pass and summary of the OpenFOAM compilation.
-# With pipefail enabled, any remaining compilation failure stops building process.
+#-----
+# Final authoritative compilation pass, performed in parallel and its failure is not masked.
+# As explained above, in a "normal" recipe only this compilation pass would have been used.
+# (So, remove the preliminary passes if you want to simplify the recipe. The preliminary passes were only needed to warranty proper compilation in our builidng nodes.)
+# As pipefail is enabled, any compilation failure in this pass should stop the building process.
 ARG OF_PASS_NUMBER="authoritative"
 ARG OF_PASS_TASKS="${OF_COMPILE_TASKS}"
 RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
@@ -960,6 +989,13 @@ RUN source ${OF_BASHRC_FILE} ${BASHRC_OPTIONS} \
 FROM of_install AS final_settings
 #FROM update_settings AS final_settings
 #FROM basic_stage AS final_settings
+#---------------------------------------------------------------
+# H.0 General settings for this stage
+#-----
+# Explicitly set Bash and `pipefail` for this stage. This allows the use of `source`
+# and catches errors in pipelines that include commands such as `tee`.
+# Repeated per stage to preserve these requirements if stage inheritance changes.
+SHELL ["/bin/bash","-o","pipefail","-c"]
 
 #---------------------------------------------------------------
 # H.1 Avoid permission problems with files in the installation directory
@@ -984,10 +1020,6 @@ ARG ENTRYPOINT_FILE_TEMPLATE="docker-entrypoint-openfoam-template.sh"
 #ARG ENTRYPOINT_FILE_TEMPLATE="auxiliaryScripts/docker-entrypoint-openfoam-template-debugging.sh"
 ARG ENTRYPOINT_FILE_DOCKER="/usr/local/bin/docker-entrypoint-openfoam.sh"
 #ARG ENTRYPOINT_FILE_DOCKER="/etc/profile.d/docker-entrypoint-openfoam.sh"
-
-# Using bash to interpret the entry script (and allow `source` command)
-# Also, using the `pipefail` option to avoid losing errors in the compilation commands when using `tee` and/or piped commands
-SHELL ["/bin/bash","-o","pipefail","-c"]
 
 # Copy and update the ENTRYPOINT_FILE_DOCKER script with the right OF_BASHRC_FILE definition in this recipe
 COPY $ENTRYPOINT_FILE_TEMPLATE $ENTRYPOINT_FILE_DOCKER

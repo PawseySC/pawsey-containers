@@ -22,8 +22,8 @@
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
 
 #SBATCH --job-name=runFoam-tutorialCase
-#SBATCH --partition=debug
-##SBATCH --partition=work
+##SBATCH --partition=debug
+#SBATCH --partition=work
 #SBATCH --nodes=2
 #SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=2
