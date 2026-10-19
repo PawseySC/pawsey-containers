@@ -51,7 +51,7 @@ done
 engineToUse="podman"
 setonixTestPartition="work"
 buildArguments=(
-    # "BASE_IMAGE_MPICH_VERSION=4.2.2"
+    # "BASE_IMAGE_MPICH_VERSION=3.4.3"
     # "WM_LABEL_SIZE=64"
     # "TP_COMPILE_TASKS=8"
 )
