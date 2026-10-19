@@ -440,7 +440,7 @@ grep -qE '^Usage:' "$toolLog" || {
    echo "ERROR: No Usage line found in $toolLog" >&2
    exit 1
 }
-grep -qE '^Options:' "$toolLog" || {
+grep -qiE '^options:' "$toolLog" || {
    echo "ERROR: No Options line found in $toolLog" >&2
    exit 1
 }

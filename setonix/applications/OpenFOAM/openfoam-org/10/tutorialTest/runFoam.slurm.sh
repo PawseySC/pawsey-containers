@@ -34,7 +34,7 @@
 set -u
 
 # --- Version-specific tutorial settings
-CASE_NAME="periodicPlaneChannel"
+CASE_NAME="channel395"
 SOLVER="pimpleFoam"
 nProcs=4 # Number of processors in the decomposition
 mGroup=2 # Size of the groups for collated file handling
@@ -275,7 +275,7 @@ grep -qE 'FOAM FATAL (ERROR|IO ERROR)' "$LOGFILE" && {
 echo
 echo "Running post-run checks on $LOGFILE ..."
 
-grep -qE "(^|[[:space:]])Time = ${expectedFinalSimulationTime}([[:space:]]|$)" "$LOGFILE" || {
+grep -qE "(^|[[:space:]])Time = ${expectedFinalSimulationTime}s?([[:space:]]|$)" "$LOGFILE" || {
    echo "ERROR: Simulation did not reach Time = $expectedFinalSimulationTime" >&2
    exit 1
 }

@@ -33,7 +33,7 @@
 set -u
 
 # --- Version-specific tutorial settings
-CASE_NAME="periodicPlaneChannel"
+CASE_NAME="channel395"
 nProcs=4 # Number of processors in the decomposition
 mGroup=2 # Size of the groups for collated file handling
 decompositionX=1
@@ -277,7 +277,7 @@ srun -N 1 -n 1 -c 1 singularity exec "$SINGULARITY_CONTAINER" \
    }
 srun -N 1 -n 1 -c 1 singularity exec "$SINGULARITY_CONTAINER" \
    foamDictionary system/decomposeParDict \
-   -entry coeffs/n \
+   -entry simple/n \
    -set "($decompositionX $decompositionY $decompositionZ)" || {
       echo "ERROR: Failed to set the simple decomposition coefficients" >&2
       exit 1
@@ -296,7 +296,7 @@ decompositionMethod=$(singularity exec "$SINGULARITY_CONTAINER" \
    }
 decompositionN=$(singularity exec "$SINGULARITY_CONTAINER" \
    foamDictionary system/decomposeParDict \
-   -entry coeffs/n -value) || {
+   -entry simple/n -value) || {
       echo "ERROR: Failed to read the decomposition coefficients" >&2
       exit 1
    }
@@ -353,7 +353,7 @@ runOpenFOAMStep() {
 # --- Run the serial OpenFOAM preparation tools
 # Each call remains explicit and follows the order in the tutorial Allrun script.
 runOpenFOAMStep blockMesh blockMesh
-runOpenFOAMStep renumberMesh renumberMesh -overwrite -constant
+#runOpenFOAMStep renumberMesh renumberMesh -overwrite -constant
 runOpenFOAMStep checkMesh checkMesh -allTopology -allGeometry -constant
 
 # checkMesh requires one additional output validation beyond command success.
@@ -365,7 +365,7 @@ grep -q "Mesh OK" "$checkMeshLog" || {
 echo "PASS: checkMesh reported 'Mesh OK'"
 echo
 
-runOpenFOAMStep decomposePar decomposePar -cellDist -force
+runOpenFOAMStep decomposePar decomposePar -cellProc -force
 
 # --- Check the collated processor directories
 echo

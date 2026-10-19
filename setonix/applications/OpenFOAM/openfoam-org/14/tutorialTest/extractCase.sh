@@ -29,7 +29,7 @@ set -u
 # --- Version-specific tutorial settings
 # This extraction script belongs to the same version-specific workflow as preFoam.slurm.sh
 # and runFoam.slurm.sh, so all three scripts intentionally use the same case.
-CASE_NAME="periodicPlaneChannel"
+CASE_NAME="channel395"
 
 # --- Initial settings
 thisScript=$(basename "$0")
