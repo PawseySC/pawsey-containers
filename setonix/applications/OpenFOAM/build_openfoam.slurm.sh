@@ -32,6 +32,12 @@
 # Podman image and the SIF referenced by artifacts/singularity/latest, then runs
 # the same validation and test stages.
 #
+# Per-invocation recipe selection
+# -------------------------------
+# By default, the script processes the recipeDirectories array defined below.
+# Use --only-directories with a comma-separated list to override that array for
+# one submission without editing this file. The supplied order is preserved.
+#
 # Failure model
 # -------------
 # A failed stage skips the remaining stages for that recipe. Processing continues
@@ -54,17 +60,35 @@ set -euo pipefail
 # for each submission and cannot be enabled implicitly through the environment.
 testsOnly=false
 
+# Empty means the configured recipeDirectories array remains authoritative.
+onlyDirectoriesInput=""
+
 usage() {
     cat <<USAGE
 Usage:
-  sbatch $(basename "$0") [--tests-only]
-  $(basename "$0") [--tests-only]
+  sbatch $(basename "$0") [--tests-only] [--only-directories <list>]
+  $(basename "$0") [--tests-only] [--only-directories <list>]
+
+Examples:
+  sbatch $(basename "$0") \
+      --only-directories openfoam/v2412,openfoam/v2406
+
+  sbatch $(basename "$0") \
+      --tests-only \
+      --only-directories openfoam-org/12,openfoam-org/14
 
 Options:
   --tests-only
       Skip Podman and Singularity image creation. Use the existing Podman image
       and the SIF referenced by each recipe's artifacts/singularity/latest
       directory, then run all validation and test stages.
+
+  --only-directories <list>
+      Process only the comma-separated recipe directories in <list>, overriding
+      the recipeDirectories array for this invocation. Surrounding whitespace is
+      ignored and the supplied order is preserved. Example:
+
+        --only-directories openfoam/v2412,openfoam-org/12
 
   --help, -h
       Show this help message and exit.
@@ -78,6 +102,18 @@ while [[ $# -gt 0 ]]; do
         --tests-only)
             testsOnly=true
             shift
+            ;;
+        --only-directories)
+            [[ $# -ge 2 && -n "$2" ]] || {
+                echo "ERROR: --only-directories requires a comma-separated list." >&2
+                exit 1
+            }
+            [[ -z "$onlyDirectoriesInput" ]] || {
+                echo "ERROR: --only-directories may be specified only once." >&2
+                exit 1
+            }
+            onlyDirectoriesInput="$2"
+            shift 2
             ;;
         --help|-h)
             usage
@@ -109,19 +145,73 @@ buildArguments=(
     # "TP_COMPILE_TASKS=8"
 )
 
-# This indexed array is the primary recipe selection. Comment out an entry to
-# exclude that OpenFOAM version without changing the orchestration logic.
+# This indexed array defines the persistent default selection. For temporary
+# selections, prefer --only-directories instead of editing this file.
 recipeDirectories=(
-    # "openfoam/v2412"
-    # "openfoam/v2406"
-    # "openfoam/v2212"
-    # "openfoam/v2206"
-    # "openfoam/v2012"
-    # "openfoam/v2606"
-    "openfoam-org/10"
-    "openfoam-org/12"
+    "openfoam/v2606"
+    "openfoam/v2412"
+    "openfoam/v2406"
+    "openfoam/v2212"
+    "openfoam/v2206"
+    "openfoam/v2012"
     "openfoam-org/14"
+    "openfoam-org/12"
+    "openfoam-org/10"
 )
+
+# Parse and validate a comma-separated command-line override. Recipe paths are
+# restricted to one version directory below either supported OpenFOAM fork. This
+# prevents absolute paths and parent-directory traversal from entering path joins.
+applyOnlyDirectoriesOverride() {
+    local input="$1"
+    local rawDirectory=""
+    local recipeDirectory=""
+    local -a requestedDirectories=()
+    local -A seenDirectories=()
+
+    # Reject leading, trailing, and adjacent separators explicitly. Bash array
+    # parsing can otherwise discard a trailing empty field.
+    [[ "$input" != ,* && "$input" != *, && "$input" != *,,* ]] || {
+        echo "ERROR: --only-directories contains an empty directory entry." >&2
+        return 1
+    }
+
+    IFS=',' read -r -a requestedDirectories <<< "$input"
+    recipeDirectories=()
+
+    for rawDirectory in "${requestedDirectories[@]}"; do
+        # Remove leading and trailing shell whitespace around each list item.
+        recipeDirectory="${rawDirectory#"${rawDirectory%%[!$' \t\r\n']*}"}"
+        recipeDirectory="${recipeDirectory%"${recipeDirectory##*[!$' \t\r\n']}"}"
+
+        [[ -n "$recipeDirectory" ]] || {
+            echo "ERROR: --only-directories contains an empty directory entry." >&2
+            return 1
+        }
+        [[ "$recipeDirectory" =~ ^(openfoam|openfoam-org)/[^/,[:space:]]+$ ]] || {
+            echo "ERROR: Invalid recipe directory in --only-directories: $recipeDirectory" >&2
+            echo "ERROR: Expected openfoam/<version> or openfoam-org/<version>." >&2
+            return 1
+        }
+        [[ -z "${seenDirectories[$recipeDirectory]+x}" ]] || {
+            echo "ERROR: Duplicate recipe directory in --only-directories: $recipeDirectory" >&2
+            return 1
+        }
+
+        seenDirectories["$recipeDirectory"]=1
+        recipeDirectories+=("$recipeDirectory")
+    done
+
+    (( ${#recipeDirectories[@]} > 0 )) || {
+        echo "ERROR: --only-directories did not provide any recipe directories." >&2
+        return 1
+    }
+}
+
+# Apply the per-invocation override after defining the complete default array.
+if [[ -n "$onlyDirectoriesInput" ]]; then
+    applyOnlyDirectoriesOverride "$onlyDirectoriesInput" || exit 1
+fi
 
 # =============================================================================
 # Repository layout and shared tool paths
@@ -215,6 +305,14 @@ else
     echo "Execution mode: BUILD AND TEST"
 fi
 echo "Setonix test partition: $setonixTestPartition"
+if [[ -n "$onlyDirectoriesInput" ]]; then
+    echo "Recipe selection: --only-directories override"
+else
+    echo "Recipe selection: configured recipeDirectories array"
+fi
+printf 'Selected recipes:'
+printf ' %s' "${recipeDirectories[@]}"
+printf '\n'
 echo "============================================================"
 
 # =============================================================================

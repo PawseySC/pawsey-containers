@@ -18,7 +18,8 @@
 #
 # Inputs
 # ------
-# - Selected recipe directories listed in recipeDirectories.
+# - Selected recipe directories listed in recipeDirectories, or supplied for a
+#   single invocation through --only-directories.
 # - One current SIF under each recipe's artifacts/singularity/latest directory.
 # - Test status and checksum artifacts unless --skip-test-validation is used.
 #
@@ -32,7 +33,8 @@
 # ---------------
 # Recipes are processed independently. A failure skips only the affected recipe;
 # remaining selected recipes are still attempted. The script exits nonzero when
-# any selected recipe fails or is ineligible.
+# any selected recipe fails or is ineligible. Use --only-directories to override
+# the configured array for one invocation without editing this file.
 #
 # Note: This script was originally designed by Alexis Espinosa at Pawsey
 # Supercomputing Research Centre and built with the aid of M365 Copilot
@@ -46,19 +48,68 @@ set -euo pipefail
 # =============================================================================
 # User configuration: OpenFOAM recipes to process
 # =============================================================================
-# This indexed Bash array is the primary user-editable selection. Comment out an
-# entry to exclude that OpenFOAM version without changing the processing logic.
+# This indexed Bash array defines the persistent default selection. For temporary
+# selections, prefer --only-directories instead of editing this file.
 recipeDirectories=(
-    # "openfoam/v2412"
-    # "openfoam/v2406"
-    # "openfoam/v2212"
-    # "openfoam/v2206"
-    # "openfoam/v2012"
     "openfoam/v2606"
-    # "openfoam-org/10"
-    # "openfoam-org/12"
-    # "openfoam-org/14"
+    "openfoam/v2412"
+    "openfoam/v2406"
+    "openfoam/v2212"
+    "openfoam/v2206"
+    "openfoam/v2012"
+    "openfoam-org/14"
+    "openfoam-org/12"
+    "openfoam-org/10"
 )
+
+# Parse and validate a comma-separated command-line override. Recipe paths are
+# restricted to one version directory below either supported OpenFOAM fork. This
+# prevents absolute paths and parent-directory traversal from entering path joins.
+applyOnlyDirectoriesOverride() {
+    local input="$1"
+    local rawDirectory=""
+    local recipeDirectory=""
+    local -a requestedDirectories=()
+    local -A seenDirectories=()
+
+    # Reject leading, trailing, and adjacent separators explicitly. Bash array
+    # parsing can otherwise discard a trailing empty field.
+    [[ "$input" != ,* && "$input" != *, && "$input" != *,,* ]] || {
+        echo "ERROR: --only-directories contains an empty directory entry." >&2
+        return 1
+    }
+
+    IFS=',' read -r -a requestedDirectories <<< "$input"
+    recipeDirectories=()
+
+    for rawDirectory in "${requestedDirectories[@]}"; do
+        # Remove leading and trailing shell whitespace around each list item.
+        recipeDirectory="${rawDirectory#"${rawDirectory%%[!$' \t\r\n']*}"}"
+        recipeDirectory="${recipeDirectory%"${recipeDirectory##*[!$' \t\r\n']}"}"
+
+        [[ -n "$recipeDirectory" ]] || {
+            echo "ERROR: --only-directories contains an empty directory entry." >&2
+            return 1
+        }
+        [[ "$recipeDirectory" =~ ^(openfoam|openfoam-org)/[^/,[:space:]]+$ ]] || {
+            echo "ERROR: Invalid recipe directory in --only-directories: $recipeDirectory" >&2
+            echo "ERROR: Expected openfoam/<version> or openfoam-org/<version>." >&2
+            return 1
+        }
+        [[ -z "${seenDirectories[$recipeDirectory]+x}" ]] || {
+            echo "ERROR: Duplicate recipe directory in --only-directories: $recipeDirectory" >&2
+            return 1
+        }
+
+        seenDirectories["$recipeDirectory"]=1
+        recipeDirectories+=("$recipeDirectory")
+    done
+
+    (( ${#recipeDirectories[@]} > 0 )) || {
+        echo "ERROR: --only-directories did not provide any recipe directories." >&2
+        return 1
+    }
+}
 
 # =============================================================================
 # Command-line interface
@@ -72,11 +123,24 @@ openfoamRoot=""
 # for each invocation and is intentionally not available as an environment default.
 skipTestValidation=false
 
+# Empty means the configured recipeDirectories array remains authoritative.
+onlyDirectoriesInput=""
+
 usage() {
     cat <<USAGE
 Usage:
-  $(basename "$0") [--repository-root <directory>] [--skip-test-validation]
-  $(basename "$0") [--openfoam-root <directory>] [--skip-test-validation]
+  $(basename "$0") [--repository-root <directory>] [options]
+  $(basename "$0") [--openfoam-root <directory>] [options]
+
+Examples:
+  $(basename "$0") \
+      --openfoam-root "$PWD" \
+      --only-directories openfoam/v2412,openfoam-org/12
+
+  $(basename "$0") \
+      --openfoam-root "$PWD" \
+      --skip-test-validation \
+      --only-directories openfoam-org/10,openfoam-org/12
 
 Options:
   --repository-root <directory>
@@ -90,6 +154,13 @@ Options:
       Bypass all test-status and SIF-checksum eligibility checks and generate
       aliases directly from the current SIF. Use only for controlled development
       or troubleshooting. SIF discovery and alias validation remain mandatory.
+
+  --only-directories <list>
+      Process only the comma-separated recipe directories in <list>, overriding
+      the recipeDirectories array for this invocation. Surrounding whitespace is
+      ignored and the supplied order is preserved. Example:
+
+        --only-directories openfoam/v2412,openfoam-org/12
 
   --help, -h
       Show this help message and exit.
@@ -118,6 +189,18 @@ while [[ $# -gt 0 ]]; do
             skipTestValidation=true
             shift
             ;;
+        --only-directories)
+            [[ $# -ge 2 && -n "$2" ]] || {
+                echo "ERROR: --only-directories requires a comma-separated list." >&2
+                exit 1
+            }
+            [[ -z "$onlyDirectoriesInput" ]] || {
+                echo "ERROR: --only-directories may be specified only once." >&2
+                exit 1
+            }
+            onlyDirectoriesInput="$2"
+            shift 2
+            ;;
         --help|-h)
             usage
             exit 0
@@ -129,6 +212,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Apply the per-invocation override after parsing all command-line options.
+if [[ -n "$onlyDirectoriesInput" ]]; then
+    applyOnlyDirectoriesOverride "$onlyDirectoriesInput" || exit 1
+fi
 
 # Resolve the OpenFOAM project root. An explicit --openfoam-root value has
 # authority; otherwise derive it from the configured repository root.
@@ -373,7 +461,10 @@ emitExecutables() {
             "$(basename "$executable")" \
             "$priority" \
             "$executable"
-    done < <(find "$directory" -mindepth 1 -maxdepth 1 \
+    # Follow symbolic links so commands such as foamNewSource and org-html are
+    # included when their targets are valid executable files. Broken links remain
+    # excluded because they do not resolve to the required regular-file type.
+    done < <(find -L "$directory" -mindepth 1 -maxdepth 1 \
         -type f -executable -print0)
 }
 
@@ -445,6 +536,14 @@ writeAliasYaml() {
 echo "============================================================"
 echo "OpenFOAM SHPC alias generation"
 echo "OpenFOAM root: $openfoamRoot"
+if [[ -n "$onlyDirectoriesInput" ]]; then
+    echo "Recipe selection: --only-directories override"
+else
+    echo "Recipe selection: configured recipeDirectories array"
+fi
+printf 'Selected recipes:'
+printf ' %s' "${recipeDirectories[@]}"
+printf '\n'
 if [[ "$skipTestValidation" == true ]]; then
     echo "Test validation: BYPASSED"
     echo "WARNING: Test status and SIF checksum evidence will not be checked."
