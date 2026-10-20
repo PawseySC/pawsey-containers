@@ -178,14 +178,11 @@ RUN set -eux; \
     apt-get update -qq; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         --no-install-recommends \
-       ca-certificates \
         wget \
         git \
         build-essential \
 	openssl \
-        ${APT_GET_APPS}; \
-    update-ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+        ${APT_GET_APPS}; 
 
 RUN set -eux; \
     tf_major="$(echo "${TF_VERSION}" | cut -d. -f1)"; \
