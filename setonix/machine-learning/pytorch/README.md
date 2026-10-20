@@ -32,7 +32,7 @@ Build the Docker/OCI image using Podman:
 podman build \
     --format=docker \
     -f pytorch.dockerfile \
-    -t pytorch2.13.0-rocm7.2.4-mpich4.2.2-ubuntu24.04:latest .
+    -t pytorch2.13.0-rocm7.2.4:latest 
 ```
 
 Save the container as an OCI archive:
@@ -40,8 +40,8 @@ Save the container as an OCI archive:
 ```bash
 podman save \
     --format oci-archive \
-    pytorch2.13.0-rocm7.2.4-mpich4.2.2-ubuntu24.04:latest \
-    -o pytorch2.13.0-rocm7.2.4-mpich4.2.2-ubuntu24.04.tar
+    pytorch2.13.0-rocm7.2.4:latest \
+    -o pytorch2.13.0-rocm7.2.4.tar
 ```
 
 Load the Singularity module:
@@ -54,14 +54,14 @@ Build the Singularity image:
 
 ```bash
 singularity build \
-    pytorch2.13.0-rocm7.2.4-mpich4.2.2-ubuntu24.04.sif \
-    oci-archive://pytorch2.13.0-rocm7.2.4-mpich4.2.2-ubuntu24.04.tar
+    pytorch2.13.0-rocm7.2.4.sif \
+    oci-archive://pytorch2.13.0-rocm7.2.4.tar
 ```
 
 The resulting file is:
 
 ```text
-pytorch2.13.0-rocm7.2.4-mpich4.2.2-ubuntu24.04.sif
+pytorch2.13.0-rocm7.2.4.sif
 ```
 
 ## Testing the container
