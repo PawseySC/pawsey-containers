@@ -479,7 +479,7 @@ else
       else
          missing=0
          engine_run grep -qE '^Usage:' "$toolLogPath" || { echo "  Missing: ^Usage:"; missing=1; }
-         engine_run grep -qE '^Options:' "$toolLogPath" || { echo "  Missing: ^Options:"; missing=1; }
+         engine_run grep -qiE '^options:' "$toolLogPath" || { echo "  Missing: ^Options: or ^options:"; missing=1; }
          engine_run grep -qF "Using: OpenFOAM-${WM_PROJECT_VERSION}" "$toolLogPath" || {
             echo "  Missing: Using: OpenFOAM-${WM_PROJECT_VERSION}"
             missing=1

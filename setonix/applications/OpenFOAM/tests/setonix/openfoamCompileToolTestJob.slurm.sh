@@ -441,7 +441,7 @@ grep -qE '^Usage:' "$toolLog" || {
    exit 1
 }
 grep -qiE '^options:' "$toolLog" || {
-   echo "ERROR: No Options line found in $toolLog" >&2
+   echo "ERROR: No Options (or options) line found in $toolLog" >&2
    exit 1
 }
 grep -qF "Using: OpenFOAM-${WM_PROJECT_VERSION}" "$toolLog" || {

@@ -418,7 +418,7 @@ echo "Step $testNum - Testing '$OF_TOOL -help'"
 engine_run "$OF_TOOL" -help >"$toolLog" 2>&1 || { echo "ERROR: $OF_TOOL -help returned nonzero" >&2; cat "$toolLog"; exit 1; }
 missing=0
 grep -qE '^Usage:' "$toolLog" || { echo "  Missing: ^Usage:"; missing=1; }
-grep -qE '^Options:' "$toolLog" || { echo "  Missing: ^Options:"; missing=1; }
+grep -qiE '^options:' "$toolLog" || { echo "  Missing: ^Options: or ^options:"; missing=1; }
 grep -qF "Using: OpenFOAM-${WM_PROJECT_VERSION}" "$toolLog" || { echo "  Missing: Using: OpenFOAM-${WM_PROJECT_VERSION}"; missing=1; }
 [[ $missing -eq 0 ]] || { echo "ERROR: Required output signatures were not found" >&2; cat "$toolLog"; exit 1; }
 cat "$toolLog"

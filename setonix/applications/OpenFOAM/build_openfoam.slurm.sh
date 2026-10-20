@@ -6,11 +6,52 @@
 #SBATCH --ntasks=16
 #SBATCH --time=24:00:00
 
+# =============================================================================
+# OpenFOAM multi-image build and test orchestrator
+# =============================================================================
+#
+# Purpose
+# -------
+# Build, validate, and test a selected set of OpenFOAM container recipes on a
+# Pawsey Podman build node. Each recipe is handled independently so a failure in
+# one version does not prevent later selected versions from being attempted.
+#
+# Normal workflow
+# ---------------
+# For every selected recipe, the script:
+#   1. Cleans and validates the Podman build node.
+#   2. Builds the Podman image.
+#   3. Converts the Podman image into a Singularity SIF.
+#   4. Runs image validation and basic tests with Podman.
+#   5. Runs image validation and basic tests with Singularity.
+#   6. Submits the compile-tool and tutorial tests to the Setonix work partition.
+#
+# Tests-only workflow
+# -------------------
+# With --tests-only, image creation is skipped. The script uses the existing
+# Podman image and the SIF referenced by artifacts/singularity/latest, then runs
+# the same validation and test stages.
+#
+# Failure model
+# -------------
+# A failed stage skips the remaining stages for that recipe. Processing continues
+# with the next selected recipe. The final process status is nonzero if any recipe
+# failed, making the workflow suitable for automation and monitoring.
+#
+# Note: This script was originally designed by Alexis Espinosa at Pawsey
+# Supercomputing Research Centre and built with the aid of M365 Copilot
+# (GPT 5.6). This script has been fully reviewed and tested by Alexis Espinosa.
+# =============================================================================
+
+# Fail on unhandled command errors, unset variables, and failed pipeline stages.
+# Expected per-recipe failures are caught explicitly so processing can continue.
 set -euo pipefail
 
 # =============================================================================
 # Command-line mode
 # =============================================================================
+# Build-and-test mode is the default. Tests-only mode must be requested explicitly
+# for each submission and cannot be enabled implicitly through the environment.
 testsOnly=false
 
 usage() {
@@ -20,13 +61,18 @@ Usage:
   $(basename "$0") [--tests-only]
 
 Options:
-  --tests-only  Skip Podman and Singularity image creation. Use the existing
-                Podman image and the SIF referenced by each recipe's
-                artifacts/singularity/latest directory, then run all tests.
-  --help, -h    Show this help message and exit.
+  --tests-only
+      Skip Podman and Singularity image creation. Use the existing Podman image
+      and the SIF referenced by each recipe's artifacts/singularity/latest
+      directory, then run all validation and test stages.
+
+  --help, -h
+      Show this help message and exit.
 USAGE
 }
 
+# Parse only the explicitly supported options. Unknown arguments are rejected so
+# misspelled modes cannot silently trigger a full build.
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tests-only)
@@ -46,47 +92,80 @@ while [[ $# -gt 0 ]]; do
 done
 
 # =============================================================================
-# Build and test selection
+# User configuration: build parameters and recipe selection
 # =============================================================================
+# The image builders use Podman as their source container engine on this node.
 engineToUse="podman"
+
+# Setonix compile-tool and tutorial jobs are submitted asynchronously to this
+# partition by the two test launchers.
 setonixTestPartition="work"
+
+# Optional NAME=VALUE overrides passed to both builders as repeated --build-arg
+# options. Leave all entries commented to use each recipe's configured defaults.
 buildArguments=(
     # "BASE_IMAGE_MPICH_VERSION=3.4.3"
     # "WM_LABEL_SIZE=64"
     # "TP_COMPILE_TASKS=8"
 )
+
+# This indexed array is the primary recipe selection. Comment out an entry to
+# exclude that OpenFOAM version without changing the orchestration logic.
 recipeDirectories=(
-    "openfoam/v2412"
-    "openfoam/v2406"
-    "openfoam/v2212"
-    "openfoam/v2206"
-    "openfoam/v2012"
-    "openfoam/v2606"
+    # "openfoam/v2412"
+    # "openfoam/v2406"
+    # "openfoam/v2212"
+    # "openfoam/v2206"
+    # "openfoam/v2012"
+    # "openfoam/v2606"
     "openfoam-org/10"
     "openfoam-org/12"
     "openfoam-org/14"
 )
 
 # =============================================================================
-# Repository paths and tools
+# Repository layout and shared tool paths
 # =============================================================================
+# REPOSITORY_ROOT can override the standard Pawsey location. The default derives
+# the repository from MYSCRATCH, which must therefore be available when no
+# explicit override is supplied.
 repositoryRoot="${REPOSITORY_ROOT:-${MYSCRATCH}/pawsey-containers}"
 openfoamRoot="${repositoryRoot}/setonix/applications/OpenFOAM"
 buildingScriptsDir="${openfoamRoot}/buildingScripts"
 basicTestsDir="${openfoamRoot}/tests/basic"
 setonixTestsDir="${openfoamRoot}/tests/setonix"
+
+# Image creation and Podman-node management tools.
 containerBuilder="${buildingScriptsDir}/openfoamContainerBuild.sh"
 singularityBuilder="${buildingScriptsDir}/openfoamSingularityBuild.sh"
 nodeCleaner="${buildingScriptsDir}/cleanPodmanNode.sh"
 nodeChecker="${buildingScriptsDir}/checkPodmanNode.sh"
+
+# Local validation tools and asynchronous Setonix launchers.
 imageValidation="${basicTestsDir}/openfoamImageValidation.sh"
 basicTests="${basicTestsDir}/openfoamBasicTests.sh"
 compileLauncher="${setonixTestsDir}/openfoamCompileToolTestLauncher.sh"
 tutorialLauncher="${setonixTestsDir}/openfoamTutorialTestLauncher.sh"
 
-for directory in "$repositoryRoot" "$openfoamRoot" "$buildingScriptsDir" "$basicTestsDir" "$setonixTestsDir"; do
-    [[ -d "$directory" ]] || { echo "ERROR: Missing directory: $directory" >&2; exit 1; }
+# Validate the complete directory layout before changing Podman state or starting
+# any image operation.
+requiredDirectories=(
+    "$repositoryRoot"
+    "$openfoamRoot"
+    "$buildingScriptsDir"
+    "$basicTestsDir"
+    "$setonixTestsDir"
+)
+
+for directory in "${requiredDirectories[@]}"; do
+    [[ -d "$directory" ]] || {
+        echo "ERROR: Missing directory: $directory" >&2
+        exit 1
+    }
 done
+
+# Tests-only mode does not require the two builders, but all cleanup, validation,
+# and launcher scripts remain mandatory.
 requiredScripts=(
     "$nodeCleaner"
     "$nodeChecker"
@@ -95,27 +174,38 @@ requiredScripts=(
     "$compileLauncher"
     "$tutorialLauncher"
 )
+
 if [[ "$testsOnly" != true ]]; then
     requiredScripts+=("$containerBuilder" "$singularityBuilder")
 fi
+
 for script in "${requiredScripts[@]}"; do
-    [[ -x "$script" ]] || { echo "ERROR: Script is not executable: $script" >&2; exit 1; }
+    [[ -x "$script" ]] || {
+        echo "ERROR: Script is not executable: $script" >&2
+        exit 1
+    }
 done
 
 # This parent script invokes Podman cleanup commands directly. Initialize the
-# Podman-node environment once before any cleanup or build stage is attempted.
+# Podman-node environment once before any cleanup, build, or Podman test stage.
 if ! source /container/setup_podman.sh; then
     echo "ERROR: Failed to source /container/setup_podman.sh." >&2
     exit 1
 fi
+
 command -v podman >/dev/null 2>&1 || {
     echo "ERROR: podman is unavailable after sourcing /container/setup_podman.sh." >&2
     exit 1
 }
 
+# Convert each configured NAME=VALUE entry into the repeated option format
+# accepted by both image builders.
 buildArgumentOptions=()
-for argument in "${buildArguments[@]}"; do buildArgumentOptions+=(--build-arg "$argument"); done
+for argument in "${buildArguments[@]}"; do
+    buildArgumentOptions+=(--build-arg "$argument")
+done
 
+# Display the selected operating mode before processing any recipe.
 echo "============================================================"
 if [[ "$testsOnly" == true ]]; then
     echo "Execution mode: TESTS ONLY"
@@ -128,50 +218,96 @@ echo "Setonix test partition: $setonixTestPartition"
 echo "============================================================"
 
 # =============================================================================
-# Status tracking
+# Per-recipe status tracking
 # =============================================================================
+# Successful and failed recipes are retained separately for the final summary.
 successfulRecipes=()
 failedRecipes=()
 declare -A failedStages=()
+
+# Record one failed stage and its exit status without terminating the full job.
+# The caller remains responsible for continuing immediately to the next recipe.
 recordFailure() {
-    failedRecipes+=("$1")
-    failedStages["$1"]="$2 (exit status $3)"
-    echo "ERROR: $1 failed during $2 (exit status $3). Later stages are skipped." >&2
+    local recipeDirectory="$1"
+    local failedStage="$2"
+    local exitStatus="$3"
+
+    failedRecipes+=("$recipeDirectory")
+    failedStages["$recipeDirectory"]="${failedStage} (exit status ${exitStatus})"
+
+    echo "ERROR: $recipeDirectory failed during $failedStage (exit status $exitStatus)." >&2
+    echo "ERROR: Later stages for this recipe are skipped." >&2
 }
 
 # =============================================================================
-# Clean and verify the Podman node before every recipe
+# Podman-node cleanup and readiness validation
 # =============================================================================
+# Return the node to a consistent state before every selected recipe. The
+# dedicated cleaner handles services, processes, and mounts. The explicit Podman
+# operations below remove persisted objects that are outside that cleaner's
+# intentionally limited scope.
 prepareNode() {
     local output=""
     local -a ids=()
+
+    # Remove transient build services, matching user processes, and stale FUSE
+    # overlay mounts according to the dedicated cleaner's production policy.
     "$nodeCleaner" --clean || return $?
 
+    # Remove exited ordinary containers and their associated anonymous volumes.
     output=$(podman ps -aq --filter status=exited) || return $?
-    if [[ -n "$output" ]]; then mapfile -t ids <<< "$output"; podman rm --volumes "${ids[@]}" || return $?; else echo "No exited ordinary containers found."; fi
+    if [[ -n "$output" ]]; then
+        mapfile -t ids <<< "$output"
+        podman rm --volumes "${ids[@]}" || return $?
+    else
+        echo "No exited ordinary containers found."
+    fi
 
+    # Remove all external Buildah storage container records. These can remain
+    # after interrupted or failed image builds and interfere with later work.
     output=$(podman ps -aq --external --no-trunc) || return $?
-    if [[ -n "$output" ]]; then mapfile -t ids <<< "$output"; podman rm --storage --force "${ids[@]}" || return $?; else echo "No external Buildah storage containers found."; fi
+    if [[ -n "$output" ]]; then
+        mapfile -t ids <<< "$output"
+        podman rm --storage --force "${ids[@]}" || return $?
+    else
+        echo "No external Buildah storage containers found."
+    fi
 
+    # Querying a large Podman image store can be quiet for several minutes. Print
+    # an explicit progress notice so the expected delay is not mistaken for a hang.
     echo "Checking for dangling Podman images."
     echo "This storage scan may take a couple of minutes; no output is expected while it runs."
     output=$(podman images -q --filter dangling=true) || return $?
-    if [[ -n "$output" ]]; then mapfile -t ids <<< "$output"; podman rmi "${ids[@]}" || return $?; else echo "No dangling images found."; fi
+    if [[ -n "$output" ]]; then
+        mapfile -t ids <<< "$output"
+        podman rmi "${ids[@]}" || return $?
+    else
+        echo "No dangling images found."
+    fi
 
+    # Perform the final readiness check only after cleanup has completed.
     "$nodeChecker"
 }
 
-# Resolve the SIF from the latest successful Singularity conversion. This is the
-# only image path passed to Singularity tests and Setonix Slurm launchers.
+# =============================================================================
+# Existing image resolution
+# =============================================================================
+# Resolve exactly one SIF through the latest successful Singularity conversion
+# artifact. The canonical path is used by all Singularity tests and launchers.
 resolveSingularityImage() {
-    local latestDir="${1}/artifacts/singularity/latest"
+    local recipePath="$1"
+    local latestDir="${recipePath}/artifacts/singularity/latest"
     local -a candidates=()
 
     [[ -d "$latestDir" ]] || {
         echo "ERROR: Missing latest Singularity artifact directory: $latestDir" >&2
         return 1
     }
-    mapfile -t candidates < <(find -L "$latestDir" -maxdepth 1 -type f -name '*.sif' -print)
+
+    mapfile -t candidates < <(
+        find -L "$latestDir" -maxdepth 1 -type f -name '*.sif' -print
+    )
+
     (( ${#candidates[@]} == 1 )) || {
         echo "ERROR: Expected exactly one SIF in $latestDir; found ${#candidates[@]}." >&2
         return 1
@@ -182,12 +318,15 @@ resolveSingularityImage() {
         echo "ERROR: Resolved Singularity image does not exist: $singularityImage" >&2
         return 1
     }
+
     echo "Singularity image: $singularityImage"
 }
 
 # Derive the unqualified Podman test reference from the canonical SIF filename.
-# Do not probe Podman here. Both builders already validate the image, and each
-# Podman test initializes its own environment and validates this reference.
+# For example, openfoam-org--12-configuration.sif maps to
+# openfoam-org:12-configuration. Do not probe Podman here: both builders already
+# validate the source image, and each Podman test initializes and validates its
+# own engine environment.
 resolvePodmanImageReference() {
     local sifFileName=""
     local imageStem=""
@@ -196,8 +335,10 @@ resolvePodmanImageReference() {
         echo "ERROR: Cannot derive the Podman reference before resolving the SIF." >&2
         return 1
     }
+
     sifFileName=$(basename "$singularityImage")
     imageStem="${sifFileName%.sif}"
+
     [[ "$imageStem" == *--* ]] || {
         echo "ERROR: Cannot derive the Podman reference from SIF filename: $sifFileName" >&2
         return 1
@@ -208,47 +349,193 @@ resolvePodmanImageReference() {
 }
 
 # =============================================================================
-# Build, test locally, and submit asynchronous Setonix tests
+# Main workflow: build, test, and submit Setonix jobs
 # =============================================================================
+# Process every selected recipe independently. Each stage gates the stages that
+# follow it for the same recipe, but a failure does not stop later recipes.
 for recipeDirectory in "${recipeDirectories[@]}"; do
     recipePath="${openfoamRoot}/${recipeDirectory}"
-    podmanImage=""; singularityImage=""
-    echo; echo "================================================================"
-    echo "Processing $recipeDirectory"; echo "Recipe path: $recipePath"
+    podmanImage=""
+    singularityImage=""
+
+    echo
+    echo "================================================================"
+    echo "Processing OpenFOAM recipe: $recipeDirectory"
+    echo "Recipe path: $recipePath"
     echo "================================================================"
 
-    if [[ ! -d "$recipePath" ]]; then recordFailure "$recipeDirectory" "recipe-directory validation" 1; continue; fi
-    if prepareNode; then :; else status=$?; recordFailure "$recipeDirectory" "Podman-node preparation" "$status"; continue; fi
+    # A missing recipe cannot be built or tested, but should not suppress later
+    # selected versions.
+    if [[ ! -d "$recipePath" ]]; then
+        recordFailure "$recipeDirectory" "recipe-directory validation" 1
+        continue
+    fi
+
+    # Establish a clean and responsive Podman environment before each recipe.
+    if prepareNode; then
+        echo "PASS: Podman node is ready for $recipeDirectory."
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "Podman-node preparation" "$status"
+        continue
+    fi
+
+    # In normal mode, build both image formats. Tests-only mode deliberately uses
+    # the existing Podman image and current latest SIF without rebuilding either.
     if [[ "$testsOnly" == true ]]; then
         echo "TESTS-ONLY: Skipping Podman image creation for $recipeDirectory."
         echo "TESTS-ONLY: Skipping Singularity SIF creation for $recipeDirectory."
     else
-        if "$containerBuilder" --engine "$engineToUse" --recipe-dir "$recipePath" "${buildArgumentOptions[@]}"; then :; else status=$?; recordFailure "$recipeDirectory" "Podman image build" "$status"; continue; fi
-        if "$singularityBuilder" --engine "$engineToUse" --recipe-dir "$recipePath" "${buildArgumentOptions[@]}"; then :; else status=$?; recordFailure "$recipeDirectory" "Singularity image build" "$status"; continue; fi
-    fi
-    if resolveSingularityImage "$recipePath"; then :; else status=$?; recordFailure "$recipeDirectory" "Singularity image resolution" "$status"; continue; fi
-    if resolvePodmanImageReference; then :; else status=$?; recordFailure "$recipeDirectory" "Podman image-reference resolution" "$status"; continue; fi
-    if "$imageValidation" --recipe-dir "$recipePath" --engine podman --image "$podmanImage"; then :; else status=$?; recordFailure "$recipeDirectory" "Podman image validation" "$status"; continue; fi
-    if "$basicTests" --recipe-dir "$recipePath" --engine podman --image "$podmanImage"; then :; else status=$?; recordFailure "$recipeDirectory" "Podman basic tests" "$status"; continue; fi
-    if "$imageValidation" --recipe-dir "$recipePath" --engine singularity --image "$singularityImage"; then :; else status=$?; recordFailure "$recipeDirectory" "Singularity image validation" "$status"; continue; fi
-    if "$basicTests" --recipe-dir "$recipePath" --engine singularity --image "$singularityImage"; then :; else status=$?; recordFailure "$recipeDirectory" "Singularity basic tests" "$status"; continue; fi
-    if "$compileLauncher" --submit-only --recipe-dir "$recipePath" --image "$singularityImage" --partition "$setonixTestPartition"; then :; else status=$?; recordFailure "$recipeDirectory" "compile-tool test submission" "$status"; continue; fi
-    if "$tutorialLauncher" --submit-only --recipe-dir "$recipePath" --image "$singularityImage" --partition "$setonixTestPartition"; then :; else status=$?; recordFailure "$recipeDirectory" "tutorial-test submission" "$status"; continue; fi
+        if "$containerBuilder" \
+            --engine "$engineToUse" \
+            --recipe-dir "$recipePath" \
+            "${buildArgumentOptions[@]}"; then
+            echo "PASS: Podman image build completed for $recipeDirectory."
+        else
+            status=$?
+            recordFailure "$recipeDirectory" "Podman image build" "$status"
+            continue
+        fi
 
+        if "$singularityBuilder" \
+            --engine "$engineToUse" \
+            --recipe-dir "$recipePath" \
+            "${buildArgumentOptions[@]}"; then
+            echo "PASS: Singularity image build completed for $recipeDirectory."
+        else
+            status=$?
+            recordFailure "$recipeDirectory" "Singularity image build" "$status"
+            continue
+        fi
+    fi
+
+    # Resolve the current SIF first, then derive the corresponding unqualified
+    # Podman reference used by the two Podman-specific test scripts.
+    if resolveSingularityImage "$recipePath"; then
+        :
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "Singularity image resolution" "$status"
+        continue
+    fi
+
+    if resolvePodmanImageReference; then
+        :
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "Podman image-reference resolution" "$status"
+        continue
+    fi
+
+    # Validate the Podman image before running broader functional checks.
+    if "$imageValidation" \
+        --recipe-dir "$recipePath" \
+        --engine podman \
+        --image "$podmanImage"; then
+        :
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "Podman image validation" "$status"
+        continue
+    fi
+
+    # Run the common basic test suite against the local Podman image.
+    if "$basicTests" \
+        --recipe-dir "$recipePath" \
+        --engine podman \
+        --image "$podmanImage"; then
+        :
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "Podman basic tests" "$status"
+        continue
+    fi
+
+    # Validate the exact SIF resolved from artifacts/singularity/latest.
+    if "$imageValidation" \
+        --recipe-dir "$recipePath" \
+        --engine singularity \
+        --image "$singularityImage"; then
+        :
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "Singularity image validation" "$status"
+        continue
+    fi
+
+    # Run the common basic test suite against the current SIF.
+    if "$basicTests" \
+        --recipe-dir "$recipePath" \
+        --engine singularity \
+        --image "$singularityImage"; then
+        :
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "Singularity basic tests" "$status"
+        continue
+    fi
+
+    # Submit the compile-tool test asynchronously. Successful launcher return
+    # confirms submission only; the child job writes the authoritative result.
+    if "$compileLauncher" \
+        --submit-only \
+        --recipe-dir "$recipePath" \
+        --image "$singularityImage" \
+        --partition "$setonixTestPartition"; then
+        :
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "compile-tool test submission" "$status"
+        continue
+    fi
+
+    # Submit the dependent tutorial preparation and solver jobs asynchronously.
+    # The launcher manages their afterok dependency and persistent artifacts.
+    if "$tutorialLauncher" \
+        --submit-only \
+        --recipe-dir "$recipePath" \
+        --image "$singularityImage" \
+        --partition "$setonixTestPartition"; then
+        :
+    else
+        status=$?
+        recordFailure "$recipeDirectory" "tutorial-test submission" "$status"
+        continue
+    fi
+
+    # Reaching this point means all synchronous stages passed and both asynchronous
+    # Setonix test workflows were accepted for submission.
     successfulRecipes+=("$recipeDirectory")
     echo "Completed synchronous stages and Setonix submissions: $recipeDirectory"
 done
 
 # =============================================================================
-# Final summary
+# Final summary and process exit status
 # =============================================================================
-echo; echo "================================================================"
-echo "OpenFOAM multi-image build and test summary"; echo "================================================================"
+# A PASS below means all synchronous stages passed and both Setonix workflows
+# were submitted. It does not claim that the asynchronous child jobs completed.
+echo
+echo "================================================================"
+echo "OpenFOAM multi-image build and test summary"
+echo "================================================================"
+
 echo "Successful recipes: ${#successfulRecipes[@]}"
-for recipe in "${successfulRecipes[@]}"; do echo "  PASS: $recipe"; done
+for recipe in "${successfulRecipes[@]}"; do
+    echo "  PASS: $recipe"
+done
+
 echo "Failed recipes: ${#failedRecipes[@]}"
-for recipe in "${failedRecipes[@]}"; do echo "  FAIL: $recipe: ${failedStages[$recipe]}"; done
-(( ${#failedRecipes[@]} == 0 )) || { echo "One or more recipes failed." >&2; exit 1; }
+for recipe in "${failedRecipes[@]}"; do
+    echo "  FAIL: $recipe: ${failedStages[$recipe]}"
+done
+
+# Return a nonzero overall status when any selected recipe failed, while retaining
+# the complete per-recipe summary above.
+if (( ${#failedRecipes[@]} > 0 )); then
+    echo "One or more recipes failed." >&2
+    exit 1
+fi
+
 if [[ "$testsOnly" == true ]]; then
     echo "All local tests and Setonix test submissions completed successfully in tests-only mode."
 else
