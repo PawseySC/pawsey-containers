@@ -1,0 +1,49 @@
+#!/bin/bash -l
+
+#SBATCH --job-name="pytorch_check_job"
+#SBATCH --ntasks=2
+#SBATCH --ntasks-per-node=1
+#SBATCH --output=pytorch_check_job.out
+#SBATCH --error=pytorch_check_job.err
+#SBATCH --time=0:10:0
+#SBATCH --exclusive
+#SBATCH --partition=gpu
+#SBATCH --nodes=2
+#SBATCH --account=pawsey0001-gpu
+
+module load singularity/4.3.5-mpi
+export OMP_NUM_THREADS=8
+export MPICH_ENV_DISPLAY=1
+export MPICH_MEMORY_REPORT=1
+export MPICH_OFI_VERBOSE=1
+
+export RDZV_PORT=29500
+export SINGULARITYENV_NCCL_NET=Socket
+
+srun -N 2 -n 2 --ntasks-per-node=1 rocm-smi --showhw
+
+export RDZV_HOST=$(hostname)
+
+export MIOPEN_USER_DB_PATH="/tmp/${SLURM_JOB_ID}"
+export MIOPEN_CUSTOM_CACHE_DIR=${MIOPEN_USER_DB_PATH}
+
+rm -rf ${MIOPEN_USER_DB_PATH}
+mkdir -p ${MIOPEN_USER_DB_PATH}
+
+ls -alh /tmp/*
+
+srun -c 64 singularity exec \
+    pytorch2.13.0-rocm7.2.4-mpich4.2.2-ubuntu24.04.sif \
+    torchrun \
+        --nnodes=2 \
+        --nproc_per_node=8 \
+        --rdzv_id=${SLURM_JOB_ID} \
+        --rdzv_backend=c10d \
+        --rdzv_endpoint="${RDZV_HOST}:${RDZV_PORT}" \
+        torchrun_mnist_ddp.py \
+        -e 20 \
+        -b 128
+
+rm -rf ${MIOPEN_USER_DB_PATH}
+
+ls -alh /tmp/*
