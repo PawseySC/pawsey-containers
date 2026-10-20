@@ -295,7 +295,7 @@ RUN set -eux; \
     # Use the specified PyTorch Triton test wheel during the
     # PyTorch build.
     sed -i \
-        -e "4a python3 -m pip install --index-url \${DOWNLOAD_PYTORCH_ORG}/test/ pytorch-triton==${PYTORCH_TRITON_VERSION}; exit 0" \
+        -e "4a python3 -m pip install --index-url \${DOWNLOAD_PYTORCH_ORG}/test/ triton==${PYTORCH_TRITON_VERSION}; exit 0" \
         scripts/install_triton_wheel.sh; \
     \
     cat scripts/install_triton_wheel.sh; \
