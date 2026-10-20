@@ -71,7 +71,8 @@ tensorflow-2.21.0-rocm7.2.4.sif
 First, check that TensorFlow imports and reports its version:
 
 ```bash
-singularity exec tensorflow-2.21.0-rocm7.2.4.sif     python3 -c 'import tensorflow as tf; print(tf.__version__)'
+singularity exec tensorflow-2.21.0-rocm7.2.4.sif \
+    python3 -c 'import tensorflow as tf; print(tf.__version__)'
 2.21.0-dev0+selfbuilt
 
 ```
