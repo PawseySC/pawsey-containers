@@ -289,13 +289,15 @@ RUN set -eux; \
 
 ARG PYTORCH_TRITON_VERSION
 
+ARG DOWNLOAD_PYTORCH_ORG="https://download.pytorch.org/whl"
+
 RUN set -eux; \
     cd /tmp/build/pytorch; \
     \
     # Use the specified PyTorch Triton test wheel during the
     # PyTorch build.
     sed -i \
-        -e "4a python3 -m pip install --index-url \${DOWNLOAD_PYTORCH_ORG}/test/ pytorch-triton==${PYTORCH_TRITON_VERSION}; exit 0" \
+        -e "4a python3 -m pip install --index-url \${DOWNLOAD_PYTORCH_ORG}/rocm7.2/ pytorch-triton-rocm==${PYTORCH_TRITON_VERSION}; exit 0" \
         scripts/install_triton_wheel.sh; \
     \
     cat scripts/install_triton_wheel.sh; \
@@ -305,7 +307,7 @@ RUN set -eux; \
     python3 tools/amd_build/build_amd.py; \
     \
     # Build and install PyTorch.
-    python3 setup.py install
+    MAX_JOBS=16 CMAKE_BUILD_PARALLEL_LEVEL=16 python3 setup.py install
 
 
 #---------------------------------------------------------------
