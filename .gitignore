@@ -8,9 +8,9 @@ out.*
 *.tgz
 log.*
 *.log
+slurm*.out
 *.exe
 ignore/
-artifacts/
 
 
 # Virtualenv
@@ -89,3 +89,9 @@ Example/
 
 # Environmental variables
 .run/__init__.run.xml
+
+# Generated in building scripts
+**/image-build-info.txt
+**/image-build-info.host.txt
+**/tmp/
+**/artifacts/
