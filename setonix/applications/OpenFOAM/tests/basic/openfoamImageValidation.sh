@@ -5,8 +5,11 @@
 # it. Docker, Podman, and Singularity images are supported through one common
 # workflow. The script checks that the selected engine and image are accessible,
 # reads the OpenFOAM environment from the image, and inspects the build and
-# functional-test logs stored inside it. Each tracked invocation stores its
-# output and status under <recipe-dir>/artifacts/tests/image-validation/.
+# functional-test logs stored inside it. It also runs the standalone
+# checkOpenFOAMInstallation.sh script inside the selected image to compare the
+# compiled applications with the targets declared by the OpenFOAM source tree.
+# Each tracked invocation stores its output and status under
+# <recipe-dir>/artifacts/tests/image-validation/.
 #
 # OpenFOAM-version-specific settings are read from:
 #
@@ -27,7 +30,9 @@
 #   OPENFOAM_VERSION      Expected version in the image name and environment.
 #
 # Paths containing variables such as $WM_PROJECT_DIR are expanded inside the
-# image, not in the calling environment. A setting containing NO_CHECK is not
+# image, not in the calling environment. The installation checker must be stored
+# next to this script so it can be mounted read-only into the image. A setting
+# containing NO_CHECK is not
 # treated as a path and causes its associated validation step to be skipped.
 #
 # Examples:
@@ -53,6 +58,8 @@ set -u
 
 # --- Initial settings
 thisScript=$(basename "$0")
+scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+installationChecker="${scriptDir}/checkOpenFOAMInstallation.sh"
 testNum=0
 failedTests=()
 totalFailed=0
@@ -94,6 +101,39 @@ engine_run() {
    else
       "$ENGINE" run --rm "$imageRef" "$@"
    fi
+}
+
+# --- Helper: run the standalone installation checker inside the image
+# The checker remains independent of image engines. This wrapper only mounts the
+# checker and its host output directory at stable paths for the selected engine.
+run_installation_checker() {
+   local hostOutputDir=$1
+   local containerChecker="/tmp/checkOpenFOAMInstallation.sh"
+   local containerOutputDir="/tmp/openfoam-installation-audit"
+
+   mkdir -p "$hostOutputDir"
+   hostOutputDir=$(cd "$hostOutputDir" && pwd -P)
+
+   case "$ENGINE" in
+      singularity)
+         singularity exec \
+            --bind "${installationChecker}:${containerChecker}:ro" \
+            --bind "${hostOutputDir}:${containerOutputDir}" \
+            "$imageRef" \
+            bash "$containerChecker" -o "$containerOutputDir"
+         ;;
+      docker|podman)
+         "$ENGINE" run --rm \
+            --volume "${installationChecker}:${containerChecker}:ro" \
+            --volume "${hostOutputDir}:${containerOutputDir}" \
+            "$imageRef" \
+            bash "$containerChecker" -o "$containerOutputDir"
+         ;;
+      *)
+         echo "ERROR: Unsupported image engine: $ENGINE" >&2
+         return 1
+         ;;
+   esac
 }
 
 # --- Helper: expand and validate an internal log path
@@ -225,6 +265,12 @@ else
    usage >&2
    exit 1
 fi
+
+# The installation checker is distributed next to this image-validation script.
+[[ -r "$installationChecker" ]] || {
+   echo "ERROR: OpenFOAM installation checker is not readable: $installationChecker" >&2
+   exit 1
+}
 
 # --- Create persistent artifacts for this validation invocation
 validationArtifactsDir="${recipeDir}/artifacts/tests/image-validation"
@@ -498,6 +544,21 @@ else
 fi
 echo
 
+# --- Step 9: Audit the compiled OpenFOAM applications
+((++testNum))
+echo "$thisScript: -----------------------------------------"
+echo "Step $testNum - Auditing the compiled OpenFOAM applications"
+installationAuditDir="${runArtifactsDir}/installation-audit"
+if run_installation_checker "$installationAuditDir"; then
+   echo "PASS: OpenFOAM installation audit completed successfully"
+   echo "Installation audit report: ${installationAuditDir}/openfoam-installation-report.txt"
+else
+   echo "FAIL: OpenFOAM installation audit found missing solver or core applications"
+   echo "Installation audit report: ${installationAuditDir}/openfoam-installation-report.txt"
+   record_failure "OpenFOAM installation completeness audit failed"
+fi
+echo
+
 # --- Final summary
 echo "======================================================"
 echo "$thisScript: FINAL SUMMARY"
@@ -511,6 +572,7 @@ echo "Validation artifacts: $runArtifactsDir"
 echo "Status file: $statusFile"
 echo "Complete run log: $runLog"
 echo "Validation summary: $validationSummaryFile"
+echo "Installation audit: ${runArtifactsDir}/installation-audit/openfoam-installation-report.txt"
 if [[ $totalFailed -eq 0 ]]; then
    {
       echo "Result: SUCCESS"
@@ -521,6 +583,7 @@ if [[ $totalFailed -eq 0 ]]; then
       echo "Image OpenFOAM version: $WM_PROJECT_VERSION"
       echo "Total steps run: $testNum"
       echo "Validation checks failed: 0"
+      echo "Installation audit: ${runArtifactsDir}/installation-audit/openfoam-installation-report.txt"
    } > "$validationSummaryFile"
    echo "ALL STEPS PASSED: Image '$imageRef' passed OpenFOAM image validation."
    exit 0
@@ -534,6 +597,7 @@ else
       echo "Image OpenFOAM version: $WM_PROJECT_VERSION"
       echo "Total steps run: $testNum"
       echo "Validation checks failed: $totalFailed"
+      echo "Installation audit: ${runArtifactsDir}/installation-audit/openfoam-installation-report.txt"
       printf 'Failure: %s\n' "${failedTests[@]}"
    } > "$validationSummaryFile"
    echo "$totalFailed VALIDATION CHECK(S) FAILED:"

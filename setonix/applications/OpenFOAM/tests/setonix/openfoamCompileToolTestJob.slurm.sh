@@ -1,9 +1,9 @@
 #!/bin/bash --login
 # Slurm job for the OpenFOAM compile-tool functional test.
 #
-# This job verifies that an OpenFOAM Singularity image can support a typical
+# This job verifies that an OpenFOAM runtime can support a typical
 # user-development workflow. It locates the source of an existing OpenFOAM
-# application inside the image, copies that source to a host directory, renames
+# application inside the selected runtime, copies that source to a host directory, renames
 # it as a test application, compiles it inside the container, and checks that
 # the resulting executable runs correctly.
 #
@@ -54,6 +54,7 @@ thisScript=$(basename "$0")
 recipeDirInput=""
 configFileInput=""
 imageInput=""
+useSHPC=false
 workRootInput=""
 recipeDir=""
 configFile=""
@@ -79,7 +80,8 @@ Options:
   --recipe-dir, -r <directory>  OpenFOAM version directory containing the docker recipe and
                                  the buildAndValidationConfig/openfoamBuildAndValidation.config file
   --config, -c <file>           Explicit openfoamBuildAndValidation configuration file
-  --image, -i <file>            Required Singularity SIF image
+  --image, -i <file>            Use the supplied Singularity SIF image
+  --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --work-root <directory>       Override the host work root. The test defaults to MYSCRATCH.
   --test-artifacts-dir <dir>    Use a launcher-managed test artifact directory
   --help, -h                    Show this help message and exit
@@ -106,6 +108,10 @@ while [[ $# -gt 0 ]]; do
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --image requires <file>" >&2; usage >&2; exit 1; }
          imageInput="$2"
          shift 2
+         ;;
+      --shpc)
+         useSHPC=true
+         shift
          ;;
       --work-root)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --work-root requires <directory>" >&2; usage >&2; exit 1; }
@@ -158,8 +164,14 @@ else
 fi
 
 [[ -r "$configFile" ]] || { echo "ERROR: Configuration is not readable: $configFile" >&2; usage >&2; exit 1; }
-[[ -n "$imageInput" ]] || { echo "ERROR: --image is required" >&2; usage >&2; exit 1; }
-[[ -f "$imageInput" ]] || { echo "ERROR: SIF image not found: $imageInput" >&2; usage >&2; exit 1; }
+runtimeSelectorCount=0
+[[ -n "$imageInput" ]] && ((runtimeSelectorCount += 1))
+[[ "$useSHPC" == true ]] && ((runtimeSelectorCount += 1))
+[[ $runtimeSelectorCount -eq 1 ]] || { echo "ERROR: Choose exactly one of --image <file> or --shpc" >&2; usage >&2; exit 1; }
+if [[ -n "$imageInput" ]]; then
+   [[ -f "$imageInput" ]] || { echo "ERROR: SIF image not found: $imageInput" >&2; exit 1; }
+   SINGULARITY_CONTAINER=$(realpath "$imageInput")
+fi
 
 # --- Resolve persistent artifacts for this test invocation
 compileTestArtifactsDir="${recipeDir}/artifacts/tests/compile-tool"
@@ -221,76 +233,37 @@ done
    exit 1
 }
 
-# --- Resolve and validate the Singularity image
-SINGULARITY_CONTAINER=$(realpath "$imageInput")
-imageFileName=$(basename "$SINGULARITY_CONTAINER")
-expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-if [[ "$imageFileName" != "${expectedSifPrefix}"*.sif ]]; then
-   echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
-   echo "       Image filename:   $imageFileName" >&2
-   echo "       Required pattern: ${expectedSifPrefix}*.sif" >&2
-   exit 1
+# --- Step 1: Load and validate the selected OpenFOAM runtime
+if [[ "$useSHPC" == true ]]; then
+   runtimeMode="SHPC module"
+   shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
+   shpcExec="${OPENFOAM_FORK}-exec"
+   module load "$shpcModule" || { echo "ERROR: Failed to load $shpcModule" >&2; exit 1; }
+   command -v "$shpcExec" >/dev/null 2>&1 || { echo "ERROR: Missing SHPC wrapper: $shpcExec" >&2; exit 1; }
+   [[ -n "${SINGULARITY_CONTAINER:-}" ]] || { echo "ERROR: $shpcModule did not set SINGULARITY_CONTAINER" >&2; exit 1; }
+   runtimeExec=("$shpcExec")
+else
+   runtimeMode="Explicit Singularity image"
+   shpcModule=""
+   shpcExec=""
+   imageFileName=$(basename "$SINGULARITY_CONTAINER")
+   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
+   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || { echo "ERROR: Image filename does not match ${expectedSifPrefix}*.sif" >&2; exit 1; }
+   module load singularity/4.3.5-mpi || { echo "ERROR: Failed to load singularity/4.3.5-mpi" >&2; exit 1; }
+   runtimeExec=("${runtimeExec[@]}")
 fi
+SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
 imageChecksum=$(sha256sum "$SINGULARITY_CONTAINER" | awk '{print $1}')
-echo "PASS: Singularity filename matches configured identity '${expectedSifPrefix}*.sif'"
-{
-   echo "Test timestamp: $testTimestamp"
-   echo "Slurm job ID: ${SLURM_JOB_ID:-manual}"
-   echo "Configuration: $configFile"
-   echo "Recipe directory: $recipeDir"
-   echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
-   echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
-   echo "SIF image: $SINGULARITY_CONTAINER"
-   echo "SIF SHA256: $imageChecksum"
-   echo "Template tool: $COMPILE_TEMPLATE_TOOL"
-   echo "Compiled test tool: $COMPILED_TEST_TOOL"
-} > "$testDetailsFile"
-
-# --- Step 1: Set up the Singularity environment
-# The test assumes that the image is supplied directly and is not part of a
-# software module. Only the Singularity runtime module is loaded here.
-echo "$thisScript: -----------------------------------------"
-echo "Step 1 - Setting up the Singularity environment"
-module load singularity/4.1.0-mpi || { echo "ERROR: Failed to load singularity/4.1.0-mpi" >&2; exit 1; }
+echo "Loaded modules:"
 module list
-echo "PASS: Singularity environment ready"
-echo
+echo "Execution mode: $runtimeMode"
+[[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
+echo "Backing image: $SINGULARITY_CONTAINER"
 
-# --- Step 2: Read the OpenFOAM user environment from the image
-# WM_PROJECT_USER_DIR is the path that OpenFOAM expects for user applications
-# inside the container. A host directory will be bound to this location.
-echo "$thisScript: -----------------------------------------"
-echo "Step 2 - Reading the OpenFOAM environment from the image"
-WM_PROJECT_VERSION=$(singularity exec "$SINGULARITY_CONTAINER" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || {
-   echo "ERROR: Failed to read WM_PROJECT_VERSION" >&2
-   exit 1
-}
-[[ -n "$WM_PROJECT_VERSION" ]] || { echo "ERROR: WM_PROJECT_VERSION is empty in the image environment" >&2; exit 1; }
-[[ "$WM_PROJECT_VERSION" =~ ^v?[0-9][0-9A-Za-z.-]*$ ]] || {
-   echo "ERROR: WM_PROJECT_VERSION has an invalid value in the image environment" >&2
-   echo "       Reported value: '$WM_PROJECT_VERSION'" >&2
-   exit 1
-}
-echo "PASS: Image environment provides a valid WM_PROJECT_VERSION='$WM_PROJECT_VERSION'"
-if [[ "$WM_PROJECT_VERSION" != "$OPENFOAM_VERSION" ]]; then
-   echo "ERROR: OpenFOAM version mismatch between the image and configuration" >&2
-   echo "       Image environment: $WM_PROJECT_VERSION" >&2
-   echo "       Configuration:     $OPENFOAM_VERSION" >&2
-   exit 1
-fi
-echo "PASS: WM_PROJECT_VERSION matches OPENFOAM_VERSION='$OPENFOAM_VERSION'"
-echo "Image OpenFOAM version: $WM_PROJECT_VERSION" >> "$testDetailsFile"
-
-wmpudInside=$(singularity exec "$SINGULARITY_CONTAINER" bash -c 'printf "%s" "$WM_PROJECT_USER_DIR"') || {
-   echo "ERROR: Failed to read WM_PROJECT_USER_DIR" >&2
-   exit 1
-}
+WM_PROJECT_VERSION=$("${runtimeExec[@]}" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION" >&2; exit 1; }
+[[ "$WM_PROJECT_VERSION" == "$OPENFOAM_VERSION" ]] || { echo "ERROR: Runtime version '$WM_PROJECT_VERSION' does not match '$OPENFOAM_VERSION'" >&2; exit 1; }
+wmpudInside=$("${runtimeExec[@]}" bash -c 'printf "%s" "$WM_PROJECT_USER_DIR"') || { echo "ERROR: Failed to read WM_PROJECT_USER_DIR" >&2; exit 1; }
 [[ -n "$wmpudInside" ]] || { echo "ERROR: WM_PROJECT_USER_DIR is empty" >&2; exit 1; }
-
-echo "OpenFOAM version: $WM_PROJECT_VERSION"
-echo "Container user directory: $wmpudInside"
-echo "PASS: OpenFOAM environment found"
-echo
 
 # --- Step 3: Prepare the host development directory
 # Functional-test products are temporary, so MYSCRATCH is preferred by default.
@@ -319,12 +292,28 @@ echo "New tool directory: $myToolPath"
 echo "PASS: Clean development directory created"
 echo
 
-# --- Step 4: Find the template application inside the image
+# Use the SHPC generic wrapper in module mode. Explicit-image mode binds the
+# writable host development tree to WM_PROJECT_USER_DIR inside the selected runtime.
+if [[ "$useSHPC" == true ]]; then
+   # The SHPC wrapper consumes the standard Singularity bind environment. This
+   # presents the writable host development tree at WM_PROJECT_USER_DIR for all
+   # generic wrapper calls and for the OpenFOAM command wrappers they launch.
+   export SINGULARITY_BIND="${wmpudOutside}:${wmpudInside}"
+   runtimeExecBound=("$shpcExec")
+else
+   runtimeExecBound=(
+      singularity exec
+      -B "${wmpudOutside}:${wmpudInside}"
+      "$SINGULARITY_CONTAINER"
+   )
+fi
+
+# --- Step 4: Find the template application inside the selected runtime
 # Exactly one matching source directory is required. Multiple matches would make
 # the source selection ambiguous and could cause the wrong application to be used.
 echo "$thisScript: -----------------------------------------"
 echo "Step 4 - Finding the '$COMPILE_TEMPLATE_TOOL' source directory"
-mapfile -t toolPaths < <(singularity exec "$SINGULARITY_CONTAINER" bash -c \
+mapfile -t toolPaths < <("${runtimeExec[@]}" bash -c \
    'find "$FOAM_APP" -type d -name "$1" -print' bash "$COMPILE_TEMPLATE_TOOL")
 
 [[ ${#toolPaths[@]} -eq 1 ]] || {
@@ -343,7 +332,7 @@ echo
 # runs inside Singularity. The bind mount stores the copied files on the host.
 echo "$thisScript: -----------------------------------------"
 echo "Step 5 - Copying the template source to the host"
-singularity exec -B "${wmpudOutside}:${wmpudInside}" "$SINGULARITY_CONTAINER" \
+"${runtimeExecBound[@]}" \
    bash -c 'cp -a "$1"/. "$2"/' bash "$templatePath" "${wmpudInside}/applications/${COMPILED_TEST_TOOL}" || {
       echo "ERROR: Failed to copy the template source" >&2
       exit 1
@@ -370,12 +359,12 @@ echo "New tool: $COMPILED_TEST_TOOL"
 echo "PASS: Source and build settings updated"
 echo
 
-# --- Step 7: Compile the new application inside the image
+# --- Step 7: Compile the new application inside the selected runtime
 # wclean and wmake run in the image while reading and writing the bind-mounted
 # host directory. The resulting source and binary therefore remain on the host.
 echo "$thisScript: -----------------------------------------"
 echo "Step 7 - Compiling '$COMPILED_TEST_TOOL' with wclean and wmake"
-singularity exec -B "${wmpudOutside}:${wmpudInside}" "$SINGULARITY_CONTAINER" \
+"${runtimeExecBound[@]}" \
    bash -c 'cd "$1" && wclean && wmake' bash "${wmpudInside}/applications/${COMPILED_TEST_TOOL}" \
    2>&1 | tee "$compileLog"
 compileStatus=${PIPESTATUS[0]}
@@ -392,7 +381,7 @@ echo
 # WM_PROJECT_USER_DIR prefix into its corresponding host path before checking it.
 echo "$thisScript: -----------------------------------------"
 echo "Step 8 - Verifying the compiled binary"
-myToolBinaryInside=$(singularity exec -B "${wmpudOutside}:${wmpudInside}" "$SINGULARITY_CONTAINER" \
+myToolBinaryInside=$("${runtimeExecBound[@]}" \
    bash -c 'printf "%s/%s" "$FOAM_USER_APPBIN" "$1"' bash "$COMPILED_TEST_TOOL") || {
       echo "ERROR: Failed to determine FOAM_USER_APPBIN" >&2
       exit 1
@@ -423,12 +412,12 @@ echo "PASS: Compiled binary found"
 echo
 
 # --- Step 9: Run a basic functional test of the new application
-# WM_PROJECT_USER_DIR places FOAM_USER_APPBIN on PATH inside the image, so the
+# WM_PROJECT_USER_DIR places FOAM_USER_APPBIN on PATH inside the selected runtime, so the
 # executable can be invoked by name. Preserve the command output in the
 # invocation artifact directory and check its exit status and output signatures.
 echo "$thisScript: -----------------------------------------"
 echo "Step 9 - Testing '$COMPILED_TEST_TOOL -help'"
-singularity exec -B "${wmpudOutside}:${wmpudInside}" "$SINGULARITY_CONTAINER" \
+"${runtimeExecBound[@]}" \
    "$COMPILED_TEST_TOOL" -help 2>&1 | tee "$toolLog"
 status=${PIPESTATUS[0]}
 
@@ -466,11 +455,13 @@ echo "Status file: $statusFile"
 echo "Complete run log: $runLog"
 {
    echo "Result: SUCCESS"
-   echo "SIF image: $SINGULARITY_CONTAINER"
+   echo "Runtime mode: $runtimeMode"
+   [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
+   echo "Backing image: $SINGULARITY_CONTAINER"
    echo "SIF SHA256: $imageChecksum"
    echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
    echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
-   echo "Image OpenFOAM version: $WM_PROJECT_VERSION"
+   echo "Runtime OpenFOAM version: $WM_PROJECT_VERSION"
    echo "Template tool: $COMPILE_TEMPLATE_TOOL"
    echo "Compiled tool: $COMPILED_TEST_TOOL"
    echo "Compiled binary: $myToolBinary"

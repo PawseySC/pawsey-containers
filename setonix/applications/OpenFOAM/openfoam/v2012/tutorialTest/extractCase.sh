@@ -1,24 +1,35 @@
 #!/bin/bash --login
-# Extract and validate an OpenFOAM tutorial case from a Singularity image.
+# Extract and validate an OpenFOAM tutorial case from an explicit
+# Singularity image, the installed SHPC container module, or the corresponding
+# bare-metal OpenFOAM module.
 #
-# This script performs the first stage of the version-specific OpenFOAM tutorial
-# functional test. It locates exactly one version-selected tutorial case inside
-# supplied image, copies a clean case tree to the host, and verifies that the
-# files required by the preparation and solver stages are present.
+# This script is the first stage of the version-specific OpenFOAM tutorial
+# functional test. It locates exactly one selected tutorial inside the active
+# container runtime, copies a clean case tree to the host, and verifies the files
+# required by the preparation and solver stages.
 #
-# The script runs directly on a login node and does not submit a Slurm job. The
-# general tutorial-test launcher is expected to call this script before it
-# submits preFoam.slurm.sh and runFoam.slurm.sh. The image is supplied by the caller. The host work root may be supplied by the
-# launcher or omitted when running directly, in which case a stable version-configured default
-# is used.
+# Runtime modes
+# -------------
+# Explicit-image mode receives --image and executes generic container commands
+# with Singularity. SHPC mode receives --shpc, derives the installed module from
+# OPENFOAM_FORK and OPENFOAM_VERSION in the required configuration file, and
+# executes generic container commands through the module-provided <fork>-exec
+# wrapper. Bare-metal mode loads <OPENFOAM_FORK>/<OPENFOAM_VERSION> and runs
+# directly in the host environment. The three modes are mutually exclusive.
+#
+# The script runs directly and does not submit a Slurm job. The general tutorial
+# launcher normally supplies the runtime selection, configuration file, isolated
+# work root, test-artifact directory, and overwrite policy. The script can also
+# be run independently with the same arguments.
 #
 # Usage:
-#   ./extractCase.sh --image <file> [--work-root <directory>] [--overwrite]
+#   ./extractCase.sh --image <file> --config <file> [options]
+#   ./extractCase.sh --shpc --config <file> [options]
+#   ./extractCase.sh --bare-metal --config <file> [options]
 #
 # Exit status:
 #   0  The tutorial case was uniquely located, copied, and validated.
-#   1  Invalid input, environment setup failure, copy failure, or validation
-#      failure.
+#   1  Invalid input, runtime setup failure, copy failure, or validation failure.
 #
 # NOTE: This script was originally developed under the supervision of Alexis Espinosa at Pawsey Supercomputing Centre with the aid of Microsoft 365 Copilot (GPT 5.6).
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
@@ -34,37 +45,47 @@ CASE_NAME="channel395"
 # --- Initial settings
 thisScript=$(basename "$0")
 imageInput=""
+useSHPC=false
+useBareMetal=false
 workRootInput=""
 configFileInput=""
 testArtifactsDirInput=""
 overwriteCase=false
-SINGULARITY_MODULE=${SINGULARITY_MODULE:-singularity/4.1.0-mpi}
+SINGULARITY_MODULE=${SINGULARITY_MODULE:-singularity/4.3.5-mpi}
 
 # --- Command-line help
 usage() {
    cat <<USAGE
 Usage:
-  $thisScript --image <file> --config <file> [--work-root <directory>] [--test-artifacts-dir <directory>] [--overwrite]
+  $thisScript --image <file> --config <file> [options]
+  $thisScript --shpc --config <file> [options]
+  $thisScript --bare-metal --config <file> [options]
   $thisScript --help
 
-Options:
-  --image, -i <file>          Singularity image containing the tutorial case
-  --work-root, -w <directory>
-                             Override the host work root. By default, the script
-                             uses MYSCRATCH/OpenFOAM/<user>-<configured-OpenFOAM-version>.
-  --overwrite                  Remove the existing target case before copying
-  --config <file>                Version configuration file; required for direct execution
-  --test-artifacts-dir <directory>      Test-artifact destination; defaults to <work-root>/test-output
-  --help, -h                 Show this help message and exit
+Runtime selection (choose exactly one):
+  --image, -i <file>          Use the supplied Singularity image directly
+  --shpc                      Load <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
+  --bare-metal                Load <OPENFOAM_FORK>/<OPENFOAM_VERSION> and use the
+                              host OpenFOAM environment directly
+
+Required in both modes:
+  --config <file>             Version configuration file defining OPENFOAM_FORK
+                              and OPENFOAM_VERSION
+
+Optional settings:
+  --work-root, -w <directory> Override the host work root. By default, use:
+                              MYSCRATCH/OpenFOAM/<user>-<configured-version>
+  --test-artifacts-dir <directory>
+                              Test-artifact destination; defaults to
+                              <work-root>/test-output
+  --overwrite                 Remove and replace only the existing target case
+  --help, -h                  Show this help message and exit
 
 The target case is created as:
   <work-root>/run/$CASE_NAME
 
-Default work root:
-  ${MYSCRATCH:-${TMPDIR:-$HOME}}/OpenFOAM/<user>-<configured-OpenFOAM-version>
-
-By default, the target case must not already exist. Use --overwrite to remove
-and replace only the target case directory.
+In SHPC mode, the module provides SINGULARITY_CONTAINER for provenance and the
+<OPENFOAM_FORK>-exec wrapper used for generic commands inside its backing image.
 USAGE
 }
 
@@ -75,6 +96,14 @@ while [[ $# -gt 0 ]]; do
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --image requires <file>" >&2; usage >&2; exit 1; }
          imageInput="$2"
          shift 2
+         ;;
+      --shpc)
+         useSHPC=true
+         shift
+         ;;
+      --bare-metal)
+         useBareMetal=true
+         shift
          ;;
       --work-root|-w)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --work-root requires <directory>" >&2; usage >&2; exit 1; }
@@ -103,12 +132,11 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 
-# --- Validate and resolve inputs
-[[ -n "$imageInput" ]] || { echo "ERROR: --image is required" >&2; usage >&2; exit 1; }
-[[ -f "$imageInput" ]] || { echo "ERROR: Singularity image not found: $imageInput" >&2; usage >&2; exit 1; }
-SINGULARITY_CONTAINER=$(realpath "$imageInput")
+# --- Validate common inputs and load version identity
+# The configuration is the authoritative source of OpenFOAM fork and version in
+# both runtime modes. The image filename is never used to derive that identity.
 [[ -n "$configFileInput" ]] || {
-   echo "ERROR: --config is required when this stage is executed independently" >&2
+   echo "ERROR: --config is required" >&2
    usage >&2
    exit 1
 }
@@ -122,17 +150,41 @@ unset OPENFOAM_FORK OPENFOAM_VERSION
 # shellcheck source=/dev/null
 source "$configFile"
 for requiredSetting in OPENFOAM_FORK OPENFOAM_VERSION; do
-   [[ -n "${!requiredSetting:-}" ]] || { echo "ERROR: $requiredSetting is not defined in $configFile" >&2; exit 1; }
+   [[ -n "${!requiredSetting:-}" ]] || {
+      echo "ERROR: $requiredSetting is not defined in $configFile" >&2
+      exit 1
+   }
 done
-imageFileName=$(basename "$SINGULARITY_CONTAINER")
-expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-[[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || {
-   echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
-   echo "       Image filename:   $imageFileName" >&2
-   echo "       Required pattern: ${expectedSifPrefix}*.sif" >&2
+
+# Exactly one runtime selector is required.
+runtimeSelectorCount=0
+[[ -n "$imageInput" ]] && ((runtimeSelectorCount += 1))
+[[ "$useSHPC" == true ]] && ((runtimeSelectorCount += 1))
+[[ "$useBareMetal" == true ]] && ((runtimeSelectorCount += 1))
+[[ $runtimeSelectorCount -eq 1 ]] || {
+   echo "ERROR: Choose exactly one of --image <file>, --shpc, or --bare-metal" >&2
+   usage >&2
    exit 1
 }
 
+if [[ -n "$imageInput" ]]; then
+   [[ -f "$imageInput" ]] || {
+      echo "ERROR: Singularity image not found: $imageInput" >&2
+      exit 1
+   }
+   SINGULARITY_CONTAINER=$(realpath "$imageInput")
+
+   # The explicit test artifact follows the project naming convention. This is a
+   # consistency check only; fork/version identity still comes from the config.
+   imageFileName=$(basename "$SINGULARITY_CONTAINER")
+   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
+   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || {
+      echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
+      echo "       Image filename:   $imageFileName" >&2
+      echo "       Required pattern: ${expectedSifPrefix}*.sif" >&2
+      exit 1
+   }
+fi
 
 if [[ -n "$workRootInput" ]]; then
    workRoot=$(realpath -m "$workRootInput")
@@ -183,30 +235,117 @@ echo "Stage status: $stageStatusFile"
 echo
 testCase="${hostRunDir}/${CASE_NAME}"
 
-# --- Step 1: Set up the Singularity environment
+# --- Container execution helper
+# Select the execution interface for generic commands. SHPC mode uses its
+# generic execution wrapper, bare-metal mode runs directly in the loaded host
+# environment, and explicit-image mode uses singularity exec.
+runInOpenFOAMRuntime() {
+   if [[ "$useSHPC" == true ]]; then
+      "$shpcExec" "$@"
+   elif [[ "$useBareMetal" == true ]]; then
+      "$@"
+   else
+      singularity exec "$SINGULARITY_CONTAINER" "$@"
+   fi
+}
+
+# --- Step 1: Set up and validate the selected OpenFOAM runtime
 echo "$thisScript: -----------------------------------------"
-echo "Step 1 - Setting up the Singularity environment"
-module load "$SINGULARITY_MODULE" || {
-   echo "ERROR: Failed to load $SINGULARITY_MODULE" >&2
-   exit 1
-}
+echo "Step 1 - Setting up the OpenFOAM container runtime"
+if [[ "$useSHPC" == true ]]; then
+   runtimeMode="SHPC module"
+   shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
+   shpcExec="${OPENFOAM_FORK}-exec"
+
+   module load "$shpcModule" || {
+      echo "ERROR: Failed to load SHPC module: $shpcModule" >&2
+      exit 1
+   }
+
+   command -v "$shpcExec" >/dev/null 2>&1 || {
+      echo "ERROR: SHPC execution wrapper is unavailable: $shpcExec" >&2
+      exit 1
+   }
+   [[ -n "${SINGULARITY_CONTAINER:-}" ]] || {
+      echo "ERROR: $shpcModule did not set SINGULARITY_CONTAINER" >&2
+      exit 1
+   }
+   [[ -r "$SINGULARITY_CONTAINER" ]] || {
+      echo "ERROR: SHPC backing image is not readable: $SINGULARITY_CONTAINER" >&2
+      exit 1
+   }
+   SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
+
+   echo "SHPC module: $shpcModule"
+   echo "SHPC execution wrapper: $shpcExec"
+elif [[ "$useBareMetal" == true ]]; then
+   runtimeMode="Bare-metal module"
+   #bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
+   bareMetalModule="${OPENFOAM_FORK}/2206"
+   shpcModule=""
+   shpcExec=""
+
+   module load "$bareMetalModule" || {
+      echo "ERROR: Failed to load bare-metal module: $bareMetalModule" >&2
+      exit 1
+   }
+   [[ -n "${FOAM_TUTORIALS:-}" && -d "$FOAM_TUTORIALS" ]] || {
+      echo "ERROR: FOAM_TUTORIALS is unavailable after loading $bareMetalModule" >&2
+      exit 1
+   }
+   echo "Bare-metal module: $bareMetalModule"
+else
+   runtimeMode="Explicit Singularity image"
+   bareMetalModule=""
+   shpcModule=""
+   shpcExec=""
+
+   module load "$SINGULARITY_MODULE" || {
+      echo "ERROR: Failed to load $SINGULARITY_MODULE" >&2
+      exit 1
+   }
+   command -v singularity >/dev/null 2>&1 || {
+      echo "ERROR: singularity is unavailable after loading $SINGULARITY_MODULE" >&2
+      exit 1
+   }
+
+   echo "Singularity module: $SINGULARITY_MODULE"
+fi
+
+# Print the final module state once all modules required by the selected runtime
+# have been loaded. In SHPC mode this also shows dependencies loaded by the
+# OpenFOAM container module, including its Singularity runtime module.
+echo "Loaded modules:"
 module list
-command -v singularity >/dev/null 2>&1 || {
-   echo "ERROR: singularity is unavailable after loading $SINGULARITY_MODULE" >&2
+
+echo "Execution mode: $runtimeMode"
+if [[ "$useBareMetal" != true ]]; then
+   echo "Backing image: $SINGULARITY_CONTAINER"
+fi
+
+# Query the selected runtime instead of trusting either an image filename or a
+# module name. The reported OpenFOAM version must match the configuration.
+WM_PROJECT_VERSION=$(runInOpenFOAMRuntime \
+   bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || {
+      echo "ERROR: Failed to read WM_PROJECT_VERSION from the runtime environment" >&2
+      exit 1
+   }
+[[ -n "$WM_PROJECT_VERSION" ]] || {
+   echo "ERROR: WM_PROJECT_VERSION is empty in the runtime environment" >&2
    exit 1
 }
-echo "Image: $SINGULARITY_CONTAINER"
-WM_PROJECT_VERSION=$(singularity exec "$SINGULARITY_CONTAINER" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION from the image environment" >&2; exit 1; }
-[[ -n "$WM_PROJECT_VERSION" ]] || { echo "ERROR: WM_PROJECT_VERSION is empty in the image environment" >&2; exit 1; }
-[[ "$WM_PROJECT_VERSION" =~ ^v?[0-9][0-9A-Za-z.-]*$ ]] || { echo "ERROR: Invalid WM_PROJECT_VERSION='$WM_PROJECT_VERSION'" >&2; exit 1; }
+[[ "$WM_PROJECT_VERSION" =~ ^v?[0-9][0-9A-Za-z.-]*$ ]] || {
+   echo "ERROR: Invalid WM_PROJECT_VERSION='$WM_PROJECT_VERSION'" >&2
+   exit 1
+}
 [[ "$WM_PROJECT_VERSION" == "$OPENFOAM_VERSION" ]] || {
-   echo "ERROR: OpenFOAM version mismatch between the image and configuration" >&2
-   echo "       Image environment: $WM_PROJECT_VERSION" >&2
-   echo "       Configuration:     $OPENFOAM_VERSION" >&2
+   echo "ERROR: OpenFOAM version mismatch between the runtime and configuration" >&2
+   echo "       Runtime environment: $WM_PROJECT_VERSION" >&2
+   echo "       Configuration:       $OPENFOAM_VERSION" >&2
    exit 1
 }
-echo "PASS: Image filename and WM_PROJECT_VERSION match OPENFOAM_FORK='$OPENFOAM_FORK' and OPENFOAM_VERSION='$OPENFOAM_VERSION'"
-echo "PASS: Singularity environment ready"
+echo "PASS: Runtime WM_PROJECT_VERSION matches OPENFOAM_VERSION='$OPENFOAM_VERSION'"
+echo "PASS: OpenFOAM container runtime ready"
 echo
 
 # --- Step 2: Prepare a clean host destination
@@ -243,7 +382,7 @@ echo
 # ambiguous and could cause a different tutorial to be tested across versions.
 echo "$thisScript: -----------------------------------------"
 echo "Step 3 - Finding the '$CASE_NAME' tutorial inside the image"
-internalCaseOutput=$(singularity exec "$SINGULARITY_CONTAINER" \
+internalCaseOutput=$(runInOpenFOAMRuntime \
    bash -c 'find "$FOAM_TUTORIALS" -type d -name "$1" -print' bash "$CASE_NAME") || {
       echo "ERROR: Failed to search FOAM_TUTORIALS inside the image" >&2
       exit 1
@@ -266,15 +405,16 @@ echo "PASS: Unique tutorial case found"
 echo
 
 # --- Step 4: Copy the tutorial case to the host
-# The host run directory is bound explicitly so the destination remains outside
-# the image and is available to the later Slurm preparation and solver jobs.
+# Pawsey scratch filesystems are available in all three runtime modes. Use the
+# common runtime helper without an additional bind: SHPC mode invokes
+# <OPENFOAM_FORK>-exec, bare-metal mode runs cp directly, and explicit-image mode
+# invokes singularity exec with the selected SIF.
 echo "$thisScript: -----------------------------------------"
 echo "Step 4 - Copying the tutorial case to the host"
-singularity exec -B "${hostRunDir}:${hostRunDir}" "$SINGULARITY_CONTAINER" \
-   cp -a "$internalCase" "$testCase" || {
-      echo "ERROR: Failed to copy the tutorial case" >&2
-      exit 1
-   }
+runInOpenFOAMRuntime cp -a --no-preserve=timestamps "$internalCase" "$testCase" || {
+   echo "ERROR: Failed to copy the tutorial case" >&2
+   exit 1
+}
 
 echo "PASS: Tutorial case copied"
 echo
@@ -309,7 +449,15 @@ echo "======================================================"
 echo "$thisScript: FINAL SUMMARY"
 echo "======================================================"
 echo "Tutorial case: $CASE_NAME"
-echo "Image: $SINGULARITY_CONTAINER"
+echo "Execution mode: $runtimeMode"
+if [[ "$useSHPC" == true ]]; then
+   echo "SHPC module: $shpcModule"
+   echo "SHPC execution wrapper: $shpcExec"
+elif [[ "$useBareMetal" == true ]]; then
+   echo "Bare-metal module: $bareMetalModule"
+else
+   echo "Backing image: $SINGULARITY_CONTAINER"
+fi
 echo "Extracted case: $testCase"
 echo "ALL STEPS PASSED: OpenFOAM tutorial case extracted successfully."
 

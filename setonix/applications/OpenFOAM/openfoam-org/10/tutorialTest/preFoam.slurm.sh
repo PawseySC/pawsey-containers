@@ -1,21 +1,35 @@
 #!/bin/bash --login
-# Prepare the version-specific OpenFOAM periodicPlaneChannel tutorial for parallel execution.
+# Prepare the version-specific OpenFOAM tutorial for parallel
+# execution using either an explicit Singularity image or the installed SHPC
+# module for the configured OpenFOAM fork and version.
 #
 # This Slurm job is the second stage of the version-specific tutorial test. It
 # expects extractCase.sh to have copied the case to the host work directory. It
-# restores the initial conditions, runs the OpenFOAM preparation tools, checks
-# their exit statuses, and verifies the resulting collated decomposition.
+# restores initial conditions, updates dictionaries, runs the serial preparation
+# tools, checks their exit statuses, and validates the collated decomposition.
 #
-# The general openfoamTutorialTestsLauncher.sh script normally submits this job
-# and provides the image and work root. The Slurm defaults below also allow the
-# script to be submitted directly with the same command-line arguments.
+# Runtime modes
+# -------------
+# Explicit-image mode receives --image and executes OpenFOAM commands with
+# singularity exec. SHPC mode receives --shpc, derives and loads the container
+# module from OPENFOAM_FORK and OPENFOAM_VERSION, and invokes foamDictionary,
+# blockMesh, checkMesh, and decomposePar directly through module wrappers. The
+# generic <OPENFOAM_FORK>-exec wrapper is used only when no normal OpenFOAM tool
+# provides the required operation. Bare-metal mode loads
+# <OPENFOAM_FORK>/<OPENFOAM_VERSION> and uses the same tools directly.
+#
+# The general openfoamTutorialTestLauncher.sh normally submits this job and
+# supplies the runtime selection, configuration file, work root, and persistent
+# artifact directory. The script can also be submitted independently.
 #
 # Usage:
-#   sbatch preFoam.slurm.sh --image <file> [--work-root <directory>]
+#   sbatch preFoam.slurm.sh --image <file> --config <file> [options]
+#   sbatch preFoam.slurm.sh --shpc --config <file> [options]
+#   sbatch preFoam.slurm.sh --bare-metal --config <file> [options]
 #
 # Exit status:
 #   0  The case was prepared and decomposed successfully.
-#   1  Invalid input, setup failure, command failure, or validation failure.
+#   1  Invalid input, runtime setup failure, command failure, or validation failure.
 #
 # NOTE: This script was originally developed under the supervision of Alexis Espinosa at Pawsey Supercomputing Centre with the aid of Microsoft 365 Copilot (GPT 5.6).
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
@@ -43,29 +57,45 @@ decompositionZ=2
 # --- Initial settings
 thisScript=$(basename "$0")
 imageInput=""
+useSHPC=false
+useBareMetal=false
 workRootInput=""
 configFileInput=""
 testArtifactsDirInput=""
-SINGULARITY_MODULE=${SINGULARITY_MODULE:-singularity/4.1.0-mpi}
+SINGULARITY_MODULE=${SINGULARITY_MODULE:-singularity/4.3.5-mpi}
 
 # --- Command-line help
 usage() {
    cat <<USAGE
 Usage:
-  sbatch $thisScript --image <file> --config <file> [--work-root <directory>] [--test-artifacts-dir <directory>]
+  sbatch $thisScript --image <file> --config <file> [options]
+  sbatch $thisScript --shpc --config <file> [options]
+  sbatch $thisScript --bare-metal --config <file> [options]
   $thisScript --help
 
-Options:
-  --image, -i <file>          Singularity image containing the OpenFOAM tools
-  --work-root, -w <directory>
-                             Override the shared host work root. By default, the
-                             script uses MYSCRATCH/OpenFOAM/<user>-<configured-OpenFOAM-version>.
-  --config <file>                Version configuration file; required for direct execution
-  --test-artifacts-dir <directory>      Test-artifact destination; defaults to <work-root>/test-output
-  --help, -h                 Show this help message and exit
+Runtime selection (choose exactly one):
+  --image, -i <file>          Use the supplied Singularity image directly
+  --shpc                      Load <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
+  --bare-metal                Load <OPENFOAM_FORK>/<OPENFOAM_VERSION> and use the
+                              OpenFOAM tools directly
 
-Default work root:
-  ${MYSCRATCH:-${TMPDIR:-$HOME}}/OpenFOAM/<user>-<configured-OpenFOAM-version>
+Required in both modes:
+  --config <file>             Version configuration file defining OPENFOAM_FORK
+                              and OPENFOAM_VERSION
+
+Optional settings:
+  --work-root, -w <directory> Override the shared host work root. By default:
+                              MYSCRATCH/OpenFOAM/<user>-<configured-version>
+  --test-artifacts-dir <directory>
+                              Test-artifact destination; defaults to
+                              <work-root>/test-output
+  --help, -h                  Show this help message and exit
+
+Expected extracted case:
+  <work-root>/run/$CASE_NAME
+
+In SHPC mode, OpenFOAM tools are invoked directly through wrappers installed by
+its container module. SINGULARITY_CONTAINER records the module's backing image.
 USAGE
 }
 
@@ -76,6 +106,14 @@ while [[ $# -gt 0 ]]; do
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --image requires <file>" >&2; usage >&2; exit 1; }
          imageInput="$2"
          shift 2
+         ;;
+      --shpc)
+         useSHPC=true
+         shift
+         ;;
+      --bare-metal)
+         useBareMetal=true
+         shift
          ;;
       --work-root|-w)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --work-root requires <directory>" >&2; usage >&2; exit 1; }
@@ -100,20 +138,10 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 
-# --- Resolve the image and case paths
-[[ -n "$imageInput" ]] || { echo "ERROR: --image is required" >&2; usage >&2; exit 1; }
-[[ -f "$imageInput" ]] || { echo "ERROR: Singularity image not found: $imageInput" >&2; usage >&2; exit 1; }
-SINGULARITY_CONTAINER=$(realpath "$imageInput")
-[[ -n "$configFileInput" ]] || {
-   echo "ERROR: --config is required when this stage is executed independently" >&2
-   usage >&2
-   exit 1
-}
-[[ -r "$configFileInput" ]] || {
-   echo "ERROR: Configuration is not readable: $configFileInput" >&2
-   usage >&2
-   exit 1
-}
+# --- Validate common inputs and load version identity
+# The configuration is authoritative for fork and version in both runtime modes.
+[[ -n "$configFileInput" ]] || { echo "ERROR: --config is required" >&2; usage >&2; exit 1; }
+[[ -r "$configFileInput" ]] || { echo "ERROR: Configuration is not readable: $configFileInput" >&2; usage >&2; exit 1; }
 configFile=$(realpath "$configFileInput")
 unset OPENFOAM_FORK OPENFOAM_VERSION
 # shellcheck source=/dev/null
@@ -121,16 +149,29 @@ source "$configFile"
 for requiredSetting in OPENFOAM_FORK OPENFOAM_VERSION; do
    [[ -n "${!requiredSetting:-}" ]] || { echo "ERROR: $requiredSetting is not defined in $configFile" >&2; exit 1; }
 done
-imageFileName=$(basename "$SINGULARITY_CONTAINER")
-expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-[[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || {
-   echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
-   echo "       Image filename:   $imageFileName" >&2
-   echo "       Required pattern: ${expectedSifPrefix}*.sif" >&2
+
+runtimeSelectorCount=0
+[[ -n "$imageInput" ]] && ((runtimeSelectorCount += 1))
+[[ "$useSHPC" == true ]] && ((runtimeSelectorCount += 1))
+[[ "$useBareMetal" == true ]] && ((runtimeSelectorCount += 1))
+[[ $runtimeSelectorCount -eq 1 ]] || {
+   echo "ERROR: Choose exactly one of --image <file>, --shpc, or --bare-metal" >&2
+   usage >&2
    exit 1
 }
 
-
+if [[ -n "$imageInput" ]]; then
+   [[ -f "$imageInput" ]] || { echo "ERROR: Singularity image not found: $imageInput" >&2; exit 1; }
+   SINGULARITY_CONTAINER=$(realpath "$imageInput")
+   imageFileName=$(basename "$SINGULARITY_CONTAINER")
+   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
+   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || {
+      echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
+      echo "       Image filename:   $imageFileName" >&2
+      echo "       Required pattern: ${expectedSifPrefix}*.sif" >&2
+      exit 1
+   }
+fi
 
 if [[ -n "$workRootInput" ]]; then
    workRoot=$(realpath -m "$workRootInput")
@@ -180,24 +221,70 @@ echo "Stage run log: $stageRunLog"
 echo "Stage status: $stageStatusFile"
 echo
 
-# --- Load modules
-module load "$SINGULARITY_MODULE" || {
-   echo "ERROR: Failed to load $SINGULARITY_MODULE" >&2
-   exit 1
-}
+# --- Set up and validate the selected OpenFOAM runtime
+# In SHPC mode, normal OpenFOAM tool names resolve to module wrappers. In
+# explicit-image mode, the command prefix enters the selected SIF.
+if [[ "$useSHPC" == true ]]; then
+   runtimeMode="SHPC module"
+   shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
+   shpcExec="${OPENFOAM_FORK}-exec"
+   openfoamCommandPrefix=()
+   module load "$shpcModule" || { echo "ERROR: Failed to load SHPC module: $shpcModule" >&2; exit 1; }
+   command -v "$shpcExec" >/dev/null 2>&1 || { echo "ERROR: SHPC execution wrapper is unavailable: $shpcExec" >&2; exit 1; }
+   for openfoamTool in foamDictionary blockMesh checkMesh decomposePar; do
+      command -v "$openfoamTool" >/dev/null 2>&1 || { echo "ERROR: OpenFOAM wrapper is unavailable: $openfoamTool" >&2; exit 1; }
+   done
+   [[ -n "${SINGULARITY_CONTAINER:-}" ]] || { echo "ERROR: $shpcModule did not set SINGULARITY_CONTAINER" >&2; exit 1; }
+   [[ -r "$SINGULARITY_CONTAINER" ]] || { echo "ERROR: SHPC backing image is not readable: $SINGULARITY_CONTAINER" >&2; exit 1; }
+   SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
+elif [[ "$useBareMetal" == true ]]; then
+   runtimeMode="Bare-metal module"
+   bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
+   shpcModule=""
+   shpcExec=""
+   openfoamCommandPrefix=()
+   module load "$bareMetalModule" || { echo "ERROR: Failed to load bare-metal module: $bareMetalModule" >&2; exit 1; }
+   for openfoamTool in foamDictionary blockMesh checkMesh decomposePar; do
+      command -v "$openfoamTool" >/dev/null 2>&1 || { echo "ERROR: OpenFOAM tool is unavailable: $openfoamTool" >&2; exit 1; }
+   done
+else
+   runtimeMode="Explicit Singularity image"
+   bareMetalModule=""
+   shpcModule=""
+   shpcExec=""
+   openfoamCommandPrefix=(singularity exec "$SINGULARITY_CONTAINER")
+   module load "$SINGULARITY_MODULE" || { echo "ERROR: Failed to load $SINGULARITY_MODULE" >&2; exit 1; }
+   command -v singularity >/dev/null 2>&1 || { echo "ERROR: singularity is unavailable after loading $SINGULARITY_MODULE" >&2; exit 1; }
+fi
+
+echo "Loaded modules:"
 module list
-echo "Image to use: $SINGULARITY_CONTAINER"
-WM_PROJECT_VERSION=$(singularity exec "$SINGULARITY_CONTAINER" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION from the image environment" >&2; exit 1; }
-[[ -n "$WM_PROJECT_VERSION" ]] || { echo "ERROR: WM_PROJECT_VERSION is empty in the image environment" >&2; exit 1; }
-[[ "$WM_PROJECT_VERSION" =~ ^v?[0-9][0-9A-Za-z.-]*$ ]] || { echo "ERROR: Invalid WM_PROJECT_VERSION='$WM_PROJECT_VERSION'" >&2; exit 1; }
+echo "Execution mode: $runtimeMode"
+if [[ "$useSHPC" == true ]]; then
+   echo "SHPC module: $shpcModule"
+   echo "SHPC execution wrapper: $shpcExec"
+elif [[ "$useBareMetal" == true ]]; then
+   echo "Bare-metal module: $bareMetalModule"
+else
+   echo "Singularity module: $SINGULARITY_MODULE"
+fi
+if [[ "$useBareMetal" != true ]]; then echo "Backing image: $SINGULARITY_CONTAINER"; fi
+
+if [[ "$useSHPC" == true ]]; then
+   WM_PROJECT_VERSION=$("$shpcExec" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION from the SHPC runtime" >&2; exit 1; }
+elif [[ "$useBareMetal" != true ]]; then
+   WM_PROJECT_VERSION=$(singularity exec "$SINGULARITY_CONTAINER" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION from the image environment" >&2; exit 1; }
+else
+   WM_PROJECT_VERSION=${WM_PROJECT_VERSION:-}
+fi
+[[ -n "$WM_PROJECT_VERSION" ]] || { echo "ERROR: WM_PROJECT_VERSION is empty in the runtime environment" >&2; exit 1; }
 [[ "$WM_PROJECT_VERSION" == "$OPENFOAM_VERSION" ]] || {
-   echo "ERROR: OpenFOAM version mismatch between the image and configuration" >&2
-   echo "       Image environment: $WM_PROJECT_VERSION" >&2
-   echo "       Configuration:     $OPENFOAM_VERSION" >&2
+   echo "ERROR: OpenFOAM version mismatch between the runtime and configuration" >&2
+   echo "       Runtime environment: $WM_PROJECT_VERSION" >&2
+   echo "       Configuration:       $OPENFOAM_VERSION" >&2
    exit 1
 }
-echo "PASS: Image filename and WM_PROJECT_VERSION match OPENFOAM_FORK='$OPENFOAM_FORK' and OPENFOAM_VERSION='$OPENFOAM_VERSION'"
-echo "Case to prepare: $TEST_CASE"
+echo "PASS: Runtime WM_PROJECT_VERSION matches OPENFOAM_VERSION='$OPENFOAM_VERSION'"
 echo
 
 # --- Set the I/O ranks for collated file handling
@@ -226,22 +313,22 @@ rm -rf "processors${nProcs}"*
 
 # --- Shorten the tutorial execution and set a suitable output interval
 echo "Updating system/controlDict for the functional test"
-srun -N 1 -n 1 -c 1 singularity exec "$SINGULARITY_CONTAINER" \
+srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
    foamDictionary system/controlDict -entry endTime -set 100 || {
       echo "ERROR: Failed to set endTime in system/controlDict" >&2
       exit 1
    }
-srun -N 1 -n 1 -c 1 singularity exec "$SINGULARITY_CONTAINER" \
+srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
    foamDictionary system/controlDict -entry writeInterval -set 20 || {
       echo "ERROR: Failed to set writeInterval in system/controlDict" >&2
       exit 1
    }
-endTime=$(singularity exec "$SINGULARITY_CONTAINER" \
+endTime=$("${openfoamCommandPrefix[@]}" \
    foamDictionary system/controlDict -entry endTime -value) || {
       echo "ERROR: Failed to read endTime from system/controlDict" >&2
       exit 1
    }
-writeInterval=$(singularity exec "$SINGULARITY_CONTAINER" \
+writeInterval=$("${openfoamCommandPrefix[@]}" \
    foamDictionary system/controlDict -entry writeInterval -value) || {
       echo "ERROR: Failed to read writeInterval from system/controlDict" >&2
       exit 1
@@ -263,38 +350,38 @@ echo "Updating system/decomposeParDict for $nProcs processor tasks"
    echo "ERROR: Decomposition ($decompositionX $decompositionY $decompositionZ) does not produce $nProcs subdomains" >&2
    exit 1
 }
-srun -N 1 -n 1 -c 1 singularity exec "$SINGULARITY_CONTAINER" \
+srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
    foamDictionary system/decomposeParDict \
    -entry numberOfSubdomains -set "$nProcs" || {
       echo "ERROR: Failed to set numberOfSubdomains" >&2
       exit 1
    }
-srun -N 1 -n 1 -c 1 singularity exec "$SINGULARITY_CONTAINER" \
+srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
    foamDictionary system/decomposeParDict \
    -entry method -set simple || {
       echo "ERROR: Failed to set the decomposition method" >&2
       exit 1
    }
-srun -N 1 -n 1 -c 1 singularity exec "$SINGULARITY_CONTAINER" \
+srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
    foamDictionary system/decomposeParDict \
    -entry simpleCoeffs/n \
    -set "($decompositionX $decompositionY $decompositionZ)" || {
       echo "ERROR: Failed to set the simple decomposition coefficients" >&2
       exit 1
    }
-numberOfSubdomains=$(singularity exec "$SINGULARITY_CONTAINER" \
+numberOfSubdomains=$("${openfoamCommandPrefix[@]}" \
    foamDictionary system/decomposeParDict \
    -entry numberOfSubdomains -value) || {
       echo "ERROR: Failed to read numberOfSubdomains" >&2
       exit 1
    }
-decompositionMethod=$(singularity exec "$SINGULARITY_CONTAINER" \
+decompositionMethod=$("${openfoamCommandPrefix[@]}" \
    foamDictionary system/decomposeParDict \
    -entry method -value) || {
       echo "ERROR: Failed to read the decomposition method" >&2
       exit 1
    }
-decompositionN=$(singularity exec "$SINGULARITY_CONTAINER" \
+decompositionN=$("${openfoamCommandPrefix[@]}" \
    foamDictionary system/decomposeParDict \
    -entry simpleCoeffs/n -value) || {
       echo "ERROR: Failed to read the decomposition coefficients" >&2
@@ -332,7 +419,7 @@ runOpenFOAMStep() {
    local stepStatus
 
    echo "Running: $*"
-   srun -N 1 -n 1 -c 1 singularity exec "$SINGULARITY_CONTAINER" \
+   srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
       "$@" 2>&1 | tee "$logFile"
    stepStatus=${PIPESTATUS[0]}
 
@@ -394,6 +481,13 @@ echo "$thisScript: FINAL SUMMARY"
 echo "======================================================"
 echo "Tutorial case: $CASE_NAME"
 echo "Case directory: $TEST_CASE"
-echo "Image: $SINGULARITY_CONTAINER"
+echo "Execution mode: $runtimeMode"
+if [[ "$useSHPC" == true ]]; then
+   echo "SHPC module: $shpcModule"
+elif [[ "$useBareMetal" == true ]]; then
+   echo "Bare-metal module: $bareMetalModule"
+else
+   echo "Backing image: $SINGULARITY_CONTAINER"
+fi
 echo "ALL STEPS PASSED: OpenFOAM tutorial preparation completed successfully."
 exit 0

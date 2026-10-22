@@ -3,7 +3,7 @@
 #
 # This script provides one user-facing entry point for submitting and monitoring
 # openfoamCompileToolTestJob.slurm.sh. The Slurm job verifies that a selected
-# OpenFOAM Singularity image can support a normal user-development workflow by
+# OpenFOAM runtime can support a normal user-development workflow by
 # copying an application source tree to host storage, compiling it with wmake,
 # locating the resulting executable, and running its help command.
 #
@@ -36,7 +36,7 @@
 #
 # Each invocation stores its output under:
 #
-#   <recipe-dir>/artifacts/tests/compile-tool/<timestamp>_singularity/
+#   <recipe-dir>/artifacts/tests/compile-tool/<timestamp>_<runtime>/
 #
 # including launcher.run.log, status.txt, test details, the scheduler-native
 # slurm-<job-id>.out file, and all artifacts produced by the Slurm job.
@@ -73,6 +73,7 @@ scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 recipeDirInput=""
 configFileInput=""
 imageInput=""
+useSHPC=false
 workRootInput=""
 partitionInput="${PARTITION:-}"
 reservationInput="${RESERVATION:-}"
@@ -84,14 +85,17 @@ usage() {
    cat <<USAGE
 Usage:
   $thisScript --recipe-dir <directory> --image <file> [options]
+  $thisScript --recipe-dir <directory> --shpc [options]
   $thisScript --config <file> --image <file> [options]
+  $thisScript --config <file> --shpc [options]
   $thisScript --help
 
 Required inputs:
   --recipe-dir, -r <directory>  OpenFOAM version directory
     or
   --config, -c <file>           Explicit version configuration file
-  --image, -i <file>            Singularity SIF image to test
+  --image, -i <file>            Use the supplied Singularity SIF image
+  --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
 
 Optional settings:
   --work-root <directory>       Host OpenFOAM user-development directory
@@ -134,6 +138,10 @@ while [[ $# -gt 0 ]]; do
          }
          imageInput="$2"
          shift 2
+         ;;
+      --shpc)
+         useSHPC=true
+         shift
          ;;
       --work-root)
          [[ $# -ge 2 && -n "$2" ]] || {
@@ -220,48 +228,55 @@ fi
    echo "ERROR: Configuration is not readable: $configFile" >&2
    exit 1
 }
-[[ -n "$imageInput" ]] || {
-   echo "ERROR: --image is required" >&2
+runtimeSelectorCount=0
+[[ -n "$imageInput" ]] && ((runtimeSelectorCount += 1))
+[[ "$useSHPC" == true ]] && ((runtimeSelectorCount += 1))
+[[ $runtimeSelectorCount -eq 1 ]] || {
+   echo "ERROR: Choose exactly one of --image <file> or --shpc" >&2
    usage >&2
    exit 1
 }
-[[ -f "$imageInput" ]] || {
-   echo "ERROR: SIF image not found: $imageInput" >&2
-   usage >&2
-   exit 1
-}
-image=$(realpath "$imageInput")
-echo "PASS: Configuration and required inputs resolved"
-echo
 
-# --- Step 2: Validate the configured OpenFOAM image identity
+# The configuration is authoritative for fork and version in both modes.
 unset OPENFOAM_FORK OPENFOAM_VERSION
 # shellcheck source=/dev/null
 source "$configFile"
 for requiredSetting in OPENFOAM_FORK OPENFOAM_VERSION; do
-   [[ -n "${!requiredSetting:-}" ]] || {
-      echo "ERROR: $requiredSetting is not defined in $configFile" >&2
-      exit 1
-   }
+   [[ -n "${!requiredSetting:-}" ]] || { echo "ERROR: $requiredSetting is not defined in $configFile" >&2; exit 1; }
 done
 
-imageFileName=$(basename "$image")
-expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-[[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || {
-   echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
-   echo "       Image filename:   $imageFileName" >&2
-   echo "       Required pattern: ${expectedSifPrefix}*.sif" >&2
-   exit 1
-}
-imageChecksum=$(sha256sum "$image" | awk '{print $1}')
+image=""
+imageChecksum=""
+shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
+if [[ -n "$imageInput" ]]; then
+   [[ -f "$imageInput" ]] || { echo "ERROR: SIF image not found: $imageInput" >&2; exit 1; }
+   image=$(realpath "$imageInput")
+   imageFileName=$(basename "$image")
+   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
+   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || { echo "ERROR: Image filename does not match ${expectedSifPrefix}*.sif" >&2; exit 1; }
+   imageChecksum=$(sha256sum "$image" | awk '{print $1}')
+   runtimeMode="Explicit Singularity image"
+   runtimeOption=(--image "$image")
+   artifactRuntimeName="singularity"
+else
+   runtimeMode="SHPC module"
+   runtimeOption=(--shpc)
+   artifactRuntimeName="shpc"
+fi
 
+echo "PASS: Configuration and runtime selection resolved"
+echo
+
+# --- Step 2: Record the configured runtime identity
 echo "$thisScript: -----------------------------------------"
-echo "Step 2 - Validating the Singularity image identity"
-echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
-echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
-echo "Image: $image"
-echo "Image SHA256: $imageChecksum"
-echo "PASS: Singularity filename matches '${expectedSifPrefix}*.sif'"
+echo "Step 2 - Recording configured runtime identity"
+echo "Configured fork: $OPENFOAM_FORK"
+echo "Configured version: $OPENFOAM_VERSION"
+echo "Runtime mode: $runtimeMode"
+[[ -n "$image" ]] && { echo "Runtime mode: $runtimeMode"
+[[ -n "$image" ]] && echo "Image: $image"
+[[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"; echo "Image SHA256: $imageChecksum"; }
+[[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
 echo
 
 # --- Step 3: Verify the Slurm client and job script
@@ -369,7 +384,7 @@ if [[ -n "$reservationInput" ]]; then
 fi
 jobArgs=(
    --config "$configFile"
-   --image "$image"
+   "${runtimeOption[@]}"
    --test-artifacts-dir "$runDir"
 )
 if [[ -n "$workRootInput" ]]; then
@@ -404,8 +419,9 @@ slurmOutput="${runDir}/slurm-${jobId}.out"
    echo "Recipe directory: $recipeDir"
    echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
    echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
-   echo "SIF image: $image"
-   echo "SIF SHA256: $imageChecksum"
+   echo "Runtime mode: $runtimeMode"
+   [[ -n "$image" ]] && { echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; }
+   [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
    echo "Slurm job ID: $jobId"
    echo "Slurm output: $slurmOutput"
 } > "$detailsFile"
@@ -420,7 +436,7 @@ if [[ "$submitOnly" == true ]]; then
    printf '%s
 ' SUBMITTED > "$statusFile"
    trap - EXIT
-   { echo "Result: SUBMITTED"; echo "Slurm job ID: $jobId"; echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; echo "Slurm output: $slurmOutput"; } > "$summaryFile"
+   { echo "Result: SUBMITTED"; echo "Slurm job ID: $jobId"; echo "Runtime mode: $runtimeMode"; [[ -n "$image" ]] && { echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; }; [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"; echo "Slurm output: $slurmOutput"; } > "$summaryFile"
    echo "RESULT: SUBMITTED"
    echo "The launcher will not wait for Slurm job $jobId."
    exit 0
