@@ -1,43 +1,32 @@
 #!/bin/bash --login
 # Slurm job for the OpenFOAM compile-tool functional test.
 #
-# This job verifies that an OpenFOAM runtime can support a typical
-# user-development workflow. It locates the source of an existing OpenFOAM
-# application inside the selected runtime, copies that source to a host directory, renames
-# it as a test application, compiles it inside the container, and checks that
-# the resulting executable runs correctly.
+# This job validates a user application-development workflow with exactly one
+# OpenFOAM runtime: an explicit Singularity image, an SHPC container module, or a
+# bare-metal module. It locates a configured installed application, copies the
+# source into the same isolated host workspace in every mode, renames and updates
+# the application, compiles it with wclean and wmake, verifies the executable,
+# and validates its help output.
 #
-# Source files and compilation products remain on the host. The OpenFOAM build
-# tools and runtime environment are provided by the Singularity image through a
-# bind mount of the host work directory onto WM_PROJECT_USER_DIR in the image.
+# Runtime-specific setup is deliberately limited:
 #
-# OpenFOAM-version-specific values are read from buildAndValidationConfig/openfoamBuildAndValidation.config. The
-# configuration should define:
-#   COMPILE_TEMPLATE_TOOL  Existing OpenFOAM application to copy and compile.
-#   COMPILED_TEST_TOOL     Name assigned to the copied test application.
+#   * Image mode binds the host workspace onto the image WM_PROJECT_USER_DIR.
+#   * SHPC mode loads <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>, uses the
+#     generic <OPENFOAM_FORK>-exec wrapper, and applies the same bind mapping.
+#   * Bare-metal mode loads <OPENFOAM_FORK>/<OPENFOAM_VERSION>, assigns the host
+#     workspace directly to WM_PROJECT_USER_DIR, and explicitly realigns
+#     FOAM_USER_APPBIN and FOAM_USER_LIBBIN before running commands directly.
 #
-# If COMPILE_TEMPLATE_TOOL is not set, DEFAULT_TOOL is used. If
-# COMPILED_TEST_TOOL is not set, a name based on COMPILE_TEMPLATE_TOOL is used.
-# The Singularity image may be supplied with --image or defined as
-# SINGULARITY_CONTAINER in the configuration file. Each tracked invocation
-# stores its logs, status, details, and summary under
-# <recipe-dir>/artifacts/tests/compile-tool/.
+# The source transformation, compilation, binary checks, functional test, logs,
+# status handling, and summaries are otherwise shared by all runtime modes.
 #
 # Examples:
 #   sbatch openfoamCompileToolTestJob.slurm.sh \
-#      --recipe-dir v2406 --image /path/to/openfoam--v2406-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
+#      --recipe-dir openfoam/v2406 --shpc
 #
 #   sbatch openfoamCompileToolTestJob.slurm.sh \
-#      --config v2406/buildAndValidationConfig/openfoamBuildAndValidation.config \
-#      --image /path/to/openfoam--v2406-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif \
-#      --work-root "$MYSCRATCH/OpenFOAM-functional-tests/$USER-v2406"
-#
-# Exit status:
-#   0  The application was copied, compiled, found, and executed successfully.
-#   1  Invalid input, setup failure, compilation failure, or test failure.
-#
-# NOTE: This script was originally developed under the supervision of Alexis Espinosa at Pawsey Supercomputing Centre with the aid of Microsoft 365 Copilot (GPT 5.6).
-#       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
+#      --config openfoam/v2406/buildAndValidationConfig/openfoamBuildAndValidation.config \
+#      --bare-metal
 
 #SBATCH --job-name=openfoam-compile-tool-test
 ##SBATCH --partition=debug
@@ -55,6 +44,7 @@ recipeDirInput=""
 configFileInput=""
 imageInput=""
 useSHPC=false
+useBareMetal=false
 workRootInput=""
 recipeDir=""
 configFile=""
@@ -82,6 +72,7 @@ Options:
   --config, -c <file>           Explicit openfoamBuildAndValidation configuration file
   --image, -i <file>            Use the supplied Singularity SIF image
   --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
+  --bare-metal                  Use <OPENFOAM_FORK>/<OPENFOAM_VERSION>
   --work-root <directory>       Override the host work root. The test defaults to MYSCRATCH.
   --test-artifacts-dir <dir>    Use a launcher-managed test artifact directory
   --help, -h                    Show this help message and exit
@@ -111,6 +102,10 @@ while [[ $# -gt 0 ]]; do
          ;;
       --shpc)
          useSHPC=true
+         shift
+         ;;
+      --bare-metal)
+         useBareMetal=true
          shift
          ;;
       --work-root)
@@ -167,7 +162,8 @@ fi
 runtimeSelectorCount=0
 [[ -n "$imageInput" ]] && ((runtimeSelectorCount += 1))
 [[ "$useSHPC" == true ]] && ((runtimeSelectorCount += 1))
-[[ $runtimeSelectorCount -eq 1 ]] || { echo "ERROR: Choose exactly one of --image <file> or --shpc" >&2; usage >&2; exit 1; }
+[[ "$useBareMetal" == true ]] && ((runtimeSelectorCount += 1))
+[[ $runtimeSelectorCount -eq 1 ]] || { echo "ERROR: Choose exactly one of --image <file>, --shpc, or --bare-metal" >&2; usage >&2; exit 1; }
 if [[ -n "$imageInput" ]]; then
    [[ -f "$imageInput" ]] || { echo "ERROR: SIF image not found: $imageInput" >&2; exit 1; }
    SINGULARITY_CONTAINER=$(realpath "$imageInput")
@@ -237,33 +233,57 @@ done
 if [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"
    shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
+   bareMetalModule=""
    shpcExec="${OPENFOAM_FORK}-exec"
    module load "$shpcModule" || { echo "ERROR: Failed to load $shpcModule" >&2; exit 1; }
    command -v "$shpcExec" >/dev/null 2>&1 || { echo "ERROR: Missing SHPC wrapper: $shpcExec" >&2; exit 1; }
    [[ -n "${SINGULARITY_CONTAINER:-}" ]] || { echo "ERROR: $shpcModule did not set SINGULARITY_CONTAINER" >&2; exit 1; }
    runtimeExec=("$shpcExec")
+elif [[ "$useBareMetal" == true ]]; then
+   runtimeMode="Bare-metal module"
+   bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
+   shpcModule=""
+   shpcExec=""
+   module load "$bareMetalModule" || { echo "ERROR: Failed to load $bareMetalModule" >&2; exit 1; }
+   for requiredCommand in find cp sed wclean wmake; do
+      command -v "$requiredCommand" >/dev/null 2>&1 || { echo "ERROR: Missing command: $requiredCommand" >&2; exit 1; }
+   done
+   runtimeExec=()
 else
    runtimeMode="Explicit Singularity image"
+   bareMetalModule=""
    shpcModule=""
    shpcExec=""
    imageFileName=$(basename "$SINGULARITY_CONTAINER")
    expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
    [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || { echo "ERROR: Image filename does not match ${expectedSifPrefix}*.sif" >&2; exit 1; }
    module load singularity/4.3.5-mpi || { echo "ERROR: Failed to load singularity/4.3.5-mpi" >&2; exit 1; }
-   runtimeExec=("${runtimeExec[@]}")
+   runtimeExec=(singularity exec "$SINGULARITY_CONTAINER")
 fi
-SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
-imageChecksum=$(sha256sum "$SINGULARITY_CONTAINER" | awk '{print $1}')
+imageChecksum=""
+if [[ "$useBareMetal" != true ]]; then
+   SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
+   imageChecksum=$(sha256sum "$SINGULARITY_CONTAINER" | awk '{print $1}')
+fi
 echo "Loaded modules:"
 module list
 echo "Execution mode: $runtimeMode"
 [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-echo "Backing image: $SINGULARITY_CONTAINER"
+[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
+[[ "$useBareMetal" != true ]] && echo "Backing image: $SINGULARITY_CONTAINER"
 
-WM_PROJECT_VERSION=$("${runtimeExec[@]}" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION" >&2; exit 1; }
+if [[ "$useBareMetal" == true ]]; then
+   WM_PROJECT_VERSION=${WM_PROJECT_VERSION:-}
+   wmpudInside=""
+else
+   WM_PROJECT_VERSION=$("${runtimeExec[@]}" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION" >&2; exit 1; }
+   wmpudInside=$("${runtimeExec[@]}" bash -c 'printf "%s" "$WM_PROJECT_USER_DIR"') || { echo "ERROR: Failed to read WM_PROJECT_USER_DIR" >&2; exit 1; }
+fi
 [[ "$WM_PROJECT_VERSION" == "$OPENFOAM_VERSION" ]] || { echo "ERROR: Runtime version '$WM_PROJECT_VERSION' does not match '$OPENFOAM_VERSION'" >&2; exit 1; }
-wmpudInside=$("${runtimeExec[@]}" bash -c 'printf "%s" "$WM_PROJECT_USER_DIR"') || { echo "ERROR: Failed to read WM_PROJECT_USER_DIR" >&2; exit 1; }
-[[ -n "$wmpudInside" ]] || { echo "ERROR: WM_PROJECT_USER_DIR is empty" >&2; exit 1; }
+if [[ "$useBareMetal" != true && -z "$wmpudInside" ]]; then
+   echo "ERROR: WM_PROJECT_USER_DIR is empty in the selected container runtime" >&2
+   exit 1
+fi
 
 # --- Step 3: Prepare the host development directory
 # Functional-test products are temporary, so MYSCRATCH is preferred by default.
@@ -294,7 +314,14 @@ echo
 
 # Use the SHPC generic wrapper in module mode. Explicit-image mode binds the
 # writable host development tree to WM_PROJECT_USER_DIR inside the selected runtime.
-if [[ "$useSHPC" == true ]]; then
+if [[ "$useBareMetal" == true ]]; then
+   wmpudInside="$wmpudOutside"
+   export WM_PROJECT_USER_DIR="$wmpudOutside"
+   export FOAM_USER_APPBIN="${WM_PROJECT_USER_DIR}/platforms/${WM_OPTIONS}/bin"
+   export FOAM_USER_LIBBIN="${WM_PROJECT_USER_DIR}/platforms/${WM_OPTIONS}/lib"
+   mkdir -p "$FOAM_USER_APPBIN" "$FOAM_USER_LIBBIN"
+   runtimeExecBound=()
+elif [[ "$useSHPC" == true ]]; then
    # The SHPC wrapper consumes the standard Singularity bind environment. This
    # presents the writable host development tree at WM_PROJECT_USER_DIR for all
    # generic wrapper calls and for the OpenFOAM command wrappers they launch.
@@ -328,8 +355,8 @@ echo "PASS: Unique template source found"
 echo
 
 # --- Step 5: Copy the template source to the host
-# The destination is expressed using the container-side path because the copy
-# runs inside Singularity. The bind mount stores the copied files on the host.
+# The destination is expressed using the runtime-visible path. Container modes use the host-to-container mapping;
+# bare-metal mode uses the same host path directly.
 echo "$thisScript: -----------------------------------------"
 echo "Step 5 - Copying the template source to the host"
 "${runtimeExecBound[@]}" \
@@ -360,8 +387,8 @@ echo "PASS: Source and build settings updated"
 echo
 
 # --- Step 7: Compile the new application inside the selected runtime
-# wclean and wmake run in the image while reading and writing the bind-mounted
-# host directory. The resulting source and binary therefore remain on the host.
+# wclean and wmake run in the selected runtime while reading and writing the
+# same host development directory. The resulting source and binary therefore remain on the host.
 echo "$thisScript: -----------------------------------------"
 echo "Step 7 - Compiling '$COMPILED_TEST_TOOL' with wclean and wmake"
 "${runtimeExecBound[@]}" \
@@ -377,8 +404,8 @@ echo "PASS: Compilation completed"
 echo
 
 # --- Step 8: Verify that the compiled binary exists on the host
-# FOAM_USER_APPBIN is returned as a container path. Translate the bind-mounted
-# WM_PROJECT_USER_DIR prefix into its corresponding host path before checking it.
+# Resolve FOAM_USER_APPBIN in the selected runtime. Container modes translate the
+# mapped prefix to the host workspace; bare-metal mode already returns a host path.
 echo "$thisScript: -----------------------------------------"
 echo "Step 8 - Verifying the compiled binary"
 myToolBinaryInside=$("${runtimeExecBound[@]}" \
@@ -457,8 +484,9 @@ echo "Complete run log: $runLog"
    echo "Result: SUCCESS"
    echo "Runtime mode: $runtimeMode"
    [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-   echo "Backing image: $SINGULARITY_CONTAINER"
-   echo "SIF SHA256: $imageChecksum"
+[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
+   [[ "$useBareMetal" != true ]] && echo "Backing image: $SINGULARITY_CONTAINER"
+   [[ "$useBareMetal" != true ]] && echo "SIF SHA256: $imageChecksum"
    echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
    echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
    echo "Runtime OpenFOAM version: $WM_PROJECT_VERSION"

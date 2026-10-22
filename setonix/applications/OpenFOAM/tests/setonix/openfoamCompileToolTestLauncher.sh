@@ -1,63 +1,64 @@
 #!/usr/bin/env bash
 # General launcher for the OpenFOAM compile-tool Slurm functional test.
 #
-# This script provides one user-facing entry point for submitting and monitoring
-# openfoamCompileToolTestJob.slurm.sh. The Slurm job verifies that a selected
-# OpenFOAM runtime can support a normal user-development workflow by
-# copying an application source tree to host storage, compiling it with wmake,
-# locating the resulting executable, and running its help command.
+# This launcher submits and monitors openfoamCompileToolTestJob.slurm.sh. The job
+# verifies that one selected OpenFOAM runtime supports a normal user-development
+# workflow: locate an installed application, copy its source into an isolated
+# host workspace, rename it, compile it with wmake, locate the new executable,
+# and validate its help output.
 #
-# The launcher is responsible for orchestration and persistent test evidence. It:
+# Exactly one runtime must be selected:
 #
-#   1. Resolves the version-specific OpenFOAM configuration.
-#   2. Validates the supplied SIF filename against OPENFOAM_FORK and
-#      OPENFOAM_VERSION from that configuration.
-#   3. Records the SIF SHA-256 checksum.
-#   4. Creates one timestamped artifact directory and updates the latest link.
-#   5. Submits the Slurm job and directs its scheduler output into that directory.
-#   6. Waits for the job to leave the queue and obtains its final accounting data.
-#   7. Records one overall SUCCESS or FAILED result for the complete invocation.
+#   --image <file>  uses an explicit Singularity image;
+#   --shpc          uses <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>;
+#   --bare-metal    uses <OPENFOAM_FORK>/<OPENFOAM_VERSION>.
+#
+# The launcher reads the version identity from the selected configuration,
+# creates persistent artifacts, passes the runtime selection to the Slurm job,
+# waits for completion, reads Slurm accounting, and reports one final result.
+# The job script loads the selected runtime and performs all compilation steps.
 #
 # The launcher and job script must be stored in the same directory:
 #
 #   openfoamCompileToolTestLauncher.sh
 #   openfoamCompileToolTestJob.slurm.sh
 #
-# Expected version-directory layout:
+# Expected recipe layout:
 #
 #   <recipe-dir>/
 #       |-- buildAndValidationConfig/
 #       |   `-- openfoamBuildAndValidation.config
 #       `-- artifacts/
 #
-# The configuration must define OPENFOAM_FORK and OPENFOAM_VERSION. The Slurm job
-# also uses COMPILE_TEMPLATE_TOOL and COMPILED_TEST_TOOL when available, with the
-# existing DEFAULT_TOOL fallback documented in the job script.
+# The configuration defines OPENFOAM_FORK and OPENFOAM_VERSION. It may also
+# define COMPILE_TEMPLATE_TOOL and COMPILED_TEST_TOOL; the job retains its
+# documented DEFAULT_TOOL fallback.
 #
-# Each invocation stores its output under:
+# Each invocation stores evidence below:
 #
 #   <recipe-dir>/artifacts/tests/compile-tool/<timestamp>_<runtime>/
 #
-# including launcher.run.log, status.txt, test details, the scheduler-native
-# slurm-<job-id>.out file, and all artifacts produced by the Slurm job.
-#
 # Examples:
 #
+# Explicit image using a recipe directory:
 #   ./openfoamCompileToolTestLauncher.sh \
-#      --recipe-dir openfoam/v2606 \
-#      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
+#      --recipe-dir openfoam/v2406 \
+#      --image /path/to/openfoam--v2406-image.sif
 #
+# SHPC module using a recipe directory:
 #   ./openfoamCompileToolTestLauncher.sh \
-#      --config openfoam/v2606/buildAndValidationConfig/openfoamBuildAndValidation.config \
-#      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif \
-#      --work-root "$MYSCRATCH/OpenFOAM-functional-tests/manual-v2606" \
-#      --partition work
+#      --recipe-dir openfoam/v2406 \
+#      --shpc
+#
+# Bare-metal module using an explicit configuration:
+#   ./openfoamCompileToolTestLauncher.sh \
+#      --config openfoam/v2406/buildAndValidationConfig/openfoamBuildAndValidation.config \
+#      --bare-metal
 #
 # Exit status:
-#   0  The Slurm job completed successfully with exit code 0:0.
-#   1  Invalid input, setup failure, submission failure, accounting failure, or
-#      compile-tool functional-test failure.
-#
+#   0  The compile-tool test completed successfully.
+#   1  Input validation, submission, accounting, compilation, or validation failed.
+
 # NOTE: This script was developed under the supervision of Alexis Espinosa at
 #       Pawsey Supercomputing Centre with the aid of Microsoft 365 Copilot
 #       (GPT-5 reasoning model).
@@ -74,6 +75,7 @@ recipeDirInput=""
 configFileInput=""
 imageInput=""
 useSHPC=false
+useBareMetal=false
 workRootInput=""
 partitionInput="${PARTITION:-}"
 reservationInput="${RESERVATION:-}"
@@ -86,8 +88,10 @@ usage() {
 Usage:
   $thisScript --recipe-dir <directory> --image <file> [options]
   $thisScript --recipe-dir <directory> --shpc [options]
+  $thisScript --recipe-dir <directory> --bare-metal [options]
   $thisScript --config <file> --image <file> [options]
   $thisScript --config <file> --shpc [options]
+  $thisScript --config <file> --bare-metal [options]
   $thisScript --help
 
 Required inputs:
@@ -96,6 +100,7 @@ Required inputs:
   --config, -c <file>           Explicit version configuration file
   --image, -i <file>            Use the supplied Singularity SIF image
   --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
+  --bare-metal                  Use <OPENFOAM_FORK>/<OPENFOAM_VERSION>
 
 Optional settings:
   --work-root <directory>       Host OpenFOAM user-development directory
@@ -141,6 +146,10 @@ while [[ $# -gt 0 ]]; do
          ;;
       --shpc)
          useSHPC=true
+         shift
+         ;;
+      --bare-metal)
+         useBareMetal=true
          shift
          ;;
       --work-root)
@@ -231,8 +240,9 @@ fi
 runtimeSelectorCount=0
 [[ -n "$imageInput" ]] && ((runtimeSelectorCount += 1))
 [[ "$useSHPC" == true ]] && ((runtimeSelectorCount += 1))
+[[ "$useBareMetal" == true ]] && ((runtimeSelectorCount += 1))
 [[ $runtimeSelectorCount -eq 1 ]] || {
-   echo "ERROR: Choose exactly one of --image <file> or --shpc" >&2
+   echo "ERROR: Choose exactly one of --image <file>, --shpc, or --bare-metal" >&2
    usage >&2
    exit 1
 }
@@ -248,6 +258,7 @@ done
 image=""
 imageChecksum=""
 shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
+bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
 if [[ -n "$imageInput" ]]; then
    [[ -f "$imageInput" ]] || { echo "ERROR: SIF image not found: $imageInput" >&2; exit 1; }
    image=$(realpath "$imageInput")
@@ -258,10 +269,14 @@ if [[ -n "$imageInput" ]]; then
    runtimeMode="Explicit Singularity image"
    runtimeOption=(--image "$image")
    artifactRuntimeName="singularity"
-else
+elif [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"
    runtimeOption=(--shpc)
    artifactRuntimeName="shpc"
+else
+   runtimeMode="Bare-metal module"
+   runtimeOption=(--bare-metal)
+   artifactRuntimeName="bare-metal"
 fi
 
 echo "PASS: Configuration and runtime selection resolved"
@@ -275,8 +290,10 @@ echo "Configured version: $OPENFOAM_VERSION"
 echo "Runtime mode: $runtimeMode"
 [[ -n "$image" ]] && { echo "Runtime mode: $runtimeMode"
 [[ -n "$image" ]] && echo "Image: $image"
-[[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"; echo "Image SHA256: $imageChecksum"; }
 [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
+[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"; echo "Image SHA256: $imageChecksum"; }
+[[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
+[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
 echo
 
 # --- Step 3: Verify the Slurm client and job script
@@ -422,6 +439,7 @@ slurmOutput="${runDir}/slurm-${jobId}.out"
    echo "Runtime mode: $runtimeMode"
    [[ -n "$image" ]] && { echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; }
    [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
+[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
    echo "Slurm job ID: $jobId"
    echo "Slurm output: $slurmOutput"
 } > "$detailsFile"
@@ -436,7 +454,8 @@ if [[ "$submitOnly" == true ]]; then
    printf '%s
 ' SUBMITTED > "$statusFile"
    trap - EXIT
-   { echo "Result: SUBMITTED"; echo "Slurm job ID: $jobId"; echo "Runtime mode: $runtimeMode"; [[ -n "$image" ]] && { echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; }; [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"; echo "Slurm output: $slurmOutput"; } > "$summaryFile"
+   { echo "Result: SUBMITTED"; echo "Slurm job ID: $jobId"; echo "Runtime mode: $runtimeMode"; [[ -n "$image" ]] && { echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; }; [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
+[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"; echo "Slurm output: $slurmOutput"; } > "$summaryFile"
    echo "RESULT: SUBMITTED"
    echo "The launcher will not wait for Slurm job $jobId."
    exit 0
