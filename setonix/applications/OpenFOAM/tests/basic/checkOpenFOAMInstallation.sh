@@ -23,9 +23,10 @@
 #
 # Output
 # ------
-# The required -o option names a new or existing output directory. Relative paths
-# are interpreted from the caller's current working directory. The directory will
-# contain a human-readable report and the sorted lists used to produce it.
+# The required -o option names a new output directory. Reusing an existing directory
+# requires --overwrite, which removes only known audit files before running.
+# Relative paths are interpreted from the caller's current working directory.
+# The directory contains a human-readable report and the sorted audit lists.
 #
 # Developer Test-* targets are excluded from the installation-health totals and
 # reported separately as informational targets that are commonly not compiled.
@@ -45,6 +46,7 @@ set -euo pipefail
 # ------------------------------------------------------------------------------
 thisScript=$(basename "$0")
 outputDir=""
+overwrite=false
 
 # These established applications provide a small cross-category operational check.
 # The complete solver comparison below remains the authoritative solver check.
@@ -63,13 +65,15 @@ coreApplications=(
 usage() {
    cat <<USAGE
 Usage:
-  $thisScript -o <output-directory>
-  $thisScript --output <output-directory>
+  $thisScript -o <output-directory> [--overwrite]
+  $thisScript --output <output-directory> [--overwrite]
   $thisScript --help
 
 Options:
   -o, --output <directory>  Directory in which the audit files are written.
                             Relative paths are resolved from the current directory.
+  --overwrite               Allow an existing output directory; remove previous
+                            audit files only, preserving unrelated files.
   -h, --help                Show this help message and exit.
 
 Prerequisite:
@@ -88,6 +92,10 @@ while [[ $# -gt 0 ]]; do
          outputDir=$2
          shift 2
          ;;
+      --overwrite)
+         overwrite=true
+         shift
+         ;;
       -h|--help)
          usage
          exit 0
@@ -101,6 +109,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$outputDir" ]] || { echo "ERROR: -o or --output is required" >&2; usage >&2; exit 1; }
+if [[ -e "$outputDir" || -L "$outputDir" ]]; then
+   [[ -d "$outputDir" ]] || { echo "ERROR: Output path is not a directory: $outputDir" >&2; exit 1; }
+   [[ "$overwrite" == true ]] || {
+      echo "ERROR: Output directory already exists: $outputDir. Use --overwrite to reuse it." >&2
+      exit 1
+   }
+fi
 
 # ------------------------------------------------------------------------------
 # Validate the active OpenFOAM environment
@@ -110,7 +125,7 @@ done
 [[ -d "$WM_PROJECT_DIR/applications" ]] || { echo "ERROR: OpenFOAM applications tree not found: $WM_PROJECT_DIR/applications" >&2; exit 1; }
 [[ -d "$FOAM_APPBIN" ]] || { echo "ERROR: FOAM_APPBIN directory not found: $FOAM_APPBIN" >&2; exit 1; }
 
-mkdir -p "$outputDir"
+mkdir -p -- "$outputDir"
 outputDir=$(cd "$outputDir" && pwd -P)
 
 # ------------------------------------------------------------------------------
@@ -128,6 +143,30 @@ expectedDeveloperTestsFile="${outputDir}/expected-developer-tests.txt"
 installedDeveloperTestsFile="${outputDir}/installed-developer-tests.txt"
 missingDeveloperTestsFile="${outputDir}/missing-developer-tests.txt"
 coreApplicationsFile="${outputDir}/core-application-checks.txt"
+
+if [[ "$overwrite" == true ]]; then
+   auditFiles=(
+      "$reportFile"
+      "$expectedApplicationsFile"
+      "$installedApplicationsFile"
+      "$expectedNonTestApplicationsFile"
+      "$missingNonTestApplicationsFile"
+      "$expectedSolversFile"
+      "$installedSolversFile"
+      "$missingSolversFile"
+      "$expectedDeveloperTestsFile"
+      "$installedDeveloperTestsFile"
+      "$missingDeveloperTestsFile"
+      "$coreApplicationsFile"
+   )
+   for auditFile in "${auditFiles[@]}"; do
+      [[ ! -d "$auditFile" ]] || {
+         echo "ERROR: Refusing to remove a directory at an audit file path: $auditFile" >&2
+         exit 1
+      }
+   done
+   rm -f -- "${auditFiles[@]}"
+fi
 
 # ------------------------------------------------------------------------------
 # Helper: extract executable names declared by OpenFOAM Make/files files
@@ -160,9 +199,9 @@ find "$FOAM_APPBIN" -maxdepth 1 \( -type f -o -type l \) -executable -printf '%f
 grep -v '^Test-' "$expectedApplicationsFile" > "$expectedNonTestApplicationsFile" || true
 grep '^Test-' "$expectedApplicationsFile" > "$expectedDeveloperTestsFile" || true
 
-comm -23 "$expectedNonTestApplicationsFile" "$installedApplicationsFile" > "$missingNonTestApplicationsFile"
-comm -12 "$expectedDeveloperTestsFile" "$installedApplicationsFile" > "$installedDeveloperTestsFile"
-comm -23 "$expectedDeveloperTestsFile" "$installedApplicationsFile" > "$missingDeveloperTestsFile"
+LC_ALL=C comm -23 "$expectedNonTestApplicationsFile" "$installedApplicationsFile" > "$missingNonTestApplicationsFile"
+LC_ALL=C comm -12 "$expectedDeveloperTestsFile" "$installedApplicationsFile" > "$installedDeveloperTestsFile"
+LC_ALL=C comm -23 "$expectedDeveloperTestsFile" "$installedApplicationsFile" > "$missingDeveloperTestsFile"
 
 # ------------------------------------------------------------------------------
 # Compare solver targets using identical populations
@@ -176,8 +215,8 @@ else
    : > "$expectedSolversFile"
 fi
 
-comm -12 "$expectedSolversFile" "$installedApplicationsFile" > "$installedSolversFile"
-comm -23 "$expectedSolversFile" "$installedApplicationsFile" > "$missingSolversFile"
+LC_ALL=C comm -12 "$expectedSolversFile" "$installedApplicationsFile" > "$installedSolversFile"
+LC_ALL=C comm -23 "$expectedSolversFile" "$installedApplicationsFile" > "$missingSolversFile"
 
 # ------------------------------------------------------------------------------
 # Check representative core applications
@@ -197,7 +236,7 @@ done
 # Calculate report totals and installation status
 # ------------------------------------------------------------------------------
 expectedNonTestCount=$(wc -l < "$expectedNonTestApplicationsFile")
-installedExpectedNonTestCount=$(comm -12 "$expectedNonTestApplicationsFile" "$installedApplicationsFile" | wc -l)
+installedExpectedNonTestCount=$(LC_ALL=C comm -12 "$expectedNonTestApplicationsFile" "$installedApplicationsFile" | wc -l)
 missingNonTestCount=$(wc -l < "$missingNonTestApplicationsFile")
 expectedSolverCount=$(wc -l < "$expectedSolversFile")
 installedSolverCount=$(wc -l < "$installedSolversFile")
@@ -233,34 +272,37 @@ fi
    echo "WM_PROJECT_VERSION: ${WM_PROJECT_VERSION:-not set}"
    echo
    echo "------------------------------------------------------------"
-   echo "Installation health"
+   echo "Installation completeness"
    echo "------------------------------------------------------------"
-   printf 'Expected non-test applications:   %d\n' "$expectedNonTestCount"
-   printf 'Installed expected applications: %d\n' "$installedExpectedNonTestCount"
-   printf 'Missing non-test applications:    %d\n' "$missingNonTestCount"
+   echo "Production applications (excluding developer Test-* targets):"
+   printf '  Expected:   %5d\n' "$expectedNonTestCount"
+   printf '  Installed:  %5d\n' "$installedExpectedNonTestCount"
+   printf '  Missing:    %5d\n' "$missingNonTestCount"
    echo
-   printf 'Expected solver applications:     %d\n' "$expectedSolverCount"
-   printf 'Installed solver applications:    %d\n' "$installedSolverCount"
-   printf 'Missing solver applications:      %d\n' "$missingSolverCount"
+   echo "Solvers (subset of production applications):"
+   printf '  Expected:   %5d\n' "$expectedSolverCount"
+   printf '  Installed:  %5d\n' "$installedSolverCount"
+   printf '  Missing:    %5d\n' "$missingSolverCount"
    echo
-   printf 'Missing core applications:        %d\n' "$missingCoreCount"
+   echo "Core utilities:"
+   printf '  Missing:    %5d\n' "$missingCoreCount"
    echo
-   echo "Developer Test-* targets are excluded from all installation-health"
-   echo "totals. Their availability is reported separately at the end for"
+   echo "Installed counts include only applications declared by the source tree."
+   echo "Developer Test-* targets are reported separately at the end for"
    echo "information only. They are commonly not compiled for user installations."
    echo
    echo "------------------------------------------------------------"
-   echo "Core application checks"
+   echo "Core utility checks"
    echo "------------------------------------------------------------"
    cat "$coreApplicationsFile"
    echo
    echo "------------------------------------------------------------"
-   echo "Missing solver applications"
+   echo "Missing solvers"
    echo "------------------------------------------------------------"
    if (( missingSolverCount == 0 )); then echo "None"; else cat "$missingSolversFile"; fi
    echo
    echo "------------------------------------------------------------"
-   echo "Other missing non-test applications"
+   echo "Missing production applications (including solvers)"
    echo "------------------------------------------------------------"
    echo "These entries may reflect optional dependencies, deprecated targets, or"
    echo "intentional build choices. Review them even when the overall audit passes."
