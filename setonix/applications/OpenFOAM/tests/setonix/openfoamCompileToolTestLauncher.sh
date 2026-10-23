@@ -260,11 +260,9 @@ imageChecksum=""
 shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
 bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
 if [[ -n "$imageInput" ]]; then
-   [[ -f "$imageInput" ]] || { echo "ERROR: SIF image not found: $imageInput" >&2; exit 1; }
+   [[ -f "$imageInput" ]] || { echo "ERROR: Singularity image not found: $imageInput" >&2; exit 1; }
+   [[ -r "$imageInput" ]] || { echo "ERROR: Singularity image is not readable: $imageInput" >&2; exit 1; }
    image=$(realpath "$imageInput")
-   imageFileName=$(basename "$image")
-   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || { echo "ERROR: Image filename does not match ${expectedSifPrefix}*.sif" >&2; exit 1; }
    imageChecksum=$(sha256sum "$image" | awk '{print $1}')
    runtimeMode="Explicit Singularity image"
    runtimeOption=(--image "$image")
@@ -336,7 +334,7 @@ rm -f "$latestLink" || {
 echo "This directory contains timestamped compile-tool test artifacts. The latest link identifies the most recent launcher invocation." > "${artifactsRoot}/README.txt"
 
 timestamp=$(date '+%Y%m%dT%H%M%S%z')
-runName="${timestamp}_singularity"
+runName="${timestamp}_${artifactRuntimeName}"
 runDir="${artifactsRoot}/${runName}"
 mkdir "$runDir" || {
    echo "ERROR: Cannot create artifact directory: $runDir" >&2

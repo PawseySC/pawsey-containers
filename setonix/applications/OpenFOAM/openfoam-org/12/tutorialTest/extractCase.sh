@@ -174,16 +174,6 @@ if [[ -n "$imageInput" ]]; then
    }
    SINGULARITY_CONTAINER=$(realpath "$imageInput")
 
-   # The explicit test artifact follows the project naming convention. This is a
-   # consistency check only; fork/version identity still comes from the config.
-   imageFileName=$(basename "$SINGULARITY_CONTAINER")
-   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || {
-      echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
-      echo "       Image filename:   $imageFileName" >&2
-      echo "       Required pattern: ${expectedSifPrefix}*.sif" >&2
-      exit 1
-   }
 fi
 
 if [[ -n "$workRootInput" ]]; then

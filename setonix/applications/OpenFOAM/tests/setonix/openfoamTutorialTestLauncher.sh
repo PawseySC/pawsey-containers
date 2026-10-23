@@ -214,9 +214,6 @@ bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
 if [[ -n "$imageInput" ]]; then
    [[ -f "$imageInput" ]] || { echo "ERROR: Image not found: $imageInput" >&2; exit 1; }
    SINGULARITY_CONTAINER=$(realpath "$imageInput")
-   imageFileName=$(basename "$SINGULARITY_CONTAINER")
-   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || { echo "ERROR: Image filename does not match ${expectedSifPrefix}*.sif" >&2; exit 1; }
    imageChecksum=$(sha256sum "$SINGULARITY_CONTAINER" | awk '{print $1}')
    runtimeMode="Explicit Singularity image"
    runtimeOption=(--image "$SINGULARITY_CONTAINER")

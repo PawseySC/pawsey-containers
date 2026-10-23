@@ -163,14 +163,6 @@ runtimeSelectorCount=0
 if [[ -n "$imageInput" ]]; then
    [[ -f "$imageInput" ]] || { echo "ERROR: Singularity image not found: $imageInput" >&2; exit 1; }
    SINGULARITY_CONTAINER=$(realpath "$imageInput")
-   imageFileName=$(basename "$SINGULARITY_CONTAINER")
-   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || {
-      echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
-      echo "       Image filename:   $imageFileName" >&2
-      echo "       Required pattern: ${expectedSifPrefix}*.sif" >&2
-      exit 1
-   }
 fi
 
 if [[ -n "$workRootInput" ]]; then

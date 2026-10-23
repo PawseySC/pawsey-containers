@@ -165,7 +165,8 @@ runtimeSelectorCount=0
 [[ "$useBareMetal" == true ]] && ((runtimeSelectorCount += 1))
 [[ $runtimeSelectorCount -eq 1 ]] || { echo "ERROR: Choose exactly one of --image <file>, --shpc, or --bare-metal" >&2; usage >&2; exit 1; }
 if [[ -n "$imageInput" ]]; then
-   [[ -f "$imageInput" ]] || { echo "ERROR: SIF image not found: $imageInput" >&2; exit 1; }
+   [[ -f "$imageInput" ]] || { echo "ERROR: Singularity image not found: $imageInput" >&2; exit 1; }
+   [[ -r "$imageInput" ]] || { echo "ERROR: Singularity image is not readable: $imageInput" >&2; exit 1; }
    SINGULARITY_CONTAINER=$(realpath "$imageInput")
 fi
 
@@ -211,7 +212,10 @@ echo
 
 # --- Load the version-specific test settings
 # Clear inherited values first so that all settings come from this invocation.
-unset OPENFOAM_FORK OPENFOAM_VERSION DEFAULT_TOOL COMPILE_TEMPLATE_TOOL COMPILED_TEST_TOOL SINGULARITY_CONTAINER
+# Clear only values that must come from the selected version configuration.
+# Do not clear SINGULARITY_CONTAINER here: explicit-image mode has already set it
+# from --image, while SHPC mode sets it later when its module is loaded.
+unset OPENFOAM_FORK OPENFOAM_VERSION DEFAULT_TOOL COMPILE_TEMPLATE_TOOL COMPILED_TEST_TOOL
 # shellcheck source=/dev/null
 source "$configFile"
 
@@ -254,9 +258,8 @@ else
    bareMetalModule=""
    shpcModule=""
    shpcExec=""
-   imageFileName=$(basename "$SINGULARITY_CONTAINER")
-   expectedSifPrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-   [[ "$imageFileName" == "${expectedSifPrefix}"*.sif ]] || { echo "ERROR: Image filename does not match ${expectedSifPrefix}*.sif" >&2; exit 1; }
+   # The supplied filename is not used as runtime identity. The authoritative
+   # version check reads WM_PROJECT_VERSION from inside the image below.
    module load singularity/4.3.5-mpi || { echo "ERROR: Failed to load singularity/4.3.5-mpi" >&2; exit 1; }
    runtimeExec=(singularity exec "$SINGULARITY_CONTAINER")
 fi
@@ -315,11 +318,23 @@ echo
 # Use the SHPC generic wrapper in module mode. Explicit-image mode binds the
 # writable host development tree to WM_PROJECT_USER_DIR inside the selected runtime.
 if [[ "$useBareMetal" == true ]]; then
+   # The bare-metal module calculates its user paths when it is loaded. Repoint
+   # the complete user-development environment to the isolated host workspace,
+   # then update the executable and library search paths to match those values.
    wmpudInside="$wmpudOutside"
    export WM_PROJECT_USER_DIR="$wmpudOutside"
    export FOAM_USER_APPBIN="${WM_PROJECT_USER_DIR}/platforms/${WM_OPTIONS}/bin"
    export FOAM_USER_LIBBIN="${WM_PROJECT_USER_DIR}/platforms/${WM_OPTIONS}/lib"
-   mkdir -p "$FOAM_USER_APPBIN" "$FOAM_USER_LIBBIN"
+   export PATH="${FOAM_USER_APPBIN}:${PATH}"
+   export LD_LIBRARY_PATH="${FOAM_USER_LIBBIN}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+   mkdir -p \
+      "${WM_PROJECT_USER_DIR}/applications" \
+      "$FOAM_USER_APPBIN" \
+      "$FOAM_USER_LIBBIN"
+
+   # An empty command prefix makes the shared workflow execute find, copy,
+   # wclean, wmake, and the compiled application directly on the host.
    runtimeExecBound=()
 elif [[ "$useSHPC" == true ]]; then
    # The SHPC wrapper consumes the standard Singularity bind environment. This
@@ -439,9 +454,10 @@ echo "PASS: Compiled binary found"
 echo
 
 # --- Step 9: Run a basic functional test of the new application
-# WM_PROJECT_USER_DIR places FOAM_USER_APPBIN on PATH inside the selected runtime, so the
-# executable can be invoked by name. Preserve the command output in the
-# invocation artifact directory and check its exit status and output signatures.
+# Container runtimes already expose FOAM_USER_APPBIN on their internal PATH.
+# Bare-metal setup explicitly prepends the reassigned FOAM_USER_APPBIN above.
+# Invoking the application by name therefore verifies both the executable and
+# the complete user-development environment in every runtime mode.
 echo "$thisScript: -----------------------------------------"
 echo "Step 9 - Testing '$COMPILED_TEST_TOOL -help'"
 "${runtimeExecBound[@]}" \
