@@ -2,8 +2,8 @@
 # General launcher for version-specific OpenFOAM tutorial functional tests.
 #
 # This script provides one entry point for a complete tutorial test associated
-# with an OpenFOAM version directory. The version-specific behavior remains in
-# the three scripts under <recipe-dir>/tutorialTest:
+# with an OpenFOAM version. The version-specific behavior remains in three stage
+# scripts selected through --recipe-dir or the explicit --scripts-dir option:
 #
 #   1. extractCase.sh extracts and validates a clean tutorial case.
 #   2. preFoam.slurm.sh prepares and decomposes the case in a Slurm job.
@@ -72,6 +72,8 @@ set -u
 thisScript=$(basename "$0")
 scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 recipeDirInput=""
+configFileInput=""
+scriptsDirInput=""
 imageInput=""
 useSHPC=false
 useBareMetal=false
@@ -96,11 +98,19 @@ Usage:
   $thisScript --recipe-dir <directory> --image <file> [options]
   $thisScript --recipe-dir <directory> --shpc [options]
   $thisScript --recipe-dir <directory> --bare-metal [options]
+  $thisScript --config <file> --scripts-dir <directory> --image <file> [options]
+  $thisScript --config <file> --scripts-dir <directory> --shpc [options]
+  $thisScript --config <file> --scripts-dir <directory> --bare-metal [options]
   $thisScript --help
 
-Required option:
+Test-location selection (choose one complete mode):
   --recipe-dir, -r <directory>  OpenFOAM version directory containing
                                 buildAndValidationConfig/ and tutorialTest/
+  --config <file>               Explicit version configuration file; requires
+                                --scripts-dir and cannot be used with --recipe-dir
+  --scripts-dir <directory>     Directory containing the three stage scripts;
+                                requires --config and cannot be used with
+                                --recipe-dir
 
 Runtime selection (choose exactly one):
   --image, -i <file>            Use the supplied Singularity image
@@ -138,6 +148,16 @@ while [[ $# -gt 0 ]]; do
       --recipe-dir|-r)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --recipe-dir requires <directory>" >&2; usage >&2; exit 1; }
          recipeDirInput="$2"
+         shift 2
+         ;;
+      --config)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --config requires <file>" >&2; usage >&2; exit 1; }
+         configFileInput="$2"
+         shift 2
+         ;;
+      --scripts-dir)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --scripts-dir requires <directory>" >&2; usage >&2; exit 1; }
+         scriptsDirInput="$2"
          shift 2
          ;;
       --image|-i)
@@ -188,11 +208,33 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 
-# --- Resolve the recipe, configuration, and selected runtime
-[[ -n "$recipeDirInput" ]] || { echo "ERROR: --recipe-dir is required" >&2; usage >&2; exit 1; }
-[[ -d "$recipeDirInput" ]] || { echo "ERROR: Recipe directory not found: $recipeDirInput" >&2; exit 1; }
-recipeDir=$(realpath "$recipeDirInput")
-configFile="${recipeDir}/buildAndValidationConfig/openfoamBuildAndValidation.config"
+# --- Resolve and validate the test location and configuration
+if [[ -n "$recipeDirInput" ]]; then
+   [[ -z "$configFileInput" && -z "$scriptsDirInput" ]] || {
+      echo "ERROR: --recipe-dir cannot be used with --config or --scripts-dir" >&2
+      usage >&2
+      exit 1
+   }
+   [[ -d "$recipeDirInput" ]] || { echo "ERROR: Recipe directory not found: $recipeDirInput" >&2; exit 1; }
+   recipeDir=$(realpath "$recipeDirInput")
+   configFile="${recipeDir}/buildAndValidationConfig/openfoamBuildAndValidation.config"
+   tutorialScriptDir="${recipeDir}/tutorialTest"
+elif [[ -n "$configFileInput" || -n "$scriptsDirInput" ]]; then
+   [[ -n "$configFileInput" && -n "$scriptsDirInput" ]] || {
+      echo "ERROR: --config and --scripts-dir must be provided together" >&2
+      usage >&2
+      exit 1
+   }
+   [[ -r "$configFileInput" ]] || { echo "ERROR: Configuration is not readable: $configFileInput" >&2; exit 1; }
+   [[ -d "$scriptsDirInput" ]] || { echo "ERROR: Scripts directory not found: $scriptsDirInput" >&2; exit 1; }
+   configFile=$(realpath "$configFileInput")
+   tutorialScriptDir=$(realpath "$scriptsDirInput")
+   recipeDir=$(dirname "$tutorialScriptDir")
+else
+   echo "ERROR: Provide --recipe-dir, or provide --config and --scripts-dir together" >&2
+   usage >&2
+   exit 1
+fi
 [[ -r "$configFile" ]] || { echo "ERROR: Configuration is not readable: $configFile" >&2; exit 1; }
 unset OPENFOAM_FORK OPENFOAM_VERSION
 # shellcheck source=/dev/null
@@ -229,7 +271,6 @@ else
 fi
 
 # --- Locate and validate the version-specific stage scripts
-tutorialScriptDir="${recipeDir}/tutorialTest"
 extractScript="${tutorialScriptDir}/extractCase.sh"
 preScript="${tutorialScriptDir}/preFoam.slurm.sh"
 runScript="${tutorialScriptDir}/runFoam.slurm.sh"

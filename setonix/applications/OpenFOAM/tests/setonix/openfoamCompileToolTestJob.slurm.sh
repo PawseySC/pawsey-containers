@@ -63,7 +63,11 @@ usage() {
    cat <<USAGE
 Usage:
   sbatch $thisScript --recipe-dir <directory> --image <file> [--work-root <directory>] [--test-artifacts-dir <directory>]
+  sbatch $thisScript --recipe-dir <directory> --shpc [--work-root <directory>] [--test-artifacts-dir <directory>]
+  sbatch $thisScript --recipe-dir <directory> --bare-metal [--work-root <directory>] [--test-artifacts-dir <directory>]
   sbatch $thisScript --config <file> --image <file> [--work-root <directory>] [--test-artifacts-dir <directory>]
+  sbatch $thisScript --config <file> --shpc [--work-root <directory>] [--test-artifacts-dir <directory>]
+  sbatch $thisScript --config <file> --bare-metal [--work-root <directory>] [--test-artifacts-dir <directory>]
   $thisScript --help
 
 Options:
@@ -169,6 +173,13 @@ if [[ -n "$imageInput" ]]; then
    [[ -r "$imageInput" ]] || { echo "ERROR: Singularity image is not readable: $imageInput" >&2; exit 1; }
    SINGULARITY_CONTAINER=$(realpath "$imageInput")
 fi
+if [[ "$useSHPC" == true ]]; then
+   artifactRuntimeName="shpc"
+elif [[ "$useBareMetal" == true ]]; then
+   artifactRuntimeName="bare-metal"
+else
+   artifactRuntimeName="singularity"
+fi
 
 # --- Resolve persistent artifacts for this test invocation
 compileTestArtifactsDir="${recipeDir}/artifacts/tests/compile-tool"
@@ -184,7 +195,7 @@ else
    echo "This directory contains timestamped compile-tool test artifacts. The latest link identifies the most recent tracked invocation." > "${compileTestArtifactsDir}/README.txt"
    testTimestamp=$(date '+%Y%m%dT%H%M%S%z')
    jobIdentifier=${SLURM_JOB_ID:-manual-$$}
-   runArtifactsName="${testTimestamp}_singularity_${jobIdentifier}"
+   runArtifactsName="${testTimestamp}_${artifactRuntimeName}_${jobIdentifier}"
    runArtifactsDir="${compileTestArtifactsDir}/${runArtifactsName}"
    mkdir "$runArtifactsDir" || { echo "ERROR: Cannot create test artifact directory: $runArtifactsDir" >&2; exit 1; }
    ln -sfn "$runArtifactsName" "$latestLink"

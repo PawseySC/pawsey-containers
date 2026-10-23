@@ -14,6 +14,9 @@
 #   sbatch runFoam.slurm.sh --image <file> --config <file> [options]
 #   sbatch runFoam.slurm.sh --shpc --config <file> [options]
 #   sbatch runFoam.slurm.sh --bare-metal --config <file> [options]
+#   sbatch runFoam.slurm.sh --image <file> --recipe-dir <directory> [options]
+#   sbatch runFoam.slurm.sh --shpc --recipe-dir <directory> [options]
+#   sbatch runFoam.slurm.sh --bare-metal --recipe-dir <directory> [options]
 #
 # Exit status:
 #   0  The solver ran and all required validations passed.
@@ -50,6 +53,7 @@ imageInput=""
 useSHPC=false
 useBareMetal=false
 workRootInput=""
+recipeDirInput=""
 configFileInput=""
 testArtifactsDirInput=""
 SINGULARITY_MODULE=${SINGULARITY_MODULE:-singularity/4.3.5-mpi}
@@ -61,6 +65,9 @@ Usage:
   sbatch $thisScript --image <file> --config <file> [options]
   sbatch $thisScript --shpc --config <file> [options]
   sbatch $thisScript --bare-metal --config <file> [options]
+  sbatch $thisScript --image <file> --recipe-dir <directory> [options]
+  sbatch $thisScript --shpc --recipe-dir <directory> [options]
+  sbatch $thisScript --bare-metal --recipe-dir <directory> [options]
   $thisScript --help
 
 Runtime selection (choose exactly one):
@@ -69,7 +76,9 @@ Runtime selection (choose exactly one):
   --bare-metal                Load <OPENFOAM_FORK>/<OPENFOAM_VERSION> and run the
                               solver directly
 
-Required in both modes:
+Configuration selection (choose exactly one):
+  --recipe-dir, -r <directory>  OpenFOAM version directory containing the
+                                buildAndValidationConfig configuration file
   --config <file>             Version configuration file defining runtime identity
 
 Optional settings:
@@ -105,6 +114,9 @@ while [[ $# -gt 0 ]]; do
          workRootInput="$2"
          shift 2
          ;;
+      --recipe-dir|-r)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --recipe-dir requires <directory>" >&2; usage >&2; exit 1; }
+         recipeDirInput="$2"; shift 2 ;;
       --config)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --config requires <file>" >&2; usage >&2; exit 1; }
          configFileInput="$2"; shift 2 ;;
@@ -124,7 +136,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Validate common inputs and load version identity
-[[ -n "$configFileInput" ]] || { echo "ERROR: --config is required" >&2; usage >&2; exit 1; }
+locationSelectorCount=0
+[[ -n "$recipeDirInput" ]] && ((locationSelectorCount += 1))
+[[ -n "$configFileInput" ]] && ((locationSelectorCount += 1))
+[[ $locationSelectorCount -eq 1 ]] || {
+   echo "ERROR: Choose exactly one of --recipe-dir <directory> or --config <file>" >&2
+   usage >&2
+   exit 1
+}
+if [[ -n "$recipeDirInput" ]]; then
+   [[ -d "$recipeDirInput" ]] || { echo "ERROR: Recipe directory not found: $recipeDirInput" >&2; exit 1; }
+   recipeDir=$(realpath "$recipeDirInput")
+   configFileInput="${recipeDir}/buildAndValidationConfig/openfoamBuildAndValidation.config"
+fi
 [[ -r "$configFileInput" ]] || { echo "ERROR: Configuration is not readable: $configFileInput" >&2; exit 1; }
 configFile=$(realpath "$configFileInput")
 unset OPENFOAM_FORK OPENFOAM_VERSION
@@ -204,18 +228,12 @@ if [[ "$useSHPC" == true ]]; then
    SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
 elif [[ "$useBareMetal" == true ]]; then
    runtimeMode="Bare-metal module"
-   #bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
-   bareMetalModule="${OPENFOAM_FORK}/2206"
-   shpcModule=""
-   shpcExec=""
+   bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
    solverCommandPrefix=()
    module load "$bareMetalModule" || { echo "ERROR: Failed to load bare-metal module: $bareMetalModule" >&2; exit 1; }
    command -v "$SOLVER" >/dev/null 2>&1 || { echo "ERROR: Missing solver: $SOLVER" >&2; exit 1; }
 else
    runtimeMode="Explicit Singularity image"
-   bareMetalModule=""
-   shpcModule=""
-   shpcExec=""
    solverCommandPrefix=(singularity exec "$SINGULARITY_CONTAINER")
    module load "$SINGULARITY_MODULE" || { echo "ERROR: Failed to load $SINGULARITY_MODULE" >&2; exit 1; }
    command -v singularity >/dev/null 2>&1 || { echo "ERROR: singularity unavailable" >&2; exit 1; }
