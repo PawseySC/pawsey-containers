@@ -224,6 +224,12 @@ LC_ALL=C comm -23 "$expectedSolversFile" "$installedApplicationsFile" > "$missin
 missingCoreCount=0
 : > "$coreApplicationsFile"
 for application in "${coreApplications[@]}"; do
+   # Foundation releases may declare foamPostProcess instead of postProcess.
+   if [[ "$application" == postProcess ]] &&
+      ! grep -qxF postProcess "$expectedApplicationsFile" &&
+      grep -qxF foamPostProcess "$expectedApplicationsFile"; then
+      application=foamPostProcess
+   fi
    if [[ -x "$FOAM_APPBIN/$application" ]]; then
       printf 'FOUND    %s\n' "$application" >> "$coreApplicationsFile"
    else

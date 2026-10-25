@@ -8,8 +8,10 @@
 # functional-test logs stored inside it. It also runs the standalone
 # checkOpenFOAMInstallation.sh script inside the selected image to compare the
 # compiled applications with the targets declared by the OpenFOAM source tree.
-# Each tracked invocation stores its output and status under
-# <recipe-dir>/artifacts/tests/image-validation/.
+# By default, tracked invocation output is stored under
+# <recipe-dir>/artifacts/tests/image-validation/. Use --artifacts-dir to choose a
+# different artifact root, including when --config points outside the conventional
+# recipe layout. Relative artifact paths are resolved from the launch directory.
 #
 # OpenFOAM-version-specific settings are read from:
 #
@@ -44,6 +46,10 @@
 #      --engine singularity \
 #      --image /path/to/openfoam--v2606-gcc13DPInt32Opt-mpich4.2.2-ubuntu24.04.sif
 #
+#   openfoamImageValidation.sh --config /path/to/custom.config \
+#      --artifacts-dir image-validation-results \
+#      --engine podman --image openfoam:v2606
+#
 #   openfoamImageValidation.sh --help
 #
 # Exit status:
@@ -66,6 +72,7 @@ totalFailed=0
 ENGINE=""
 recipeDirInput=""
 configFileInput=""
+artifactsDirInput=""
 imageRef=""
 recipeDir=""
 configFile=""
@@ -82,12 +89,17 @@ usage() {
 Usage:
   $thisScript --recipe-dir <directory> --engine docker|podman|singularity --image <image>
   $thisScript --config <file> --engine docker|podman|singularity --image <image>
+  $thisScript --config <file> --artifacts-dir <directory> --engine docker|podman|singularity --image <image>
   $thisScript --help
 
 Options:
   --recipe-dir, -r <directory>  OpenFOAM version directory containing the docker recipe and
                                  the buildAndValidationConfig/openfoamBuildAndValidation.config file
   --config, -c <file>           Explicit build-validation configuration file
+  --artifacts-dir <directory>   Artifact root. Relative paths are resolved from
+                                 the directory where this script was launched.
+                                 Required with --config when it is outside the
+                                 conventional recipe layout; overrides the default.
   --engine, -b <engine>         Image engine: docker, podman, or singularity
   --image, -i <image>           Required Docker/Podman image name:tag or SIF path
   --help, -h                    Show this help message and exit
@@ -120,14 +132,14 @@ run_installation_checker() {
             --bind "${installationChecker}:${containerChecker}:ro" \
             --bind "${hostOutputDir}:${containerOutputDir}" \
             "$imageRef" \
-            bash "$containerChecker" -o "$containerOutputDir"
+            bash "$containerChecker" -o "$containerOutputDir" --overwrite
          ;;
       docker|podman)
          "$ENGINE" run --rm \
             --volume "${installationChecker}:${containerChecker}:ro" \
             --volume "${hostOutputDir}:${containerOutputDir}" \
             "$imageRef" \
-            bash "$containerChecker" -o "$containerOutputDir"
+            bash "$containerChecker" -o "$containerOutputDir" --overwrite
          ;;
       *)
          echo "ERROR: Unsupported image engine: $ENGINE" >&2
@@ -208,6 +220,13 @@ while [[ $# -gt 0 ]]; do
             exit 1
          fi
          configFileInput="$2"; shift 2 ;;
+      --artifacts-dir)
+         if [[ $# -lt 2 || -z "$2" ]]; then
+            echo "ERROR: --artifacts-dir requires <directory>" >&2
+            usage >&2
+            exit 1
+         fi
+         artifactsDirInput="$2"; shift 2 ;;
       --engine|-b)
          if [[ $# -lt 2 || -z "$2" ]]; then
             echo "ERROR: --engine requires docker|podman|singularity" >&2
@@ -250,12 +269,12 @@ if [[ -n "$configFileInput" ]]; then
    [[ -f "$configFileInput" ]] || { echo "ERROR: Configuration file does not exist: $configFileInput" >&2; exit 1; }
    configFile=$(realpath "$configFileInput")
    configDir=$(dirname "$configFile")
-   [[ $(basename "$configDir") == "buildAndValidationConfig" ]] || {
-      echo "ERROR: Cannot derive the OpenFOAM version directory from config: $configFile" >&2
-      echo "       Expected the config below a buildAndValidationConfig directory." >&2
+   if [[ $(basename "$configDir") == "buildAndValidationConfig" ]]; then
+      recipeDir=$(dirname "$configDir")
+   elif [[ -z "$artifactsDirInput" ]]; then
+      echo "ERROR: --config is outside the conventional recipe layout; provide --artifacts-dir <directory>" >&2
       exit 1
-   }
-   recipeDir=$(dirname "$configDir")
+   fi
 elif [[ -n "$recipeDirInput" ]]; then
    [[ -d "$recipeDirInput" ]] || { echo "ERROR: Recipe directory does not exist: $recipeDirInput" >&2; exit 1; }
    recipeDir=$(realpath "$recipeDirInput")
@@ -273,7 +292,12 @@ fi
 }
 
 # --- Create persistent artifacts for this validation invocation
-validationArtifactsDir="${recipeDir}/artifacts/tests/image-validation"
+if [[ -n "$artifactsDirInput" ]]; then
+   mkdir -p "$artifactsDirInput" || { echo "ERROR: Cannot create artifact directory: $artifactsDirInput" >&2; exit 1; }
+   validationArtifactsDir=$(cd "$artifactsDirInput" && pwd -P) || { echo "ERROR: Cannot resolve artifact directory: $artifactsDirInput" >&2; exit 1; }
+else
+   validationArtifactsDir="${recipeDir}/artifacts/tests/image-validation"
+fi
 mkdir -p "$validationArtifactsDir"
 latestLink="${validationArtifactsDir}/latest"
 if [[ -e "$latestLink" && ! -L "$latestLink" ]]; then
@@ -342,7 +366,7 @@ done
    echo "Engine: $ENGINE"
    echo "Image input: $imageRef"
    echo "Configuration: $configFile"
-   echo "Recipe directory: $recipeDir"
+   echo "Recipe directory: ${recipeDir:-not inferred (config outside conventional layout)}"
    echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
    echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
 } > "$validationDetailsFile"
