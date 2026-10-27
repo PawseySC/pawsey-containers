@@ -43,6 +43,8 @@ thisScript=$(basename "$0")
 recipeDirInput=""
 configFileInput=""
 imageInput=""
+singularityModule="singularity/4.3.5-mpi"
+singularityModuleSpecified=false
 useSHPC=false
 useBareMetal=false
 workRootInput=""
@@ -75,6 +77,8 @@ Options:
                                  the buildAndValidationConfig/openfoamBuildAndValidation.config file
   --config, -c <file>           Explicit openfoamBuildAndValidation configuration file
   --image, -i <file>            Use the supplied Singularity SIF image
+  --singularity-module <module>  Singularity module for --image mode
+                                (default: singularity/4.3.5-mpi)
   --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --bare-metal                  Use <OPENFOAM_FORK>/<OPENFOAM_VERSION>
   --work-root <directory>       Override the host work root. The test defaults to MYSCRATCH.
@@ -102,6 +106,12 @@ while [[ $# -gt 0 ]]; do
       --image|-i)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --image requires <file>" >&2; usage >&2; exit 1; }
          imageInput="$2"
+         shift 2
+         ;;
+      --singularity-module)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --singularity-module requires <module>" >&2; usage >&2; exit 1; }
+         singularityModule="$2"
+         singularityModuleSpecified=true
          shift 2
          ;;
       --shpc)
@@ -213,6 +223,11 @@ record_test_status() {
    if [[ $exitStatus -eq 0 ]]; then printf '%s\n' SUCCESS > "$statusFile"; else printf '%s\n' FAILED > "$statusFile"; fi
    exit "$exitStatus"
 }
+if [[ "$singularityModuleSpecified" == true && -z "$imageInput" ]]; then
+   echo "ERROR: --singularity-module can be used only with --image <file>" >&2
+   usage >&2
+   exit 1
+fi
 trap record_test_status EXIT
 exec > >(tee "$runLog") 2>&1
 
@@ -271,7 +286,7 @@ else
    shpcExec=""
    # The supplied filename is not used as runtime identity. The authoritative
    # version check reads WM_PROJECT_VERSION from inside the image below.
-   module load singularity/4.3.5-mpi || { echo "ERROR: Failed to load singularity/4.3.5-mpi" >&2; exit 1; }
+   module load "$singularityModule" || { echo "ERROR: Failed to load $singularityModule" >&2; exit 1; }
    runtimeExec=(singularity exec "$SINGULARITY_CONTAINER")
 fi
 imageChecksum=""

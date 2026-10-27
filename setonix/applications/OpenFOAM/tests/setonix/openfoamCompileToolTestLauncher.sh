@@ -74,6 +74,8 @@ scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 recipeDirInput=""
 configFileInput=""
 imageInput=""
+singularityModule="singularity/4.3.5-mpi"
+singularityModuleSpecified=false
 useSHPC=false
 useBareMetal=false
 workRootInput=""
@@ -99,6 +101,8 @@ Required inputs:
     or
   --config, -c <file>           Explicit version configuration file
   --image, -i <file>            Use the supplied Singularity SIF image
+  --singularity-module <module>  Singularity module for --image mode
+                                (default: singularity/4.3.5-mpi)
   --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --bare-metal                  Use <OPENFOAM_FORK>/<OPENFOAM_VERSION>
 
@@ -142,6 +146,12 @@ while [[ $# -gt 0 ]]; do
             exit 1
          }
          imageInput="$2"
+         shift 2
+         ;;
+      --singularity-module)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --singularity-module requires <module>" >&2; usage >&2; exit 1; }
+         singularityModule="$2"
+         singularityModuleSpecified=true
          shift 2
          ;;
       --shpc)
@@ -246,6 +256,11 @@ runtimeSelectorCount=0
    usage >&2
    exit 1
 }
+if [[ "$singularityModuleSpecified" == true && -z "$imageInput" ]]; then
+   echo "ERROR: --singularity-module can be used only with --image <file>" >&2
+   usage >&2
+   exit 1
+fi
 
 # The configuration is authoritative for fork and version in both modes.
 unset OPENFOAM_FORK OPENFOAM_VERSION
@@ -265,7 +280,7 @@ if [[ -n "$imageInput" ]]; then
    image=$(realpath "$imageInput")
    imageChecksum=$(sha256sum "$image" | awk '{print $1}')
    runtimeMode="Explicit Singularity image"
-   runtimeOption=(--image "$image")
+   runtimeOption=(--image "$image" --singularity-module "$singularityModule")
    artifactRuntimeName="singularity"
 elif [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"

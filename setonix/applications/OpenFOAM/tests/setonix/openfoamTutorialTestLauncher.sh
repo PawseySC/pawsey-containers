@@ -75,6 +75,8 @@ recipeDirInput=""
 configFileInput=""
 scriptsDirInput=""
 imageInput=""
+singularityModule="singularity/4.3.5-mpi"
+singularityModuleSpecified=false
 useSHPC=false
 useBareMetal=false
 workRootInput=""
@@ -114,6 +116,8 @@ Test-location selection (choose one complete mode):
 
 Runtime selection (choose exactly one):
   --image, -i <file>            Use the supplied Singularity image
+  --singularity-module <module>  Singularity module for --image mode
+                                (default: singularity/4.3.5-mpi)
   --shpc                        Use the container module derived from the config:
                                 <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --bare-metal                  Use the bare-metal module derived from the config:
@@ -163,6 +167,12 @@ while [[ $# -gt 0 ]]; do
       --image|-i)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --image requires <file>" >&2; usage >&2; exit 1; }
          imageInput="$2"
+         shift 2
+         ;;
+      --singularity-module)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --singularity-module requires <module>" >&2; usage >&2; exit 1; }
+         singularityModule="$2"
+         singularityModuleSpecified=true
          shift 2
          ;;
       --shpc)
@@ -258,7 +268,7 @@ if [[ -n "$imageInput" ]]; then
    SINGULARITY_CONTAINER=$(realpath "$imageInput")
    imageChecksum=$(sha256sum "$SINGULARITY_CONTAINER" | awk '{print $1}')
    runtimeMode="Explicit Singularity image"
-   runtimeOption=(--image "$SINGULARITY_CONTAINER")
+   runtimeOption=(--image "$SINGULARITY_CONTAINER" --singularity-module "$singularityModule")
    artifactRuntimeName="singularity"
 elif [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"
@@ -279,6 +289,11 @@ runScript="${tutorialScriptDir}/runFoam.slurm.sh"
    echo "ERROR: Tutorial-test directory not found: $tutorialScriptDir" >&2
    exit 1
 }
+if [[ "$singularityModuleSpecified" == true && -z "$imageInput" ]]; then
+   echo "ERROR: --singularity-module can be used only with --image <file>" >&2
+   usage >&2
+   exit 1
+fi
 
 for requiredScript in "$extractScript" "$preScript" "$runScript"; do
    [[ -f "$requiredScript" ]] || {

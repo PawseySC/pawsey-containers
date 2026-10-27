@@ -1,0 +1,34 @@
+------------------------------------------------------------------------------------------
+   /software/setonix/2026.09/pawsey/modules/singularity/4.3.5-nompi.lua:
+------------------------------------------------------------------------------------------
+whatis("Name : singularityce")
+whatis("Short description : Singularity is a container technology focused on building portable encapsulated environments to support 'Mobility of Compute' For older versions of Singularity (pre 3.0) you should use singularity-legacy, which has a different install base (Autotools).")
+whatis("Version : 4.3.5")
+whatis("Compiler : gcc@14.2.0/kptdqdix4f744qd2xbtewigg64byquje")
+whatis("Flags :  cflags='-O3 -O0' cppflags=-O3 cxxflags='-O3 -O0' fflags='-O3 -O0 -fallow-argument-mismatch' ")
+whatis("Target : zen3")
+whatis("Build date : Fri Sep 18 13:16:20 2026")
+whatis("Spack configuration : +libsubid+network+suid build_system=makefile")
+whatis("Path : /software/setonix/2026.09/software/linux-sles15-zen3/gcc-14.2.0/singularityce-4.3.5-nqj3ayuhhamrqw646rt4tpxsbrwt7usj")
+help([[Singularity is a container technology focused on building portable
+encapsulated environments to support "Mobility of Compute" For older
+versions of Singularity (pre 3.0) you should use singularity-legacy,
+which has a different install base (Autotools). Needs post-install
+chmod/chown steps to enable full functionality. See package definition
+or `spack-build-out.txt` build log for details, e.g. tail -15 $(spack
+location -i singularityce)/.spack/spack-build-out.txt]])
+prepend_path{"PATH","/software/setonix/2026.09/software/linux-sles15-zen3/gcc-14.2.0/singularityce-4.3.5-nqj3ayuhhamrqw646rt4tpxsbrwt7usj/bin",delim=":"}
+prepend_path{"CMAKE_PREFIX_PATH","/software/setonix/2026.09/software/linux-sles15-zen3/gcc-14.2.0/singularityce-4.3.5-nqj3ayuhhamrqw646rt4tpxsbrwt7usj/.",delim=":"}
+prepend_path{"PATH","/software/setonix/2026.09/software/linux-sles15-zen3/gcc-14.2.0/singularityce-4.3.5-nqj3ayuhhamrqw646rt4tpxsbrwt7usj/bin",delim=":"}
+prepend_path{"MANPATH","/software/setonix/2026.09/software/linux-sles15-zen3/gcc-14.2.0/singularityce-4.3.5-nqj3ayuhhamrqw646rt4tpxsbrwt7usj/share/man",delim=":"}
+prepend_path{"CMAKE_PREFIX_PATH","/software/setonix/2026.09/software/linux-sles15-zen3/gcc-14.2.0/singularityce-4.3.5-nqj3ayuhhamrqw646rt4tpxsbrwt7usj/.",delim=":"}
+prepend_path{"PATH","/software/setonix/2026.09/software/linux-sles15-zen3/gcc-14.2.0/cryptsetup-2.3.5-mnczslbbzizlch4niuvnvql4fmzims6v/sbin",delim=":"}
+setenv("PAWSEY_SINGULARITYCE_HOME","/software/setonix/2026.09/software/linux-sles15-zen3/gcc-14.2.0/singularityce-4.3.5-nqj3ayuhhamrqw646rt4tpxsbrwt7usj")
+setenv("SINGULARITY_CACHEDIR","/software/projects/pawsey0001/espinosa/.singularity")
+setenv("SINGULARITYENV_LD_LIBRARY_PATH",":/host_lib64:/opt/cray/pe/mpich/9.1.0/ofi/gnu/12.3/lib-abi-mpich:/opt/cray/pe/mpich/9.1.0/gtl/lib:/opt/cray/xpmem/default/lib64:/opt/cray/pe/pmi/default/lib:/opt/cray/pe/pals/default/lib:$LD_LIBRARY_PATH")
+setenv("SINGULARITY_BINDPATH",",/scratch,/software,/var/opt/cray/pe,/opt/cray,/opt/xpmem")
+prepend_path("SINGULARITYENV_LD_PRELOAD","")
+pushenv("BASH_ENV","")
+pushenv("BASH_ENV","/opt/cray/pe/lmod/lmod/init/bash")
+pushenv("BASH_ENV","/software/setonix/2026.09/pawsey/lmod-variable-fixes/pawsey_init_bash")
+
