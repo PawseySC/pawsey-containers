@@ -21,6 +21,8 @@
 # - Selected recipe directories listed in recipeDirectories, or supplied for a
 #   single invocation through --only-directories.
 # - One current SIF under each recipe's artifacts/singularity/latest directory.
+# - A Singularity module, loaded by this script. The default is
+#   singularity/4.3.5-mpi and --singularity-module can override it.
 # - Test status and checksum artifacts unless --skip-test-validation is used.
 #
 # Outputs
@@ -126,6 +128,10 @@ skipTestValidation=false
 # Empty means the configured recipeDirectories array remains authoritative.
 onlyDirectoriesInput=""
 
+# Singularity is loaded inside this script for reproducible SIF inspection. A
+# command-line override replaces this default for one invocation.
+singularityModule="singularity/4.3.5-mpi"
+
 usage() {
     cat <<USAGE
 Usage:
@@ -142,6 +148,11 @@ Examples:
       --skip-test-validation \
       --only-directories openfoam-org/10,openfoam-org/12
 
+  $(basename "$0") \
+      --openfoam-root "$PWD" \
+      --singularity-module singularity/4.3.5-mpi-fixing \
+      --only-directories openfoam-org/10
+
 Options:
   --repository-root <directory>
       Repository root containing setonix/applications/OpenFOAM.
@@ -149,6 +160,10 @@ Options:
 
   --openfoam-root <directory>
       Explicit OpenFOAM project root. This overrides --repository-root.
+
+  --singularity-module <module>
+      Singularity module used to inspect the selected SIF images.
+      Default: singularity/4.3.5-mpi
 
   --skip-test-validation
       Bypass all test-status and SIF-checksum eligibility checks and generate
@@ -183,6 +198,14 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             }
             openfoamRoot="$2"
+            shift 2
+            ;;
+        --singularity-module)
+            [[ $# -ge 2 && -n "$2" ]] || {
+                echo "ERROR: --singularity-module requires <module>." >&2
+                exit 1
+            }
+            singularityModule="$2"
             shift 2
             ;;
         --skip-test-validation)
@@ -234,10 +257,16 @@ openfoamRoot=$(realpath "$openfoamRoot")
     echo "ERROR: OpenFOAM project root does not exist: $openfoamRoot" >&2
     exit 1
 }
-command -v singularity >/dev/null 2>&1 || {
-    echo "ERROR: singularity is not available in PATH." >&2
+module load "$singularityModule" || {
+    echo "ERROR: Failed to load Singularity module: $singularityModule" >&2
     exit 1
 }
+command -v singularity >/dev/null 2>&1 || {
+    echo "ERROR: singularity is unavailable after loading $singularityModule." >&2
+    exit 1
+}
+singularityExecutable=$(command -v singularity)
+singularityVersion=$(singularity --version)
 command -v sha256sum >/dev/null 2>&1 || {
     echo "ERROR: sha256sum is not available in PATH." >&2
     exit 1
@@ -415,7 +444,7 @@ checkTestEligibility() {
     requireSuccessfulTest \
         "Tutorial preparation" \
         "$tutorialInvocation" \
-        "prepareFoam.status.txt" \
+        "preFoam.status.txt" \
         "test-details.txt" \
         "$checksum" || failed=1
 
@@ -536,6 +565,9 @@ writeAliasYaml() {
 echo "============================================================"
 echo "OpenFOAM SHPC alias generation"
 echo "OpenFOAM root: $openfoamRoot"
+echo "Singularity module: $singularityModule"
+echo "Singularity executable: $singularityExecutable"
+echo "Singularity version: $singularityVersion"
 if [[ -n "$onlyDirectoriesInput" ]]; then
     echo "Recipe selection: --only-directories override"
 else
@@ -638,6 +670,9 @@ for recipeDirectory in "${recipeDirectories[@]}"; do
         echo "Recipe: $recipeDirectory"
         echo "SIF image: $singularityImage"
         echo "SIF SHA256: $singularityChecksum"
+        echo "Singularity module: $singularityModule"
+        echo "Singularity executable: $singularityExecutable"
+        echo "Singularity version: $singularityVersion"
         echo "Alias file: $aliasFile"
         echo "Alias count: $aliasCount"
         echo "Test validation bypassed: $skipTestValidation"

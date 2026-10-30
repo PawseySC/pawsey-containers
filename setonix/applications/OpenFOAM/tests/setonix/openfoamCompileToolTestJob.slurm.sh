@@ -38,6 +38,10 @@
 # Treat any use of an unset variable as an error.
 set -u
 
+# In explicit-image mode, SINGULARITY_IMAGE is resolved from --image. In SHPC
+# mode, SINGULARITY_CONTAINER is validated and canonicalized into
+# SINGULARITY_IMAGE. All subsequent container operations use SINGULARITY_IMAGE.
+#
 # --- Initial settings
 thisScript=$(basename "$0")
 recipeDirInput=""
@@ -77,7 +81,7 @@ Options:
                                  the buildAndValidationConfig/openfoamBuildAndValidation.config file
   --config, -c <file>           Explicit openfoamBuildAndValidation configuration file
   --image, -i <file>            Use the supplied Singularity SIF image
-  --singularity-module <module>  Singularity module for --image mode
+  --singularity-module <module>  Singularity module for --image or --shpc mode
                                 (default: singularity/4.3.5-mpi)
   --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --bare-metal                  Use <OPENFOAM_FORK>/<OPENFOAM_VERSION>
@@ -181,7 +185,7 @@ runtimeSelectorCount=0
 if [[ -n "$imageInput" ]]; then
    [[ -f "$imageInput" ]] || { echo "ERROR: Singularity image not found: $imageInput" >&2; exit 1; }
    [[ -r "$imageInput" ]] || { echo "ERROR: Singularity image is not readable: $imageInput" >&2; exit 1; }
-   SINGULARITY_CONTAINER=$(realpath "$imageInput")
+   SINGULARITY_IMAGE=$(realpath "$imageInput")
 fi
 if [[ "$useSHPC" == true ]]; then
    artifactRuntimeName="shpc"
@@ -223,8 +227,8 @@ record_test_status() {
    if [[ $exitStatus -eq 0 ]]; then printf '%s\n' SUCCESS > "$statusFile"; else printf '%s\n' FAILED > "$statusFile"; fi
    exit "$exitStatus"
 }
-if [[ "$singularityModuleSpecified" == true && -z "$imageInput" ]]; then
-   echo "ERROR: --singularity-module can be used only with --image <file>" >&2
+if [[ "$singularityModuleSpecified" == true && "$useBareMetal" == true ]]; then
+   echo "ERROR: --singularity-module cannot be used with --bare-metal" >&2
    usage >&2
    exit 1
 fi
@@ -239,7 +243,7 @@ echo
 # --- Load the version-specific test settings
 # Clear inherited values first so that all settings come from this invocation.
 # Clear only values that must come from the selected version configuration.
-# Do not clear SINGULARITY_CONTAINER here: explicit-image mode has already set it
+# Do not clear SINGULARITY_IMAGE here: explicit-image mode has already set it
 # from --image, while SHPC mode sets it later when its module is loaded.
 unset OPENFOAM_FORK OPENFOAM_VERSION DEFAULT_TOOL COMPILE_TEMPLATE_TOOL COMPILED_TEST_TOOL
 # shellcheck source=/dev/null
@@ -266,8 +270,15 @@ if [[ "$useSHPC" == true ]]; then
    bareMetalModule=""
    shpcExec="${OPENFOAM_FORK}-exec"
    module load "$shpcModule" || { echo "ERROR: Failed to load $shpcModule" >&2; exit 1; }
+   SINGULARITY_IMAGE=$SINGULARITY_CONTAINER
    command -v "$shpcExec" >/dev/null 2>&1 || { echo "ERROR: Missing SHPC wrapper: $shpcExec" >&2; exit 1; }
    [[ -n "${SINGULARITY_CONTAINER:-}" ]] || { echo "ERROR: $shpcModule did not set SINGULARITY_CONTAINER" >&2; exit 1; }
+   [[ -r "$SINGULARITY_CONTAINER" ]] || { echo "ERROR: SHPC backing image is not readable: $SINGULARITY_CONTAINER" >&2; exit 1; }
+   SINGULARITY_IMAGE=$(realpath "$SINGULARITY_CONTAINER")
+   if [[ "$singularityModuleSpecified" == true ]]; then
+      module load "$singularityModule" || { echo "ERROR: Failed to switch to Singularity module: $singularityModule" >&2; exit 1; }
+      command -v singularity >/dev/null 2>&1 || { echo "ERROR: singularity unavailable after loading $singularityModule" >&2; exit 1; }
+   fi
    runtimeExec=("$shpcExec")
 elif [[ "$useBareMetal" == true ]]; then
    runtimeMode="Bare-metal module"
@@ -287,19 +298,18 @@ else
    # The supplied filename is not used as runtime identity. The authoritative
    # version check reads WM_PROJECT_VERSION from inside the image below.
    module load "$singularityModule" || { echo "ERROR: Failed to load $singularityModule" >&2; exit 1; }
-   runtimeExec=(singularity exec "$SINGULARITY_CONTAINER")
+   runtimeExec=(singularity exec "$SINGULARITY_IMAGE")
 fi
 imageChecksum=""
 if [[ "$useBareMetal" != true ]]; then
-   SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
-   imageChecksum=$(sha256sum "$SINGULARITY_CONTAINER" | awk '{print $1}')
+   imageChecksum=$(sha256sum "$SINGULARITY_IMAGE" | awk '{print $1}')
 fi
 echo "Loaded modules:"
 module list
 echo "Execution mode: $runtimeMode"
 [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
 [[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
-[[ "$useBareMetal" != true ]] && echo "Backing image: $SINGULARITY_CONTAINER"
+[[ "$useBareMetal" != true ]] && echo "Backing image: $SINGULARITY_IMAGE"
 
 if [[ "$useBareMetal" == true ]]; then
    WM_PROJECT_VERSION=${WM_PROJECT_VERSION:-}
@@ -372,7 +382,7 @@ else
    runtimeExecBound=(
       singularity exec
       -B "${wmpudOutside}:${wmpudInside}"
-      "$SINGULARITY_CONTAINER"
+      "$SINGULARITY_IMAGE"
    )
 fi
 
@@ -526,8 +536,8 @@ echo "Complete run log: $runLog"
    echo "Result: SUCCESS"
    echo "Runtime mode: $runtimeMode"
    [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
-   [[ "$useBareMetal" != true ]] && echo "Backing image: $SINGULARITY_CONTAINER"
+   [[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
+   [[ "$useBareMetal" != true ]] && echo "Backing image: $SINGULARITY_IMAGE"
    [[ "$useBareMetal" != true ]] && echo "SIF SHA256: $imageChecksum"
    echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
    echo "Configured OpenFOAM version: $OPENFOAM_VERSION"

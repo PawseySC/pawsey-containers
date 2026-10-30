@@ -53,6 +53,16 @@
 # NOTE: This script was originally developed under the supervision of Alexis Espinosa at Pawsey Supercomputing Centre with the aid of Microsoft 365 Copilot (GPT 5.6).
 #       This script has been fully reviewed, understood and tested by Alexis Espinosa at Pawsey Supercomputing Centre.
 
+# Singularity runtime selection
+# -----------------------------
+# Podman-source and registry-source builds load a configurable Singularity module.
+# The default remains singularity/4.3.5-mpi for compatibility with the established
+# build workflow. Use --singularity-module to select another module explicitly.
+# Docker-source builds retain their existing host-specific setup through
+# ~/setup_singularity.sh; an explicit module override is rejected in that mode.
+# The requested module name and effective `singularity --version` are recorded in
+# the invocation artifacts and final summary.
+#
 # =============================================================================
 # Initial settings
 # =============================================================================
@@ -442,19 +452,31 @@ trap cleanup_on_exit EXIT HUP INT TERM
 usage() {
    cat <<USAGE
 Usage:
-  $thisScript --recipe-dir <directory> [--output-dir <directory>] --engine docker|podman [--build-arg NAME=VALUE]... [<imageFull>]
-  $thisScript --recipe-dir <directory> [--output-dir <directory>] --fromRegistryImage <registry/imageName:imageTag>
+  $thisScript --recipe-dir <directory> [options] --engine docker|podman [<imageFull>]
+  $thisScript --recipe-dir <directory> [options] --fromRegistryImage <registry/imageName:imageTag>
   $thisScript --help
 
-Options:
-  --recipe-dir, -r <directory>  OpenFOAM version directory containing the configuration and docker recipe
-  --output-dir, -o <directory>  Explicit SIF destination; does not validate or promote for production use
-  --engine, -b <engine>         Local source-image engine: docker or podman
-  --build-arg NAME=VALUE        Describe a supported source-image override; may be repeated. Tag-forming
-                                  overrides identify the local image; other overrides are recorded only
-  --fromRegistryImage <image>   Remote registry image; docker:// is optional
-  --help, -h                    Show this help message and exit
-  <imageFull>                   Optional local image name:tag, including target-built image tags
+Required source selection:
+  --engine, -b <engine>         Local source-image engine: docker or podman.
+  --fromRegistryImage <image>   Remote registry image; docker:// is optional.
+
+Recipe and output options:
+  --recipe-dir, -r <directory>  OpenFOAM version directory containing the
+                                configuration and Docker recipe.
+  --output-dir, -o <directory>  Explicit SIF destination. This does not validate
+                                or promote the image for production use.
+  --build-arg NAME=VALUE        Supported source-image override; may be repeated.
+  <imageFull>                   Optional local image name:tag.
+
+Singularity runtime option:
+  --singularity-module <module> Module used to create the SIF for Podman and
+                                registry sources.
+                                Default: singularity/4.3.5-mpi
+                                Docker mode uses ~/setup_singularity.sh and does
+                                not accept an explicit module override.
+
+General:
+  --help, -h                    Show this help message and exit.
 USAGE
 }
 
@@ -463,6 +485,8 @@ USAGE
 # =============================================================================
 ENGINE=""
 REGO_IMAGE=""
+singularityModule="singularity/4.3.5-mpi"
+singularityModuleSpecified=false
 positionalArgs=()
 while [[ $# -gt 0 ]]; do
    case $1 in
@@ -508,6 +532,16 @@ while [[ $# -gt 0 ]]; do
          buildArgValues["$buildArgName"]="$buildArgValue"
          shift 2
          ;;
+      --singularity-module)
+         if [[ $# -lt 2 || -z "$2" ]]; then
+            echo "ERROR: --singularity-module requires <module>" >&2
+            usage >&2
+            exit 1
+         fi
+         singularityModule="$2"
+         singularityModuleSpecified=true
+         shift 2
+         ;;
       --fromRegistryImage)
          if [[ $# -lt 2 || -z "$2" ]]; then
             echo "ERROR: --fromRegistryImage requires <registry/imageName:imageTag>" >&2
@@ -532,6 +566,14 @@ while [[ $# -gt 0 ]]; do
          ;;
    esac
 done
+
+# Docker-source builds use the host-specific setup script rather than a Pawsey
+# module. Reject an explicit module option instead of silently ignoring it.
+if [[ "$singularityModuleSpecified" == true && "$ENGINE" == "docker" && -z "$REGO_IMAGE" ]]; then
+   echo "ERROR: --singularity-module cannot be used with --engine docker" >&2
+   usage >&2
+   exit 1
+fi
 
 # =============================================================================
 # Require and resolve the recipe directory
@@ -956,12 +998,13 @@ if [[ "$ENGINE" == "docker" ]]; then
 else
    # Check for use only on restricted Container-Building nodes at Pawsey. Adapt the check to your own system needs.
    # This branch is also used for --fromRegistryImage mode (no local engine).
-   if ! module load singularity/4.1.0-mpi 2>/dev/null; then
-      echo "✖ Step $testNum FAIL: Failed to: module load singularity/4.1.0-mpi"
+   if ! module load "$singularityModule" 2>/dev/null; then
+      echo "✖ Step $testNum FAIL: Failed to load Singularity module: $singularityModule"
       ((totalFailed++))
       exit 1
    fi
 fi
+echo "Singularity module: $([[ "$ENGINE" == "docker" ]] && echo "host setup script" || echo "$singularityModule")"
 echo "✓ Step $testNum PASS"
 echo
 
@@ -1215,6 +1258,7 @@ if [[ -f "$imageSif" && $buildExit -eq 0 ]]; then
       echo "SIF SHA256: $imageChecksum"
       echo "Build timestamp: $buildTimestamp"
       echo "Recipe directory: ${recipeDir:-none}"
+      echo "Singularity module: $([[ "$ENGINE" == "docker" ]] && echo "host setup script" || echo "$singularityModule")"
       echo "Singularity version: $singularityVersion"
       echo "Build command file: $buildCommandFile"
       echo "Build log: $buildLog"
@@ -1245,6 +1289,8 @@ echo "======================================================"
 echo "Total steps run: $testNum"
 echo "Invocation artifacts: $runArtifactsDir"
 echo "SIF image: $imageSif"
+echo "Singularity module: $([[ "$ENGINE" == "docker" ]] && echo "host setup script" || echo "$singularityModule")"
+echo "Singularity version: $singularityVersion"
 echo "Build log: $buildLog"
 echo "Complete run log: $runLog"
 if [[ $totalFailed -eq 0 ]]; then

@@ -6,7 +6,7 @@
 # workflow. The script checks that the selected engine and image are accessible,
 # reads the OpenFOAM environment from the image, and inspects the build and
 # functional-test logs stored inside it. It also runs the standalone
-# checkOpenFOAMInstallation.sh script inside the selected image to compare the
+# checkOpenFoamBinaries.sh script inside the selected image to compare the
 # compiled applications with the targets declared by the OpenFOAM source tree.
 # By default, tracked invocation output is stored under
 # <recipe-dir>/artifacts/tests/image-validation/. Use --artifacts-dir to choose a
@@ -65,7 +65,7 @@ set -u
 # --- Initial settings
 thisScript=$(basename "$0")
 scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-installationChecker="${scriptDir}/checkOpenFOAMInstallation.sh"
+installationChecker="${scriptDir}/checkOpenFoamBinaries.sh"
 testNum=0
 failedTests=()
 totalFailed=0
@@ -74,6 +74,8 @@ recipeDirInput=""
 configFileInput=""
 artifactsDirInput=""
 imageRef=""
+singularityModule="singularity/4.3.5-mpi"
+singularityModuleSpecified=false
 recipeDir=""
 configFile=""
 validationArtifactsDir=""
@@ -102,6 +104,8 @@ Options:
                                  conventional recipe layout; overrides the default.
   --engine, -b <engine>         Image engine: docker, podman, or singularity
   --image, -i <image>           Required Docker/Podman image name:tag or SIF path
+  --singularity-module <module>  Singularity module for --engine singularity
+                                (default: singularity/4.3.5-mpi)
   --help, -h                    Show this help message and exit
 USAGE
 }
@@ -120,7 +124,7 @@ engine_run() {
 # checker and its host output directory at stable paths for the selected engine.
 run_installation_checker() {
    local hostOutputDir=$1
-   local containerChecker="/tmp/checkOpenFOAMInstallation.sh"
+   local containerChecker="/tmp/checkOpenFoamBinaries.sh"
    local containerOutputDir="/tmp/openfoam-installation-audit"
 
    mkdir -p "$hostOutputDir"
@@ -134,10 +138,25 @@ run_installation_checker() {
             "$imageRef" \
             bash "$containerChecker" -o "$containerOutputDir" --overwrite
          ;;
-      docker|podman)
-         "$ENGINE" run --rm \
+      podman)
+         # The image defaults to `ofuser`, which cannot write to a host-owned bind
+         # mount. Map and select the invoking host UID/GID explicitly so the audit
+         # files persist with usable ownership in the validation artifact directory.
+         podman run --rm \
+            --userns=keep-id \
+            --user "$(id -u):$(id -g)" \
             --volume "${installationChecker}:${containerChecker}:ro" \
-            --volume "${hostOutputDir}:${containerOutputDir}" \
+            --volume "${hostOutputDir}:${containerOutputDir}:rw" \
+            "$imageRef" \
+            bash "$containerChecker" -o "$containerOutputDir" --overwrite
+         ;;
+      docker)
+         # Run with the invoking UID/GID so files written through the persistent
+         # output-directory bind mount remain owned and manageable by that user.
+         docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "${installationChecker}:${containerChecker}:ro" \
+            --volume "${hostOutputDir}:${containerOutputDir}:rw" \
             "$imageRef" \
             bash "$containerChecker" -o "$containerOutputDir" --overwrite
          ;;
@@ -241,6 +260,15 @@ while [[ $# -gt 0 ]]; do
             exit 1
          fi
          imageRef="$2"; shift 2 ;;
+      --singularity-module)
+         if [[ $# -lt 2 || -z "$2" ]]; then
+            echo "ERROR: --singularity-module requires <module>" >&2
+            usage >&2
+            exit 1
+         fi
+         singularityModule="$2"
+         singularityModuleSpecified=true
+         shift 2 ;;
       -h|--help) usage; exit 0 ;;
       -*) echo "ERROR: Unknown option '$1'" >&2; usage >&2; exit 1 ;;
       *) echo "ERROR: Unexpected positional argument '$1'; use --image <image>" >&2; usage >&2; exit 1 ;;
@@ -332,6 +360,12 @@ record_validation_status() {
    fi
    exit "$exitStatus"
 }
+if [[ "$singularityModuleSpecified" == true &&
+      (-z "$imageRef" || "$ENGINE" != "singularity") ]]; then
+    echo "ERROR: --singularity-module requires --image <file> and --engine singularity" >&2
+    usage >&2
+    exit 1
+fi
 trap record_validation_status EXIT
 exec > >(tee "$runLog") 2>&1
 
@@ -364,6 +398,7 @@ done
 {
    echo "Validation timestamp: $validationTimestamp"
    echo "Engine: $ENGINE"
+   [[ "$ENGINE" == "singularity" ]] && echo "Singularity module: $singularityModule"
    echo "Image input: $imageRef"
    echo "Configuration: $configFile"
    echo "Recipe directory: ${recipeDir:-not inferred (config outside conventional layout)}"
@@ -372,6 +407,7 @@ done
 } > "$validationDetailsFile"
 echo "Will validate image: $imageRef"
 echo "Engine: $ENGINE"
+[[ "$ENGINE" == "singularity" ]] && echo "Singularity module: $singularityModule"
 echo "Configuration: $configFile"
 echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
 echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
@@ -397,7 +433,7 @@ case "$ENGINE" in
       source /container/setup_podman.sh 2>/dev/null || { echo "ERROR: Failed to source /container/setup_podman.sh" >&2; exit 1; }
       ;;
    singularity)
-      module load singularity/4.1.0-mpi 2>/dev/null || { echo "ERROR: Failed to load singularity/4.1.0-mpi" >&2; exit 1; }
+      module load "$singularityModule" || { echo "ERROR: Failed to load $singularityModule" >&2; exit 1; }
       ;;
 esac
 echo "PASS: ${ENGINE^} environment ready"
@@ -589,6 +625,7 @@ echo "$thisScript: FINAL SUMMARY"
 echo "======================================================"
 echo "Image: $imageRef"
 echo "Engine: $ENGINE"
+[[ "$ENGINE" == "singularity" ]] && echo "Singularity module: $singularityModule"
 echo "OpenFOAM version: $WM_PROJECT_VERSION"
 echo "Total steps run: $testNum"
 
@@ -602,6 +639,7 @@ if [[ $totalFailed -eq 0 ]]; then
       echo "Result: SUCCESS"
       echo "Image: $imageRef"
       echo "Engine: $ENGINE"
+      [[ "$ENGINE" == "singularity" ]] && echo "Singularity module: $singularityModule"
       echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
       echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
       echo "Image OpenFOAM version: $WM_PROJECT_VERSION"
@@ -616,6 +654,7 @@ else
       echo "Result: FAILED"
       echo "Image: $imageRef"
       echo "Engine: $ENGINE"
+      [[ "$ENGINE" == "singularity" ]] && echo "Singularity module: $singularityModule"
       echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
       echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
       echo "Image OpenFOAM version: $WM_PROJECT_VERSION"

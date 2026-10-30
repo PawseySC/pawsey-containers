@@ -101,7 +101,7 @@ Required inputs:
     or
   --config, -c <file>           Explicit version configuration file
   --image, -i <file>            Use the supplied Singularity SIF image
-  --singularity-module <module>  Singularity module for --image mode
+  --singularity-module <module>  Singularity module for --image or --shpc mode
                                 (default: singularity/4.3.5-mpi)
   --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --bare-metal                  Use <OPENFOAM_FORK>/<OPENFOAM_VERSION>
@@ -256,8 +256,8 @@ runtimeSelectorCount=0
    usage >&2
    exit 1
 }
-if [[ "$singularityModuleSpecified" == true && -z "$imageInput" ]]; then
-   echo "ERROR: --singularity-module can be used only with --image <file>" >&2
+if [[ "$singularityModuleSpecified" == true && "$useBareMetal" == true ]]; then
+   echo "ERROR: --singularity-module cannot be used with --bare-metal" >&2
    usage >&2
    exit 1
 fi
@@ -285,6 +285,9 @@ if [[ -n "$imageInput" ]]; then
 elif [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"
    runtimeOption=(--shpc)
+   if [[ "$singularityModuleSpecified" == true ]]; then
+      runtimeOption+=(--singularity-module "$singularityModule")
+   fi
    artifactRuntimeName="shpc"
 else
    runtimeMode="Bare-metal module"
@@ -295,18 +298,40 @@ fi
 echo "PASS: Configuration and runtime selection resolved"
 echo
 
+# Report the complete resolved runtime and launcher context consistently in
+# console headers, persistent details, submission summaries, and final summaries.
+emitResolvedContext() {
+   echo "Recipe directory: $recipeDir"
+   echo "Configuration: $configFile"
+   echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
+   echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
+   echo "Runtime mode: $runtimeMode"
+
+   if [[ -n "$image" ]]; then
+      echo "SIF image: $image"
+      echo "SIF SHA256: $imageChecksum"
+      echo "Singularity module: $singularityModule"
+   elif [[ "$useSHPC" == true ]]; then
+      echo "SHPC module: $shpcModule"
+      if [[ "$singularityModuleSpecified" == true ]]; then
+         echo "SHPC Singularity override: $singularityModule"
+      else
+         echo "SHPC Singularity override: none"
+      fi
+   else
+      echo "Bare-metal module: $bareMetalModule"
+   fi
+
+   echo "Work-root override: ${workRootInput:-none}"
+   echo "Partition override: ${partitionInput:-none}"
+   echo "Reservation: ${reservationInput:-none}"
+   echo "Launcher mode: $([[ "$submitOnly" == true ]] && echo "submit only" || echo "submit and wait")"
+}
+
 # --- Step 2: Record the configured runtime identity
 echo "$thisScript: -----------------------------------------"
 echo "Step 2 - Recording configured runtime identity"
-echo "Configured fork: $OPENFOAM_FORK"
-echo "Configured version: $OPENFOAM_VERSION"
-echo "Runtime mode: $runtimeMode"
-[[ -n "$image" ]] && { echo "Runtime mode: $runtimeMode"
-[[ -n "$image" ]] && echo "Image: $image"
-[[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"; echo "Image SHA256: $imageChecksum"; }
-[[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
+emitResolvedContext
 echo
 
 # --- Step 3: Verify the Slurm client and job script
@@ -387,22 +412,13 @@ echo "PASS: Persistent test artifacts are ready"
 echo
 
 # --- Display the resolved test plan
-cat <<PLAN
-============================================================
-OpenFOAM compile-tool functional-test launcher
-============================================================
-Recipe directory   : $recipeDir
-Configuration      : $configFile
-Image              : $image
-Image SHA256       : $imageChecksum
-Slurm job script   : $jobScript
-Work-root override : ${workRootInput:-none}
-Partition override : ${partitionInput:-none}
-Reservation        : ${reservationInput:-none}
-Artifact directory : $runDir
-Launcher mode      : $([[ "$submitOnly" == true ]] && echo "submit only" || echo "submit and wait")
-============================================================
-PLAN
+echo "============================================================"
+echo "OpenFOAM compile-tool functional-test launcher"
+echo "============================================================"
+emitResolvedContext
+echo "Slurm job script: $jobScript"
+echo "Artifact directory: $runDir"
+echo "============================================================"
 
 # --- Step 5: Submit the compile-tool Slurm job
 submissionOptions=()
@@ -445,14 +461,7 @@ slurmOutput="${runDir}/slurm-${jobId}.out"
 
 {
    echo "Launcher timestamp: $timestamp"
-   echo "Configuration: $configFile"
-   echo "Recipe directory: $recipeDir"
-   echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
-   echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
-   echo "Runtime mode: $runtimeMode"
-   [[ -n "$image" ]] && { echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; }
-   [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
+   emitResolvedContext
    echo "Slurm job ID: $jobId"
    echo "Slurm output: $slurmOutput"
 } > "$detailsFile"
@@ -467,8 +476,12 @@ if [[ "$submitOnly" == true ]]; then
    printf '%s
 ' SUBMITTED > "$statusFile"
    trap - EXIT
-   { echo "Result: SUBMITTED"; echo "Slurm job ID: $jobId"; echo "Runtime mode: $runtimeMode"; [[ -n "$image" ]] && { echo "SIF image: $image"; echo "SIF SHA256: $imageChecksum"; }; [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"; echo "Slurm output: $slurmOutput"; } > "$summaryFile"
+   {
+      echo "Result: SUBMITTED"
+      emitResolvedContext
+      echo "Slurm job ID: $jobId"
+      echo "Slurm output: $slurmOutput"
+   } > "$summaryFile"
    echo "RESULT: SUBMITTED"
    echo "The launcher will not wait for Slurm job $jobId."
    exit 0
@@ -518,11 +531,10 @@ fi
 
 {
    echo "Result: $resultWord"
+   emitResolvedContext
    echo "Slurm job ID: $jobId"
    echo "Slurm state: $state"
    echo "Slurm exit code: $exitCode"
-   echo "SIF image: $image"
-   echo "SIF SHA256: $imageChecksum"
    echo "Job status file: ${runDir}/compileTool.status.txt"
    echo "Slurm output: $slurmOutput"
 } > "$summaryFile"
@@ -542,8 +554,8 @@ echo "============================================================"
 echo "$thisScript: FINAL SUMMARY"
 echo "============================================================"
 echo "Result: $resultWord"
+emitResolvedContext
 echo "Slurm job: $jobId ($state, $exitCode)"
-echo "Image: $image"
 echo "Artifact directory: $runDir"
 echo "Slurm output: $slurmOutput"
 echo "Job run log: ${runDir}/compileTool.run.log"

@@ -13,13 +13,13 @@
 # Run it after the OpenFOAM environment has been initialized, for example:
 #
 #   module load openfoam/2312
-#   ./checkOpenFOAMInstallation.sh -o openfoam-installation-check
+#   ./checkOpenFoamBinaries.sh -o openfoam-installation-check
 #
 #   singularity shell openfoam.sif
-#   ./checkOpenFOAMInstallation.sh -o openfoam-installation-check
+#   ./checkOpenFoamBinaries.sh -o openfoam-installation-check
 #
 #   podman run --rm -it openfoam:v2312
-#   ./checkOpenFOAMInstallation.sh -o openfoam-installation-check
+#   ./checkOpenFoamBinaries.sh -o openfoam-installation-check
 #
 # Output
 # ------

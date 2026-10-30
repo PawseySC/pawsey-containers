@@ -9,8 +9,9 @@
 #   2. preFoam.slurm.sh prepares and decomposes the case in a Slurm job.
 #   3. runFoam.slurm.sh runs and validates the solver in a dependent Slurm job.
 #
-# The launcher accepts exactly one runtime selection and passes it unchanged to
-# all three stages:
+# The launcher accepts exactly one runtime mode and passes the corresponding
+# runtime arguments to all three stages. Explicit-image mode also passes the
+# selected Singularity module:
 #
 #   --image <file>  uses an explicit Singularity image;
 #   --shpc          uses <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>;
@@ -116,8 +117,11 @@ Test-location selection (choose one complete mode):
 
 Runtime selection (choose exactly one):
   --image, -i <file>            Use the supplied Singularity image
-  --singularity-module <module>  Singularity module for --image mode
-                                (default: singularity/4.3.5-mpi)
+  --singularity-module <module>  Singularity module for --image mode, or an
+                                explicit override applied after loading the
+                                SHPC OpenFOAM module. Plain --shpc retains the
+                                SHPC-provided Singularity module.
+                                Default for --image: singularity/4.3.5-mpi
   --shpc                        Use the container module derived from the config:
                                 <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --bare-metal                  Use the bare-metal module derived from the config:
@@ -259,20 +263,23 @@ runtimeSelectorCount=0
 [[ "$useBareMetal" == true ]] && ((runtimeSelectorCount += 1))
 [[ $runtimeSelectorCount -eq 1 ]] || { echo "ERROR: Choose exactly one of --image <file>, --shpc, or --bare-metal" >&2; exit 1; }
 
-SINGULARITY_CONTAINER=""
+SINGULARITY_IMAGE=""
 imageChecksum=""
 shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
 bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
 if [[ -n "$imageInput" ]]; then
    [[ -f "$imageInput" ]] || { echo "ERROR: Image not found: $imageInput" >&2; exit 1; }
-   SINGULARITY_CONTAINER=$(realpath "$imageInput")
-   imageChecksum=$(sha256sum "$SINGULARITY_CONTAINER" | awk '{print $1}')
+   SINGULARITY_IMAGE=$(realpath "$imageInput")
+   imageChecksum=$(sha256sum "$SINGULARITY_IMAGE" | awk '{print $1}')
    runtimeMode="Explicit Singularity image"
-   runtimeOption=(--image "$SINGULARITY_CONTAINER" --singularity-module "$singularityModule")
+   runtimeOption=(--image "$SINGULARITY_IMAGE" --singularity-module "$singularityModule")
    artifactRuntimeName="singularity"
 elif [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"
    runtimeOption=(--shpc)
+   if [[ "$singularityModuleSpecified" == true ]]; then
+      runtimeOption+=(--singularity-module "$singularityModule")
+   fi
    artifactRuntimeName="shpc"
 else
    runtimeMode="Bare-metal module"
@@ -289,8 +296,8 @@ runScript="${tutorialScriptDir}/runFoam.slurm.sh"
    echo "ERROR: Tutorial-test directory not found: $tutorialScriptDir" >&2
    exit 1
 }
-if [[ "$singularityModuleSpecified" == true && -z "$imageInput" ]]; then
-   echo "ERROR: --singularity-module can be used only with --image <file>" >&2
+if [[ "$singularityModuleSpecified" == true && "$useBareMetal" == true ]]; then
+   echo "ERROR: --singularity-module cannot be used with --bare-metal" >&2
    usage >&2
    exit 1
 fi
@@ -354,6 +361,40 @@ else
 fi
 outputDir="$runArtifactsDir"
 mkdir -p "$workRoot"
+
+# Report the complete resolved test context consistently in persistent details,
+# submission summaries, and final success or failure summaries.
+emitResolvedContext() {
+   echo "Version directory: $recipeDir"
+   echo "Configuration: $configFile"
+   echo "Tutorial scripts: $tutorialScriptDir"
+   echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
+   echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
+   echo "Runtime mode: $runtimeMode"
+
+   if [[ -n "$SINGULARITY_IMAGE" ]]; then
+      echo "SIF image: $SINGULARITY_IMAGE"
+      echo "SIF SHA256: $imageChecksum"
+      echo "Singularity module: $singularityModule"
+   elif [[ "$useSHPC" == true ]]; then
+      echo "SHPC module: $shpcModule"
+      if [[ "$singularityModuleSpecified" == true ]]; then
+         echo "SHPC Singularity override: $singularityModule"
+      else
+         echo "SHPC Singularity override: none"
+      fi
+   else
+      echo "Bare-metal module: $bareMetalModule"
+   fi
+
+   echo "Work root: $workRoot"
+   echo "Output directory: $outputDir"
+   echo "Launcher mode: $([[ "$submitOnly" == true ]] && echo "submit only" || echo "submit and wait")"
+   echo "Overwrite case: $([[ "$overwriteCase" == true ]] && echo "yes" || echo "no")"
+   echo "Partition override: ${partitionInput:-none}"
+   echo "Reservation: ${reservationInput:-none}"
+}
+
 workOutputPath="${workRoot}/test-output"
 if [[ -e "$workOutputPath" && ! -L "$workOutputPath" ]]; then
    echo "ERROR: Refusing to replace non-symbolic-link output path: $workOutputPath" >&2
@@ -363,15 +404,7 @@ fi
 ln -sfn "$outputDir" "$workOutputPath"
 {
    echo "Test timestamp: $runTimestamp"
-   echo "Configuration: $configFile"
-   echo "Recipe directory: $recipeDir"
-   echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
-   echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
-   echo "Runtime mode: $runtimeMode"
-   [[ -n "$SINGULARITY_CONTAINER" ]] && { echo "Runtime mode: $runtimeMode"; [[ -n "$SINGULARITY_CONTAINER" ]] && { echo "SIF image: $SINGULARITY_CONTAINER"; echo "SIF SHA256: $imageChecksum"; }; [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"; [[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"; }
-   [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-   [[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
-   echo "Work root: $workRoot"
+   emitResolvedContext
 } > "$testDetailsFile"
 
 # --- Verify the Slurm commands required by the launcher
@@ -399,31 +432,8 @@ fi
 echo "============================================================"
 echo "OpenFOAM tutorial functional-test launcher"
 echo "============================================================"
-echo "Launcher directory : $scriptDir"
-echo "Version directory  : $recipeDir"
-echo "Tutorial scripts   : $tutorialScriptDir"
-echo "Runtime mode       : $runtimeMode"
-[[ -n "$SINGULARITY_CONTAINER" ]] && echo "Image              : $SINGULARITY_CONTAINER"
-[[ "$useSHPC" == true ]] && echo "SHPC module        : $shpcModule"
-[[ "$useBareMetal" == true ]] && echo "Bare-metal module  : $bareMetalModule"
-echo "Work root          : $workRoot"
-echo "Output directory   : $outputDir"
-echo "Launcher mode      : $([[ "$submitOnly" == true ]] && echo "submit only" || echo "submit and wait")"
-if [[ "$overwriteCase" == "true" ]]; then
-   echo "Overwrite case     : yes"
-else
-   echo "Overwrite case     : no"
-fi
-if [[ -n "$partitionInput" ]]; then
-   echo "Partition override : $partitionInput"
-else
-   echo "Partition override : none"
-fi
-if [[ -n "$reservationInput" ]]; then
-   echo "Reservation        : $reservationInput"
-else
-   echo "Reservation        : none"
-fi
+echo "Launcher directory: $scriptDir"
+emitResolvedContext
 echo
 
 # --- Stage 1: Extract and validate the tutorial case in the selected runtime
@@ -532,7 +542,13 @@ if [[ "$submitOnly" == true ]]; then
    printf '%s
 ' SUBMITTED > "$statusFile"
    trap - EXIT
-   { echo "Result: SUBMITTED"; echo "Runtime mode: $runtimeMode"; [[ -n "$SINGULARITY_CONTAINER" ]] && { echo "SIF image: $SINGULARITY_CONTAINER"; echo "SIF SHA256: $imageChecksum"; }; [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"; [[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"; echo "Preparation job: $preJobId"; echo "Solver job: $runJobId"; echo "Solver dependency: afterok:$preJobId"; } > "$testSummaryFile"
+   {
+      echo "Result: SUBMITTED"
+      emitResolvedContext
+      echo "Preparation job: $preJobId"
+      echo "Solver job: $runJobId"
+      echo "Solver dependency: afterok:$preJobId"
+   } > "$testSummaryFile"
    echo "RESULT: SUBMITTED"
    echo "The launcher will not wait for Slurm jobs $preJobId and $runJobId."
    exit 0
@@ -562,24 +578,42 @@ echo "All submitted jobs have left the queue."
 echo
 
 # --- Read a parent job's final Slurm state and exit code
-# Accounting data may appear shortly after a job leaves squeue. Retry for one
-# minute by default before treating the accounting result as unavailable.
+# A job can leave squeue before sacct has updated its parent record to a terminal
+# state. Retry both missing and nonterminal accounting records for up to 12
+# attempts using the configured polling interval.
 getJobResult() {
    local jobId="$1"
    local attempt
    local result=""
+   local state=""
+   local exitCode=""
+   local baseState=""
 
    for ((attempt = 1; attempt <= 12; attempt++)); do
       result=$(sacct --noheader --parsable2 --jobs="$jobId" \
          --format=JobIDRaw,State,ExitCode 2>/dev/null | \
          awk -F'|' -v id="$jobId" '$1 == id { print $2 "|" $3; exit }')
 
-      [[ -n "$result" ]] && break
-      sleep "$pollInterval"
+      if [[ -n "$result" ]]; then
+         IFS='|' read -r state exitCode <<< "$result"
+         baseState=${state%%+}
+
+         case "$baseState" in
+            PENDING|RUNNING|CONFIGURING|COMPLETING|RESIZING|SUSPENDED|REQUEUED|REQUEUE_FED|REQUEUE_HOLD|SIGNALING|STAGE_OUT)
+               ;;
+            *)
+               printf '%s\n' "$result"
+               return 0
+               ;;
+         esac
+      fi
+
+      if ((attempt < 12)); then
+         sleep "$pollInterval"
+      fi
    done
 
-   [[ -n "$result" ]] || return 1
-   printf '%s\n' "$result"
+   return 1
 }
 
 # --- Stage 5: Evaluate preparation and solver results
@@ -617,13 +651,7 @@ echo
 echo "============================================================"
 echo "$thisScript: FINAL SUMMARY"
 echo "============================================================"
-echo "Version directory: $recipeDir"
-echo "Runtime mode: $runtimeMode"
-[[ -n "$SINGULARITY_CONTAINER" ]] && echo "Image: $SINGULARITY_CONTAINER"
-[[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-[[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
-echo "Work root: $workRoot"
-echo "Output directory: $outputDir"
+emitResolvedContext
 echo "Extraction: exitStatus=$extractStatus"
 echo "Preparation job: $preJobId ($preState, $preExitCode)"
 echo "Solver job: $runJobId ($runState, $runExitCode)"
@@ -631,6 +659,7 @@ echo "Solver job: $runJobId ($runState, $runExitCode)"
 if [[ $FAILED -ne 0 ]]; then
    {
       echo "Result: FAILED"
+      emitResolvedContext
       echo "Extraction exit status: $extractStatus"
       echo "Preparation job: $preJobId ($preState, $preExitCode)"
       echo "Solver job: $runJobId ($runState, $runExitCode)"
@@ -641,15 +670,10 @@ if [[ $FAILED -ne 0 ]]; then
 fi
 {
    echo "Result: SUCCESS"
-   echo "Runtime mode: $runtimeMode"
-   [[ -n "$SINGULARITY_CONTAINER" ]] && { echo "SIF image: $SINGULARITY_CONTAINER"; echo "SIF SHA256: $imageChecksum"; }
-   [[ "$useSHPC" == true ]] && echo "SHPC module: $shpcModule"
-   [[ "$useBareMetal" == true ]] && echo "Bare-metal module: $bareMetalModule"
-   echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
+   emitResolvedContext
    echo "Extraction exit status: $extractStatus"
    echo "Preparation job: $preJobId ($preState, $preExitCode)"
    echo "Solver job: $runJobId ($runState, $runExitCode)"
-   echo "Work root: $workRoot"
 } > "$testSummaryFile"
 echo "Result summary: $testSummaryFile"
 echo "RESULT: PASS"

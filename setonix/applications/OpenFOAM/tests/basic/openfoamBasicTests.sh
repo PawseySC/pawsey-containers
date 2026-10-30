@@ -53,6 +53,8 @@ USER_TOOL=""
 recipeDirInput=""
 configFileInput=""
 imageRef=""
+singularityModule="singularity/4.3.5-mpi"
+singularityModuleSpecified=false
 recipeDir=""
 configFile=""
 basicTestsArtifactsDir=""
@@ -74,6 +76,8 @@ Usage: $thisScript --recipe-dir <directory> --engine docker|podman|singularity -
   --config, -c <file>           Explicit openfoamBuildAndValidation configuration file
   --engine, -b <engine>         docker, podman, or singularity
   --image, -i <image>           Required image name:tag or path to a .sif image
+  --singularity-module <module>  Singularity module for --engine singularity
+                                (default: singularity/4.3.5-mpi)
   --tool <tool>                 Override DEFAULT_TOOL from the configuration
   --help, -h                    Show this help message and exit
 USAGE
@@ -126,6 +130,16 @@ while [[ $# -gt 0 ]]; do
             exit 1
          fi
          imageRef="$2"
+         shift 2
+         ;;
+      --singularity-module)
+         if [[ $# -lt 2 || -z "$2" ]]; then
+            echo "ERROR: --singularity-module requires <module>" >&2
+            usage >&2
+            exit 1
+         fi
+         singularityModule="$2"
+         singularityModuleSpecified=true
          shift 2
          ;;
       --tool)
@@ -236,6 +250,12 @@ record_test_status() {
    fi
    exit "$exitStatus"
 }
+if [[ "$singularityModuleSpecified" == true &&
+      (-z "$imageRef" || "$ENGINE" != "singularity") ]]; then
+    echo "ERROR: --singularity-module requires --image <file> and --engine singularity" >&2
+    usage >&2
+    exit 1
+fi
 trap record_test_status EXIT
 
 # Preserve the complete script output while continuing to display it.
@@ -273,6 +293,7 @@ fi
 {
    echo "Test timestamp: $testTimestamp"
    echo "Engine: $ENGINE"
+   [[ "$ENGINE" == "singularity" ]] && echo "Singularity module: $singularityModule"
    echo "Image input: $imageRef"
    echo "Configuration: $configFile"
    echo "Recipe directory: $recipeDir"
@@ -284,6 +305,7 @@ fi
 
 echo "Will test image: $imageRef"
 echo "Engine: $ENGINE"
+[[ "$ENGINE" == "singularity" ]] && echo "Singularity module: $singularityModule"
 echo "Configured OpenFOAM fork: $OPENFOAM_FORK"
 echo "Configured OpenFOAM version: $OPENFOAM_VERSION"
 echo "OpenFOAM tool: $OF_TOOL"
@@ -310,7 +332,7 @@ case "$ENGINE" in
       source /container/setup_podman.sh 2>/dev/null || { echo "ERROR: Failed to source /container/setup_podman.sh" >&2; exit 1; }
       ;;
    singularity)
-      module load singularity/4.1.0-mpi 2>/dev/null || { echo "ERROR: Failed to load singularity/4.1.0-mpi" >&2; exit 1; }
+      module load "$singularityModule" || { echo "ERROR: Failed to load $singularityModule" >&2; exit 1; }
       ;;
 esac
 echo "PASS: ${ENGINE^} ready"

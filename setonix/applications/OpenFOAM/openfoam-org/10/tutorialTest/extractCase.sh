@@ -45,6 +45,12 @@ set -u
 # and runFoam.slurm.sh, so all three scripts intentionally use the same case.
 CASE_NAME="channel395"
 
+# In explicit-image mode, SINGULARITY_IMAGE is resolved from --image. In SHPC
+# mode, the loaded module provides SINGULARITY_CONTAINER; this script validates
+# that external value and canonicalizes it into SINGULARITY_IMAGE. All subsequent
+# execution, checks, and reporting use SINGULARITY_IMAGE. Bare-metal mode uses
+# neither image variable.
+#
 # --- Initial settings
 thisScript=$(basename "$0")
 imageInput=""
@@ -55,7 +61,8 @@ recipeDirInput=""
 configFileInput=""
 testArtifactsDirInput=""
 overwriteCase=false
-SINGULARITY_MODULE=${SINGULARITY_MODULE:-singularity/4.3.5-mpi}
+singularityModule="singularity/4.3.5-mpi"
+singularityModuleSpecified=false
 
 # --- Command-line help
 usage() {
@@ -71,6 +78,11 @@ Usage:
 
 Runtime selection (choose exactly one):
   --image, -i <file>          Use the supplied Singularity image directly
+  --singularity-module <module>
+                              Singularity module for --image mode, or an override
+                              applied after loading the SHPC OpenFOAM module.
+                              Plain --shpc retains the SHPC-provided module.
+                              Default for --image: singularity/4.3.5-mpi
   --shpc                      Load <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --bare-metal                Load <OPENFOAM_FORK>/<OPENFOAM_VERSION> and use the
                               host OpenFOAM environment directly
@@ -104,6 +116,12 @@ while [[ $# -gt 0 ]]; do
       --image|-i)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --image requires <file>" >&2; usage >&2; exit 1; }
          imageInput="$2"
+         shift 2
+         ;;
+      --singularity-module)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --singularity-module requires <module>" >&2; usage >&2; exit 1; }
+         singularityModule="$2"
+         singularityModuleSpecified=true
          shift 2
          ;;
       --shpc)
@@ -187,12 +205,18 @@ runtimeSelectorCount=0
    exit 1
 }
 
+if [[ "$singularityModuleSpecified" == true && "$useBareMetal" == true ]]; then
+   echo "ERROR: --singularity-module cannot be used with --bare-metal" >&2
+   usage >&2
+   exit 1
+fi
+
 if [[ -n "$imageInput" ]]; then
    [[ -f "$imageInput" ]] || {
       echo "ERROR: Singularity image not found: $imageInput" >&2
       exit 1
    }
-   SINGULARITY_CONTAINER=$(realpath "$imageInput")
+   SINGULARITY_IMAGE=$(realpath "$imageInput")
 
 fi
 
@@ -255,7 +279,7 @@ runInOpenFOAMRuntime() {
    elif [[ "$useBareMetal" == true ]]; then
       "$@"
    else
-      singularity exec "$SINGULARITY_CONTAINER" "$@"
+      singularity exec "$SINGULARITY_IMAGE" "$@"
    fi
 }
 
@@ -284,7 +308,20 @@ if [[ "$useSHPC" == true ]]; then
       echo "ERROR: SHPC backing image is not readable: $SINGULARITY_CONTAINER" >&2
       exit 1
    }
-   SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
+   SINGULARITY_IMAGE=$(realpath "$SINGULARITY_CONTAINER")
+
+   # Load the SHPC OpenFOAM module first so it defines its wrapper and backing
+   # image. Apply an explicitly requested Singularity module only afterward.
+   if [[ "$singularityModuleSpecified" == true ]]; then
+      module load "$singularityModule" || {
+         echo "ERROR: Failed to switch to Singularity module: $singularityModule" >&2
+         exit 1
+      }
+      command -v singularity >/dev/null 2>&1 || {
+         echo "ERROR: singularity unavailable after loading $singularityModule" >&2
+         exit 1
+      }
+   fi
 
    echo "SHPC module: $shpcModule"
    echo "SHPC execution wrapper: $shpcExec"
@@ -309,16 +346,16 @@ else
    shpcModule=""
    shpcExec=""
 
-   module load "$SINGULARITY_MODULE" || {
-      echo "ERROR: Failed to load $SINGULARITY_MODULE" >&2
+   module load "$singularityModule" || {
+      echo "ERROR: Failed to load $singularityModule" >&2
       exit 1
    }
    command -v singularity >/dev/null 2>&1 || {
-      echo "ERROR: singularity is unavailable after loading $SINGULARITY_MODULE" >&2
+      echo "ERROR: singularity is unavailable after loading $singularityModule" >&2
       exit 1
    }
 
-   echo "Singularity module: $SINGULARITY_MODULE"
+   echo "Singularity module: $singularityModule"
 fi
 
 # Print the final module state once all modules required by the selected runtime
@@ -329,7 +366,7 @@ module list
 
 echo "Execution mode: $runtimeMode"
 if [[ "$useBareMetal" != true ]]; then
-   echo "Backing image: $SINGULARITY_CONTAINER"
+   echo "Backing image: $SINGULARITY_IMAGE"
 fi
 
 # Query the selected runtime instead of trusting either an image filename or a
@@ -465,7 +502,7 @@ if [[ "$useSHPC" == true ]]; then
 elif [[ "$useBareMetal" == true ]]; then
    echo "Bare-metal module: $bareMetalModule"
 else
-   echo "Backing image: $SINGULARITY_CONTAINER"
+   echo "Backing image: $SINGULARITY_IMAGE"
 fi
 echo "Extracted case: $testCase"
 echo "ALL STEPS PASSED: OpenFOAM tutorial case extracted successfully."

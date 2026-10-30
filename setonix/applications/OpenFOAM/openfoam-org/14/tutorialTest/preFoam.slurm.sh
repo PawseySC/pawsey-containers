@@ -57,6 +57,12 @@ decompositionX=1
 decompositionY=2
 decompositionZ=2
 
+# In explicit-image mode, SINGULARITY_IMAGE is resolved from --image. In SHPC
+# mode, the loaded module provides SINGULARITY_CONTAINER; this script validates
+# that external value and canonicalizes it into SINGULARITY_IMAGE. All subsequent
+# execution, checks, and reporting use SINGULARITY_IMAGE. Bare-metal mode uses
+# neither image variable.
+#
 # --- Initial settings
 thisScript=$(basename "$0")
 imageInput=""
@@ -66,7 +72,8 @@ workRootInput=""
 recipeDirInput=""
 configFileInput=""
 testArtifactsDirInput=""
-SINGULARITY_MODULE=${SINGULARITY_MODULE:-singularity/4.3.5-mpi}
+singularityModule="singularity/4.3.5-mpi"
+singularityModuleSpecified=false
 
 # --- Command-line help
 usage() {
@@ -82,6 +89,11 @@ Usage:
 
 Runtime selection (choose exactly one):
   --image, -i <file>          Use the supplied Singularity image directly
+  --singularity-module <module>
+                              Singularity module for --image mode, or an override
+                              applied after loading the SHPC OpenFOAM module.
+                              Plain --shpc retains the SHPC-provided module.
+                              Default for --image: singularity/4.3.5-mpi
   --shpc                      Load <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
   --bare-metal                Load <OPENFOAM_FORK>/<OPENFOAM_VERSION> and use the
                               OpenFOAM tools directly
@@ -114,6 +126,12 @@ while [[ $# -gt 0 ]]; do
       --image|-i)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --image requires <file>" >&2; usage >&2; exit 1; }
          imageInput="$2"
+         shift 2
+         ;;
+      --singularity-module)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --singularity-module requires <module>" >&2; usage >&2; exit 1; }
+         singularityModule="$2"
+         singularityModuleSpecified=true
          shift 2
          ;;
       --shpc)
@@ -184,9 +202,15 @@ runtimeSelectorCount=0
    exit 1
 }
 
+if [[ "$singularityModuleSpecified" == true && "$useBareMetal" == true ]]; then
+   echo "ERROR: --singularity-module cannot be used with --bare-metal" >&2
+   usage >&2
+   exit 1
+fi
+
 if [[ -n "$imageInput" ]]; then
    [[ -f "$imageInput" ]] || { echo "ERROR: Singularity image not found: $imageInput" >&2; exit 1; }
-   SINGULARITY_CONTAINER=$(realpath "$imageInput")
+   SINGULARITY_IMAGE=$(realpath "$imageInput")
 fi
 
 if [[ -n "$workRootInput" ]]; then
@@ -215,7 +239,7 @@ else
    outputDir="$workOutputPath"
    mkdir -p "$outputDir" || { echo "ERROR: Could not create default test-artifact directory: $outputDir" >&2; exit 1; }
 fi
-stageName="prepareFoam"
+stageName="preFoam"
 stageRunLog="${outputDir}/${stageName}.run.log"
 stageStatusFile="${outputDir}/${stageName}.status.txt"
 printf '%s\n' RUNNING > "$stageStatusFile"
@@ -252,7 +276,20 @@ if [[ "$useSHPC" == true ]]; then
    done
    [[ -n "${SINGULARITY_CONTAINER:-}" ]] || { echo "ERROR: $shpcModule did not set SINGULARITY_CONTAINER" >&2; exit 1; }
    [[ -r "$SINGULARITY_CONTAINER" ]] || { echo "ERROR: SHPC backing image is not readable: $SINGULARITY_CONTAINER" >&2; exit 1; }
-   SINGULARITY_CONTAINER=$(realpath "$SINGULARITY_CONTAINER")
+   SINGULARITY_IMAGE=$(realpath "$SINGULARITY_CONTAINER")
+
+   # Load the SHPC OpenFOAM module first so it defines its wrapper and backing
+   # image. Apply an explicitly requested Singularity module only afterward.
+   if [[ "$singularityModuleSpecified" == true ]]; then
+      module load "$singularityModule" || {
+         echo "ERROR: Failed to switch to Singularity module: $singularityModule" >&2
+         exit 1
+      }
+      command -v singularity >/dev/null 2>&1 || {
+         echo "ERROR: singularity unavailable after loading $singularityModule" >&2
+         exit 1
+      }
+   fi
 elif [[ "$useBareMetal" == true ]]; then
    runtimeMode="Bare-metal module"
    bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
@@ -268,9 +305,9 @@ else
    bareMetalModule=""
    shpcModule=""
    shpcExec=""
-   openfoamCommandPrefix=(singularity exec "$SINGULARITY_CONTAINER")
-   module load "$SINGULARITY_MODULE" || { echo "ERROR: Failed to load $SINGULARITY_MODULE" >&2; exit 1; }
-   command -v singularity >/dev/null 2>&1 || { echo "ERROR: singularity is unavailable after loading $SINGULARITY_MODULE" >&2; exit 1; }
+   openfoamCommandPrefix=(singularity exec "$SINGULARITY_IMAGE")
+   module load "$singularityModule" || { echo "ERROR: Failed to load $singularityModule" >&2; exit 1; }
+   command -v singularity >/dev/null 2>&1 || { echo "ERROR: singularity is unavailable after loading $singularityModule" >&2; exit 1; }
 fi
 
 echo "Loaded modules:"
@@ -282,14 +319,14 @@ if [[ "$useSHPC" == true ]]; then
 elif [[ "$useBareMetal" == true ]]; then
    echo "Bare-metal module: $bareMetalModule"
 else
-   echo "Singularity module: $SINGULARITY_MODULE"
+   echo "Singularity module: $singularityModule"
 fi
-if [[ "$useBareMetal" != true ]]; then echo "Backing image: $SINGULARITY_CONTAINER"; fi
+if [[ "$useBareMetal" != true ]]; then echo "Backing image: $SINGULARITY_IMAGE"; fi
 
 if [[ "$useSHPC" == true ]]; then
    WM_PROJECT_VERSION=$("$shpcExec" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION from the SHPC runtime" >&2; exit 1; }
 elif [[ "$useBareMetal" != true ]]; then
-   WM_PROJECT_VERSION=$(singularity exec "$SINGULARITY_CONTAINER" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION from the image environment" >&2; exit 1; }
+   WM_PROJECT_VERSION=$(singularity exec "$SINGULARITY_IMAGE" bash -c 'printf "%s" "$WM_PROJECT_VERSION"') || { echo "ERROR: Failed to read WM_PROJECT_VERSION from the image environment" >&2; exit 1; }
 else
    WM_PROJECT_VERSION=${WM_PROJECT_VERSION:-}
 fi
@@ -503,7 +540,7 @@ if [[ "$useSHPC" == true ]]; then
 elif [[ "$useBareMetal" == true ]]; then
    echo "Bare-metal module: $bareMetalModule"
 else
-   echo "Backing image: $SINGULARITY_CONTAINER"
+   echo "Backing image: $SINGULARITY_IMAGE"
 fi
 echo "ALL STEPS PASSED: OpenFOAM tutorial preparation completed successfully."
 exit 0
