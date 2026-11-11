@@ -133,6 +133,7 @@ run_installation_checker() {
    case "$ENGINE" in
       singularity)
          singularity exec \
+            --env TMPDIR=/tmp \
             --bind "${installationChecker}:${containerChecker}:ro" \
             --bind "${hostOutputDir}:${containerOutputDir}" \
             "$imageRef" \
