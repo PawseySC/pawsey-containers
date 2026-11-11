@@ -28,13 +28,13 @@
 #
 #   export REPO_MPI_DIR="/path/to/repo/pawsey-containers/setonix/mpi"
 #   export SINGULARITY_IMAGE="/path/to/image.sif"
-#   export SINGULARITY_MODULE="singularity/4.1.0-mpi"
+#   export SINGULARITY_MODULE="singularity/4.3.5-mpi"
 #   sbatch --export=REPO_MPI_DIR,SINGULARITY_IMAGE,SINGULARITY_MODULE \
 #       /path/to/repo/pawsey-containers/setonix/mpi/tests/test_02_osu.slurm.sh
 #
 # REPO_MPI_DIR must point to the repository's pawsey-containers/setonix/mpi directory.
 # SINGULARITY_IMAGE must point to the container image being tested.
-# SINGULARITY_MODULE defaults to singularity/4.1.0-mpi when not exported.
+# SINGULARITY_MODULE defaults to singularity/4.3.5-mpi when not exported.
 
 #--- Strict mode
 set -euo pipefail
@@ -47,7 +47,7 @@ TEST_NAME="${SLURM_JOB_NAME}"
 # The singularity image to use:
 : "${SINGULARITY_IMAGE:?SINGULARITY_IMAGE is not set}"
 # The Singularity module to load (default supports direct submission):
-SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.1.0-mpi}"
+SINGULARITY_MODULE="${SINGULARITY_MODULE:-singularity/4.3.5-mpi}"
 # The path of the mpi subdirectory in the repository (needed as reference to find the rest of the stuff):
 : "${REPO_MPI_DIR:?REPO_MPI_DIR is not set. Submit this test through a run_tests.sh script or export REPO_MPI_DIR manually.}"
 
