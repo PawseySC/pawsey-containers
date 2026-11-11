@@ -138,7 +138,9 @@ Recipe and mode options:
 
   --only-directories <list>
       Replace recipeDirectories for this invocation with a comma-separated list.
-      Surrounding whitespace is ignored and the supplied order is preserved.
+      Each entry must be openfoam/<version> or openfoam-org/<version> and is
+      resolved relative to the pawsey-staff directory. Surrounding whitespace is
+      ignored and the supplied order is preserved.
 
 Building option:
   --building-singularity-module <module>
@@ -331,8 +333,9 @@ buildArguments=(
     # "TP_COMPILE_TASKS=8"
 )
 
-# This indexed array defines the persistent default selection. For temporary
-# selections, prefer --only-directories instead of editing this file.
+# This indexed array defines the persistent default recipe selection. Entries
+# are paths relative to the pawsey-staff directory. For temporary selections,
+# prefer --only-directories instead of editing this file.
 recipeDirectories=(
     "openfoam/v2606"
     "openfoam/v2412"
@@ -345,9 +348,10 @@ recipeDirectories=(
     "openfoam-org/10"
 )
 
-# Parse and validate a comma-separated command-line override. Recipe paths are
-# restricted to one version directory below either supported OpenFOAM fork. This
-# prevents absolute paths and parent-directory traversal from entering path joins.
+# Parse and validate a comma-separated command-line override. Each entry is
+# interpreted relative to the pawsey-staff directory and is restricted to one
+# version directory below either supported OpenFOAM fork. This prevents absolute
+# paths and parent-directory traversal from entering path joins.
 applyOnlyDirectoriesOverride() {
     local input="$1"
     local rawDirectory=""
@@ -402,14 +406,20 @@ fi
 # =============================================================================
 # Repository layout and shared tool paths
 # =============================================================================
-# REPOSITORY_ROOT can override the standard Pawsey location. The default derives
-# the repository from MYSCRATCH, which must therefore be available when no
+# REPOSITORY_ROOT can override the standard Pawsey repository location. The
+# default derives it from MYSCRATCH, which must therefore be available when no
 # explicit override is supplied.
+#
+# The OpenFOAM application tree separates the upstream image definitions from
+# Pawsey's build, validation, and testing layer. Recipe paths used by this
+# orchestrator are therefore resolved below pawsey-staff, where each version
+# directory links to its authoritative Dockerfile and template files.
 repositoryRoot="${REPOSITORY_ROOT:-${MYSCRATCH}/pawsey-containers}"
 openfoamRoot="${repositoryRoot}/setonix/applications/OpenFOAM"
-buildingScriptsDir="${openfoamRoot}/buildingScripts"
-basicTestsDir="${openfoamRoot}/tests/basic"
-setonixTestsDir="${openfoamRoot}/tests/setonix"
+pawseyStaffRoot="${openfoamRoot}/pawsey-staff"
+buildingScriptsDir="${pawseyStaffRoot}/buildingScripts"
+basicTestsDir="${pawseyStaffRoot}/tests/basic"
+setonixTestsDir="${pawseyStaffRoot}/tests/setonix"
 
 # Image creation and Podman-node management tools.
 containerBuilder="${buildingScriptsDir}/openfoamContainerBuild.sh"
@@ -428,6 +438,7 @@ tutorialLauncher="${setonixTestsDir}/openfoamTutorialTestLauncher.sh"
 requiredDirectories=(
     "$repositoryRoot"
     "$openfoamRoot"
+    "$pawseyStaffRoot"
     "$buildingScriptsDir"
     "$basicTestsDir"
     "$setonixTestsDir"
@@ -612,52 +623,103 @@ resolveSingularityImage() {
     echo "Singularity image: $singularityImage"
 }
 
-# Resolve exactly one existing Podman image for the selected recipe. The validated
-# recipe path defines the repository and OpenFOAM-version tag prefix. Podman then
-# supplies the complete existing tag, avoiding assumptions about configuration
-# variable names or compiler, precision, label-size, MPI, and operating-system
-# suffixes. More than one match is rejected rather than selecting an arbitrary
-# image for validation.
+# Derive the exact expected Podman image reference from the selected recipe's
+# Dockerfile ARG defaults and any configured buildArguments overrides, then
+# verify that this exact image exists in local Podman storage. Checking the
+# complete repository:tag avoids false ambiguity errors when older builds of the
+# same OpenFOAM version (for example with a different MPICH version or label
+# size) are also present in Podman storage.
 resolvePodmanImageReference() {
     local recipePath="$1"
-    local imageRepository=""
-    local imageVersion=""
-    local imagePrefix=""
-    local -a matchingImages=()
+    local configFile="${recipePath}/buildAndValidationConfig/openfoamBuildAndValidation.config"
+    local recipeFile=""
+    local OF_FORK=""
+    local OF_VERSION=""
+    local GCC_VERSION=""
+    local WM_LABEL_SIZE=""
+    local WM_PRECISION_OPTION=""
+    local WM_COMPILE_OPTION=""
+    local OS_VERSION=""
+    local MPICH_VERSION=""
+    local argument=""
+    local argName=""
+    local argValue=""
+    local -A buildArgValues=()
+    local expectedImage=""
+    local localImageReference=""
 
-    imageRepository=$(basename "$(dirname "$recipePath")")
-    imageVersion=$(basename "$recipePath")
-    imagePrefix="localhost/${imageRepository}:${imageVersion}-"
+    if [[ ! -r "$configFile" ]]; then
+        echo "ERROR: Build-validation configuration is not readable: $configFile" >&2
+        return 1
+    fi
 
-    mapfile -t matchingImages < <(
-        podman images --format '{{.Repository}}:{{.Tag}}' |
-            awk -v prefix="$imagePrefix" '
-                index($0, prefix) == 1 && !seen[$0]++ {
-                    print
-                }
-            '
-    )
+    # Load OPENFOAM_FORK and OPENFOAM_VERSION in a subshell or local scope to locate the recipe.
+    eval "$(
+        unset OPENFOAM_FORK OPENFOAM_VERSION
+        # shellcheck source=/dev/null
+        source "$configFile"
+        printf 'local OPENFOAM_FORK=%q\n' "${OPENFOAM_FORK:-}"
+        printf 'local OPENFOAM_VERSION=%q\n' "${OPENFOAM_VERSION:-}"
+    )"
 
-    case "${#matchingImages[@]}" in
-        0)
-            echo "ERROR: No existing Podman image matches '${imagePrefix}*'." >&2
-            return 1
-            ;;
-        1)
-            # Podman lists locally tagged images with a localhost/ prefix, but the
-            # validation scripts compare the supplied reference with the configured
-            # OpenFOAM repository name (for example openfoam:v2406-...). Podman
-            # resolves that unqualified reference back to localhost automatically.
-            podmanImage="${matchingImages[0]#localhost/}"
-            ;;
-        *)
-            echo "ERROR: Multiple existing Podman images match '${imagePrefix}*':" >&2
-            printf '  %s\n' "${matchingImages[@]}" >&2
-            echo "ERROR: Remove the ambiguity before rerunning the workflow." >&2
-            return 1
-            ;;
-    esac
+    if [[ -z "$OPENFOAM_FORK" || -z "$OPENFOAM_VERSION" ]]; then
+        echo "ERROR: OPENFOAM_FORK and OPENFOAM_VERSION must be defined in $configFile" >&2
+        return 1
+    fi
 
+    recipeFile="${recipePath}/${OPENFOAM_FORK}--${OPENFOAM_VERSION}.dockerfile"
+    if [[ ! -f "$recipeFile" ]]; then
+        echo "ERROR: OpenFOAM docker recipe not found: $recipeFile" >&2
+        return 1
+    fi
+
+    for argument in "${buildArguments[@]}"; do
+        if [[ "$argument" == *=* ]]; then
+            argName="${argument%%=*}"
+            argValue="${argument#*=}"
+            buildArgValues["$argName"]="$argValue"
+        fi
+    done
+
+    OF_FORK=$(grep '^ARG OF_FORK=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+    OF_VERSION=$(grep '^ARG OF_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+    GCC_VERSION=$(grep '^ARG GCC_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+    WM_LABEL_SIZE=$(grep '^ARG WM_LABEL_SIZE=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+    WM_PRECISION_OPTION=$(grep '^ARG WM_PRECISION_OPTION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+    WM_COMPILE_OPTION=$(grep '^ARG WM_COMPILE_OPTION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+    OS_VERSION=$(grep '^ARG BASE_IMAGE_OS_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+    MPICH_VERSION=$(grep '^ARG BASE_IMAGE_MPICH_VERSION=' "$recipeFile" 2>/dev/null | cut -d'"' -f2)
+
+    # Apply configured buildArguments overrides using the same precedence as the builders.
+    OF_FORK="${buildArgValues[OF_FORK]:-$OF_FORK}"
+    OF_VERSION="${buildArgValues[OF_VERSION]:-$OF_VERSION}"
+    GCC_VERSION="${buildArgValues[GCC_VERSION]:-$GCC_VERSION}"
+    WM_LABEL_SIZE="${buildArgValues[WM_LABEL_SIZE]:-$WM_LABEL_SIZE}"
+    WM_PRECISION_OPTION="${buildArgValues[WM_PRECISION_OPTION]:-$WM_PRECISION_OPTION}"
+    WM_COMPILE_OPTION="${buildArgValues[WM_COMPILE_OPTION]:-$WM_COMPILE_OPTION}"
+    OS_VERSION="${buildArgValues[BASE_IMAGE_OS_VERSION]:-$OS_VERSION}"
+    MPICH_VERSION="${buildArgValues[BASE_IMAGE_MPICH_VERSION]:-$MPICH_VERSION}"
+
+    if [[ -z "$OF_FORK" || -z "$OF_VERSION" || -z "$GCC_VERSION" || \
+          -z "$WM_LABEL_SIZE" || -z "$WM_PRECISION_OPTION" || -z "$WM_COMPILE_OPTION" || \
+          -z "$OS_VERSION" || -z "$MPICH_VERSION" ]]; then
+        echo "ERROR: Failed to extract required image-tag variables from $recipeFile" >&2
+        return 1
+    fi
+
+    expectedImage="${OF_FORK}:${OF_VERSION}-gcc${GCC_VERSION}${WM_PRECISION_OPTION}Int${WM_LABEL_SIZE}${WM_COMPILE_OPTION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
+    localImageReference="localhost/${expectedImage}"
+
+    if ! podman images -q "$localImageReference" | grep -q .; then
+        echo "ERROR: Expected Podman image does not exist in local storage: $localImageReference" >&2
+        return 1
+    fi
+
+    # Podman lists locally tagged images with a localhost/ prefix, but the
+    # validation scripts compare the supplied reference with the configured
+    # OpenFOAM repository name (for example openfoam:v2606-...). Podman
+    # resolves that unqualified reference back to localhost automatically.
+    podmanImage="$expectedImage"
     echo "Podman test reference: $podmanImage"
 }
 
@@ -673,8 +735,11 @@ if [[ -n "$testingReservation" ]]; then
     testingLauncherArgs+=(--reservation "$testingReservation")
 fi
 
+# Resolve each logical recipe selection below the Pawsey-specific tree. The
+# version directory supplies the build and validation configuration and links
+# to the authoritative image-definition files in the top-level fork tree.
 for recipeDirectory in "${recipeDirectories[@]}"; do
-    recipePath="${openfoamRoot}/${recipeDirectory}"
+    recipePath="${pawseyStaffRoot}/${recipeDirectory}"
     podmanImage=""
     singularityImage=""
     recipeStageResults=()

@@ -1,0 +1,1 @@
+../../../openfoam/v2606/docker-entrypoint-openfoam-template.sh

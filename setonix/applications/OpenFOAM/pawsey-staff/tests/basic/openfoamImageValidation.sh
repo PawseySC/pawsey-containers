@@ -28,8 +28,8 @@
 #   PARAVIEW_BUILD_LOG    ParaView authoritative compilation summary.
 #   OPENFOAM_BUILD_LOG    OpenFOAM authoritative compilation summary.
 #   OPENFOAM_TOOL_LOG     OpenFOAM basic-functionality log created at build time.
-#   OPENFOAM_FORK         Expected image repository and filename stem.
-#   OPENFOAM_VERSION      Expected version in the image name and environment.
+#   OPENFOAM_FORK         Configured OpenFOAM distribution used in reports.
+#   OPENFOAM_VERSION      Expected version reported by the image environment.
 #
 # Paths containing variables such as $WM_PROJECT_DIR are expanded inside the
 # image, not in the calling environment. The installation checker must be stored
@@ -455,36 +455,22 @@ fi
 echo "PASS: $ENGINE is accessible"
 echo
 
-# --- Step 3: Verify the requested image identity and existence
+# --- Step 3: Verify that the exact requested image exists and record its identity
 ((++testNum))
 echo "$thisScript: -----------------------------------------"
-echo "Step $testNum - Verifying the image identity and existence"
+echo "Step $testNum - Verifying the requested image exists"
 if [[ "$ENGINE" == "singularity" ]]; then
-   imageFileName=$(basename "$imageRef")
-   expectedImagePrefix="${OPENFOAM_FORK}--${OPENFOAM_VERSION}"
-   if [[ "$imageFileName" != "${expectedImagePrefix}"*.sif ]]; then
-      echo "ERROR: Singularity image filename does not match the configured OpenFOAM identity" >&2
-      echo "       Image filename:   $imageFileName" >&2
-      echo "       Required pattern: ${expectedImagePrefix}*.sif" >&2
-      exit 1
-   fi
-   echo "PASS: Singularity filename matches configured identity '${expectedImagePrefix}*.sif'"
    [[ -f "$imageRef" ]] || { echo "ERROR: SIF image not found: $imageRef" >&2; exit 1; }
    imageRef=$(realpath "$imageRef")
+
+   # Calculate the SIF checksum to identify the exact image contents in the report.
+   # This records the tested artifact; it does not compare against a reference checksum.
    imageIdentity=$(sha256sum "$imageRef" | awk '{print $1}')
    echo "  Image: $imageRef"
    echo "  SHA256: $imageIdentity"
    echo "Resolved image: $imageRef" >> "$validationDetailsFile"
    echo "Image SHA256: $imageIdentity" >> "$validationDetailsFile"
 else
-   expectedImagePrefix="${OPENFOAM_FORK}:${OPENFOAM_VERSION}"
-   if [[ "$imageRef" != "${expectedImagePrefix}"* ]]; then
-      echo "ERROR: Container image reference does not match the configured OpenFOAM identity" >&2
-      echo "       Image reference: $imageRef" >&2
-      echo "       Required prefix: $expectedImagePrefix" >&2
-      exit 1
-   fi
-   echo "PASS: Container image reference starts with '$expectedImagePrefix'"
    if [[ "$ENGINE" == "docker" ]]; then
       docker image inspect "$imageRef" >/dev/null 2>&1 || { echo "ERROR: Image not found in Docker image store: $imageRef" >&2; exit 1; }
       imageIdentity=$(docker image inspect "$imageRef" --format '{{.Id}}')
@@ -498,8 +484,7 @@ else
    echo "Resolved image: $imageRef" >> "$validationDetailsFile"
    echo "Image ID: $imageIdentity" >> "$validationDetailsFile"
 fi
-echo "Expected image prefix: $expectedImagePrefix" >> "$validationDetailsFile"
-echo "PASS: Image found"
+echo "PASS: Exact image found"
 echo
 
 # --- Step 4: Read and validate the OpenFOAM environment

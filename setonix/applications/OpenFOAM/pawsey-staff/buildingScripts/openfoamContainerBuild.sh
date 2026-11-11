@@ -3,8 +3,11 @@
 #
 # This script builds an OpenFOAM image with Docker or Podman and then performs
 # a sequence of checks on the build result. The OpenFOAM version directory is
-# supplied with --recipe-dir and is used as the container build context. It must
-# contain the following version-specific configuration file:
+# supplied with --recipe-dir. Its container build context is resolved from the
+# canonical directory of the selected Dockerfile (following symbolic links when
+# --recipe-dir lives under pawsey-staff/ and links to the public recipe tree).
+# The --recipe-dir directory must contain the following version-specific
+# configuration file:
 #
 #   buildAndValidationConfig/openfoamBuildAndValidation.config
 #
@@ -103,6 +106,7 @@ buildArgs=()
 declare -A buildArgValues=()
 recipeDirInput=""
 recipeDir=""
+buildContextDir=""
 recipeFile=""
 tmpDir=""
 artifactsDir=""
@@ -610,8 +614,9 @@ Usage:
   $thisScript --help
 
 Options:
-  --recipe-dir, -r <directory>  OpenFOAM build-context directory containing the docker recipe and
-                                 the buildAndValidationConfig/openfoamBuildAndValidation.config file
+  --recipe-dir, -r <directory>  OpenFOAM version directory containing the docker recipe (or a
+                                 symbolic link to it) and the
+                                 buildAndValidationConfig/openfoamBuildAndValidation.config file
   --engine, -b <engine>         Container engine: docker or podman (required)
   --no-cache                    Build every layer without using cached layers
   --build-arg NAME=VALUE        Override a Dockerfile ARG marked with USER_BUILD_ARG; may be repeated
@@ -698,8 +703,11 @@ done
 # =============================================================================
 # Validate and prepare the OpenFOAM version directory
 # =============================================================================
-# The selected directory is the build context. Temporary Dockerfiles are kept
-# under tmp/, while build logs intended for later inspection go to artifacts/.
+# The selected directory holds the version-specific configuration, temporary
+# Dockerfiles under tmp/, and persistent build logs under artifacts/. The
+# container build context is resolved later from the canonical directory of the
+# selected Dockerfile so symbolic links in pawsey-staff/ build against the
+# public recipe directory where companion files reside.
 if [[ -z "$recipeDirInput" ]]; then
    echo "ERROR: --recipe-dir <directory> is required" >&2
    usage
@@ -793,7 +801,9 @@ if [[ ! -f "$recipeFile" ]]; then
    echo "ERROR: OpenFOAM docker recipe not found: $recipeFile" >&2
    exit 1
 fi
+buildContextDir=$(dirname "$(readlink -f "$recipeFile")")
 echo "OpenFOAM docker recipe: $recipeFile"
+echo "Container build context: $buildContextDir"
 
 # =============================================================================
 # Validate build-argument names against the selected recipe
@@ -1101,7 +1111,9 @@ echo
 # Step 7: Build the image and record the complete output
 # =============================================================================
 # Build options are held in arrays so every argument is passed safely. The build
-# runs from the selected context and its combined output is saved in artifacts/.
+# runs from the canonical recipe build context ($buildContextDir) so Dockerfile
+# COPY instructions access real files rather than cross-directory symlinks, while
+# temporary Dockerfiles (-f "$recipeFile") and combined output remain in $recipeDir.
 ((++testNum))
 imageName="${OF_FORK}"
 imageTag="${OF_VERSION}-gcc${GCC_VERSION}${WM_PRECISION_OPTION}Int${WM_LABEL_SIZE}${WM_COMPILE_OPTION}-mpich${MPICH_VERSION}-ubuntu${OS_VERSION}"
@@ -1167,13 +1179,13 @@ if [[ "$ENGINE" == "podman" ]]; then
       "Performing the pre-operation Podman storage-health check." 60 || exit 1
 fi
 
-# Pass the recipe relative to the build context.
-recipeRelative=${recipeFile#"$recipeDir"/}
+# Pass the full recipe path (which may be a temporary Dockerfile under $tmpDir)
+# and run from the canonical recipe directory ($buildContextDir) as the build context.
 buildCommand=(
    "$ENGINE" build
    "${buildOptions[@]}"
    -t "$imageFull"
-   -f "$recipeRelative"
+   -f "$recipeFile"
    .
 )
 
@@ -1183,7 +1195,7 @@ printf 'Recorded build command:'
 printf ' %q' "${buildCommand[@]}"
 printf '\n'
 {
-   printf 'cd %q &&' "$recipeDir"
+   printf 'cd %q &&' "$buildContextDir"
    printf ' %q' "${buildCommand[@]}"
    printf '\n'
 } > "$buildCommandFile"
@@ -1200,9 +1212,9 @@ echo "Build inactivity limit: ${STALL_SILENCE_SECONDS} seconds plus a bounded ${
 record_external_containers_before_operation || exit 1
 echo "=== BUILD START: $(date)" | tee "$logFileBuild"
 (
-   cd "$recipeDir"
+   cd "$buildContextDir"
    time systemd-run --user --wait --pipe --quiet --collect --service-type=exec \
-      --unit="$activeOperationUnit" --working-directory="$recipeDir" \
+      --unit="$activeOperationUnit" --working-directory="$buildContextDir" \
       "${serviceEnvironment[@]}" -- "${buildCommand[@]}"
    printf '%s\n' "$?" > "$operationStatusFile"
 ) |& tee -a "$logFileBuild" &
@@ -1272,6 +1284,7 @@ if [[ "$imageExists" == true ]]; then
       echo "Build timestamp: $buildTimestamp"
       echo "Build kind: $buildKind"
       echo "Recipe directory: $recipeDir"
+      echo "Build context directory: $buildContextDir"
       echo "Build command file: $buildCommandFile"
       echo "Build log: $buildLog"
       echo "Build scan log: $buildScanLog"
