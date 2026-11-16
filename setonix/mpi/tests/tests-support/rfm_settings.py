@@ -9,6 +9,19 @@
 # Most of this file taken from Deva's settings.py file in reframe/setup_files/ on bitbucket
 #
 
+# Custom launcher that is more explicit with options passed to srun
+@register_launcher('srun_explicit')
+class SrunExplicitLauncher(JobLauncher):
+    def command(self, job):
+        return [
+            'srun',
+            '-N', str(job.num_tasks // job.num_tasks_per_node),
+            '-n', str(job.num_tasks),
+            '-c', str(job.num_cpus_per_task),
+            f'--ntasks-per-node={job.num_tasks_per_node}',
+        ]
+
+
 site_configuration = {
     'systems': [
         {
@@ -33,8 +46,11 @@ site_configuration = {
                 {
                     'name': 'work',
                     'descr': 'Setonix work (compute nodes) partition',
-                    'scheduler': 'slurm', # Was slurm, job accounting seemingly changed after Jan 2023 maintenance
-                    'launcher': 'srun',
+                    'scheduler': 'slurm',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=work'],
                     'max_jobs': 1024,
@@ -46,8 +62,11 @@ site_configuration = {
                 {
                     'name': 'askaprt',
                     'descr': 'Setonix askaprt (compute nodes) partition',
-                    'scheduler': 'slurm', # Was slurm, job accounting seemingly changed after Jan 2023 maintenance
-                    'launcher': 'srun',
+                    'scheduler': 'slurm',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=askaprt'],
                     'max_jobs': 8192,
@@ -60,7 +79,10 @@ site_configuration = {
                     'name': 'copy',
                     'descr': 'Setonix copy (data mover) nodes',
                     'scheduler': 'slurm',
-                    'launcher': 'srun',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=copy'],
                     'max_jobs': 500,
@@ -73,7 +95,10 @@ site_configuration = {
                     'name': 'debug',
                     'descr': 'Setonix debug partition',
                     'scheduler': 'slurm',
-                    'launcher': 'srun',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=debug'],
                     'max_jobs': 4,
@@ -83,7 +108,10 @@ site_configuration = {
                     'name': 'highmem',
                     'descr': 'Setonix highmem queue',
                     'scheduler': 'slurm',
-                    'launcher': 'srun',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=highmem'],
                     'max_jobs': 96,
@@ -96,7 +124,10 @@ site_configuration = {
                     'name': 'gpu',
                     'descr': 'Setonix GPU queue',
                     'scheduler': 'slurm',
-                    'launcher': 'srun',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [], # Might need to add add rocm
                     'access': ['--partition=gpu'],
                     'max_jobs': 1024,
@@ -115,7 +146,10 @@ site_configuration = {
                     'name': 'gpu-dev',
                     'descr': 'Setonix GPU development queue',
                     'scheduler': 'slurm',
-                    'launcher': 'srun',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=gpu-dev'],
                     'max_jobs': 4,
@@ -134,7 +168,10 @@ site_configuration = {
                     'name': 'gpu-highmem',
                     'descr': 'Setonix GPU high memory queue',
                     'scheduler': 'slurm',
-                    'launcher': 'srun',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=gpu-highmem'],
                     'max_jobs': 96,
@@ -177,7 +214,7 @@ site_configuration = {
                     'sched_options': {
                         'use_nodes_option': True,
                     },
-                    'launcher': 'srun',
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=work'],
                     'max_jobs': 32,
@@ -190,7 +227,10 @@ site_configuration = {
                     'name': 'highmem',
                     'descr': 'Joey highmem queue',
                     'scheduler': 'slurm',
-                    'launcher': 'srun',
+                    'sched_options': {
+                        'use_nodes_option': True,
+                    },
+                    'launcher': 'srun_explicit',
                     'modules': [],
                     'access': ['--partition=highmem'],
                     'max_jobs': 1,
@@ -206,7 +246,7 @@ site_configuration = {
                     'sched_options': {
                         'use_nodes_option': True,
                     },
-                    'launcher': 'srun',
+                    'launcher': 'srun_explicit',
                     'modules': [], # Might need to add add rocm
                     'access': ['--partition=gpu'],
                     'max_jobs': 8,
