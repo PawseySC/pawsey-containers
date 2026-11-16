@@ -25,12 +25,8 @@ ARTIFACTS_ROOT_DIR="${TESTING_DIR}/artifacts"
 ARTIFACTS_DIR="${ARTIFACTS_ROOT_DIR}/runs/${RUN_ID}"
 printf '%s\n' "${ARTIFACTS_DIR}" > "${ARTIFACTS_ROOT_DIR}/latest_run.txt"
 
-# MODULEPATH additions needed in 2026.09 stack on joey
-export MODULEPATH=/software/setonix/2026.09/modules/x86_64/gcc/14.2.0/dependencies/:/software/setonix/2026.09/modules/zen3/Core/programming-languages:/software/setonix/2026.09/modules/zen3/Core/dependencies:/software/setonix/2026.09/modules/x86_64/Core/dependencies:$MODULEPATH
-
-# Load reframe and disable database results storage
+# Load reframe
 module load reframe/4.7.3
-export RFM_ENABLE_RESULTS_STORAGE=0
 
 # Reframe files
 RFM_TEST_FILE="${SHARED_TESTS_DIR}/lustrempich-base_tests.py"
