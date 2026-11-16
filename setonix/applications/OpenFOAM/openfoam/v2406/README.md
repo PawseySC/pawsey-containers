@@ -83,27 +83,29 @@ singularity inspect -l <singularityImage> | grep build-date
 ## Building
 
 ### Pre-building settings
-
+Define these variables first, as they are used in the building commands.
 ```bash
 OF_FORK="openfoam"
 OF_VERSION="v2406"
-OS_VERSION="24.04"
+UBUNTU_VERSION="24.04"
+MPICH_VERSION="4.2.2"
 ```
 
 ### Building the whole image
+In this section we show the commands for building the image. In the first two sections we provide the explicit building commands, and in a final section describe the useful automated scripts that use the indicated commands and perform additional checks.
 
 #### 1st Building-Step: building the image in Docker format
 
 ##### Using Docker Engine
 
 ```bash
-docker build --progress plain -t ${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION} -f Dockerfile . |& tee build.log
+docker build --progress plain -t ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION} -f Dockerfile . |& tee build.log
 ```
 
 ##### Or Using Podman Engine
 
 ```bash
-podman build --format=docker -t ${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION} -f Dockerfile . |& tee build.log
+podman build --format=docker -t ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION} -f Dockerfile . |& tee build.log
 ```
 
 #### 2nd Building-Step: building the image in Singularity format
@@ -113,26 +115,26 @@ Once an image in docker format exists in the local engine registry, the singular
 ##### When Docker engine was used in previous step
 
 ```bash
-singularity build ${OF_FORK}_${OF_VERSION}-ubuntu${OS_VERSION}.sif docker-daemon://${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}
+singularity build ${OF_FORK}--${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}.sif docker-daemon://${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}
 ```
 
 ##### Or When Podman engine was used in previous step
 
 ```bash
-podman save --format oci-archive ${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION} -o ${OF_FORK}_${OF_VERSION}-ubuntu${OS_VERSION}.tar
+podman save --format oci-archive ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION} -o ${OF_FORK}--${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}.tar
 
-singularity build ${OF_FORK}_${OF_VERSION}-ubuntu${OS_VERSION}.sif oci-archive://${OF_FORK}_${OF_VERSION}-ubuntu${OS_VERSION}.tar
+singularity build ${OF_FORK}--${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}.sif oci-archive://${OF_FORK}--${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}.tar
 ```
 
 ##### Or When the image in docker format is already in an online registry
 If the image in docker format was pushed to an online registry after the 1st building step, that image can be used for building the singularity image (it does not matter what local engine was used for the build):
-```bash 
-singularity build ${OF_FORK}_${OF_VERSION}-ubuntu${OS_VERSION}.sif docker://<repositoryName>/${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}
+```bash
+singularity build ${OF_FORK}--${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}.sif docker://<repositoryName>/${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}
 ```
 
 #### Using scripts in `buildingScripts` directory
 
-Some scripts for simplifying the building process are provided in the `buildingScripts` directory. These scripts read the Dockerfile and defines the `OF_FORK`, `OF_VERSION` and `OS_VERSION` from the internal settings. Then build the image with the correct naming. They also perform some checks of the build and of the log files left inside the image after the compilation of the different tools.
+Some scripts for simplifying the building process are provided in the `buildingScripts` directory. These scripts read the Dockerfile and defines the `OF_FORK`, `OF_VERSION`, `UBUNTU_VERSION` and `MPICH_VERSION` from the internal settings in the Dockerfile. Then build the image with the correct naming. They also perform some checks of the build and of the log files left inside the image after the compilation of the different tools.
 
 ##### Script for 1st building step from Dockerfile
 
@@ -151,17 +153,17 @@ From the `buildingScripts` directory use, for example:
 Where `--engine` option means the "local engine that used to build the image in docker format". The script also creates a `./tmp` directory to store logs and temporary files. Check the script for additional functionality.
 
 IMPORTANT: The script saves the singularity image into:
-- `${MYSCRATCH}/singularity/images/${imageName}_${imageTag}.sif`
+- `${MYSCRATCH}/singularity/images/${imageName}--${imageTag}.sif`
 
 or
 
-- `${HOME}/singularity/images/${imageName}_${imageTag}.sif`
+- `${HOME}/singularity/images/${imageName}--${imageTag}.sif`
 
 ##### When the image in docker format is already in an online registry
 
 From the `buildingScripts` directory use the following option:
 ```bash
-./singularityBuild.sh --fromRegistryImage docker://<repositoryName>/${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}
+./singularityBuild.sh --fromRegistryImage docker://<repositoryName>/${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}
 ```
 The script also creates a `./tmp` directory to store logs and temporary files. Check the script for additional functionality.
 
@@ -173,21 +175,21 @@ We recommend to test basic functionality after each of the building steps. If su
 
 - A. Test the recognition of the OpenFOAM environment variables: For example, when the local engine is `docker`:
 ```bash
-docker run --rm ${FORK}:${OF_VERSION}-ubuntu${OS_VERSION} bash -c 'echo FOAM_ETC=$FOAM_ETC'
+docker run --rm ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION} bash -c 'echo FOAM_ETC=$FOAM_ETC'
 ```
 
 - B. Test the basic call of the `-help` of an OpenFOAM tool. For example, when the local engine is `podman` :
 ```bash
-podman run --rm ${FORK}:${OF_VERSION}-ubuntu${OS_VERSION} icoFoam -help
+podman run --rm ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION} icoFoam -help
 ```
 
 ###### Testing the image in Singularity format
 
 Same basic tests are recommended for the singularity image:
 ```bash
-singularity exec ${FORK}:${OF_VERSION}-ubuntu${OS_VERSION}.sif bash -c 'echo FOAM_ETC=$FOAM_ETC'
+singularity exec ${OF_FORK}--${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}.sif bash -c 'echo FOAM_ETC=$FOAM_ETC'
 
-singularity exec ${FORK}:${OF_VERSION}-ubuntu${OS_VERSION}.sif icoFoam -help
+singularity exec ${OF_FORK}--${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}.sif icoFoam -help
 ```
 
 ###### Basic testing script
@@ -245,7 +247,7 @@ The `compileMyTool` subdirectory has a script that show the whole sequence of de
 - `runCompile.sh` (slurm job script that shows the steps for compiling user's own solver)
 
 All these scripts assume that the singularity image to be tested has been moved to the temporary realpath:
-`SINGULARITY_CONTAINER="${MYSCRATCH}/singularity/images/${OF_FORK}_${OF_VERSION}-ubuntu${UBUNTU_VERSION}.sif"`
+`SINGULARITY_CONTAINER="${MYSCRATCH}/singularity/images/${OF_FORK}--${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}.sif"`
 (Once the image has proven to work properly, we recommend to move the image to a more permanent correct directory.)
 
 ## For developers
@@ -256,16 +258,16 @@ When developing an image, it may be useful to be build only up to one stage and 
 
 #### Using Docker (1st step)
 ```bash
-docker build --target basic_stage --progress plain -t ${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}-basic_stage -f Dockerfile . |& tee build.log
+docker build --target basic_stage --progress plain -t ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}-basic_stage -f Dockerfile . |& tee build.log
 ```
 
 #### Or Using Podman (1st step)
 ```bash
-podman build --format=docker --target basic_stage -t ${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}-basic_stage -f Dockerfile . |& tee build.log
+podman build --format=docker --target basic_stage -t ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}-basic_stage -f Dockerfile . |& tee build.log
 ```
 
 #### Using Singularity (2nd step)
-Same command(s) as for the whole image but building from `${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}-basic_stage` docker image in the local engine registry.
+Same command(s) as for the whole image but building from `${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}-basic_stage` docker image in the local engine registry.
 
 #### Using the building scripts (1st and 2nd steps)
 ```bash
@@ -274,8 +276,8 @@ Same command(s) as for the whole image but building from `${OF_FORK}:${OF_VERSIO
 The script adds automatically the `-basic_stage` suffix to the imageTag.
 
 Then:
-```bash 
-./singularityBuild.sh --engine <localEngineName> ${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}-basic_stage
+```bash
+./singularityBuild.sh --engine <localEngineName> ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}-basic_stage
 ```
 Note that the `imageName:imageTag` needs to be provided to the `singularityBuild.sh` script as a final argument, otherwise it will try to build from the default image (which is the full image).
 
@@ -290,11 +292,11 @@ In that way the image will only contain the first and the last stages for testin
 #### Using podman (1st Step)
 Then use, for example:
 ```bash
-podman build --format=docker --target final_settings -t ${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}-final_settings-from-basic_stage -f Dockerfile . |& tee build.log
+podman build --format=docker --target final_settings -t ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}-final_settings-from-basic_stage -f Dockerfile . |& tee build.log
 ```
 
 #### Using singularity (2nd Step)
-Same command(s) as for the whole image but building from `${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}-basic_stage` docker image in the local engine registry.
+Same command(s) as for the whole image but building from `${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}-basic_stage` docker image in the local engine registry.
 
 #### Using the building scripts (1st and 2nd steps)
 ```bash
@@ -303,8 +305,8 @@ Same command(s) as for the whole image but building from `${OF_FORK}:${OF_VERSIO
 The script adds automatically the `-final_settings-from-basic_stage` suffix to the imageTag.
 
 Then:
-```bash 
-./singularityBuild.sh --engine <localEngineName> ${OF_FORK}:${OF_VERSION}-ubuntu${OS_VERSION}-final_settings-from-basic_stage
+```bash
+./singularityBuild.sh --engine <localEngineName> ${OF_FORK}:${OF_VERSION}-mpich${MPICH_VERSION}-ubuntu${UBUNTU_VERSION}-final_settings-from-basic_stage
 ```
 Note that the `imageName:imageTag` needs to be provided to the `singularityBuild.sh` script as a final argument, otherwise it will try to build from the default image (which is the full image).
 
