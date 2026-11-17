@@ -406,20 +406,22 @@ fi
 # =============================================================================
 # Repository layout and shared tool paths
 # =============================================================================
-# REPOSITORY_ROOT can override the standard Pawsey repository location. The
-# default derives it from MYSCRATCH, which must therefore be available when no
-# explicit override is supplied.
+# Resolve the repository root in priority order:
+#   1. Explicit REPOSITORY_ROOT environment override
+#   2. Git top-level directory discovered from SLURM_SUBMIT_DIR (or PWD)
+#   3. Standard ${MYSCRATCH}/pawsey-containers fallback
 #
 # The OpenFOAM application tree separates the upstream image definitions from
 # Pawsey's build, validation, and testing layer. Recipe paths used by this
 # orchestrator are therefore resolved below pawsey-staff, where each version
 # directory links to its authoritative Dockerfile and template files.
-repositoryRoot="${REPOSITORY_ROOT:-${MYSCRATCH}/pawsey-containers}"
+repositoryRoot="${REPOSITORY_ROOT:-$(git -C "${SLURM_SUBMIT_DIR:-$PWD}" rev-parse --show-toplevel 2>/dev/null || printf '%s' "${MYSCRATCH}/pawsey-containers")}"
 openfoamRoot="${repositoryRoot}/setonix/applications/OpenFOAM"
 pawseyStaffRoot="${openfoamRoot}/pawsey-staff"
 buildingScriptsDir="${pawseyStaffRoot}/buildingScripts"
 basicTestsDir="${pawseyStaffRoot}/tests/basic"
 setonixTestsDir="${pawseyStaffRoot}/tests/setonix"
+setonixFunctionalityTestsDir="${setonixTestsDir}/functionality"
 
 # Image creation and Podman-node management tools.
 containerBuilder="${buildingScriptsDir}/openfoamContainerBuild.sh"
@@ -430,8 +432,8 @@ nodeChecker="${buildingScriptsDir}/checkPodmanNode.sh"
 # Local validation tools and asynchronous Setonix launchers.
 imageValidation="${basicTestsDir}/openfoamImageValidation.sh"
 basicTests="${basicTestsDir}/openfoamBasicTests.sh"
-compileLauncher="${setonixTestsDir}/openfoamCompileToolTestLauncher.sh"
-tutorialLauncher="${setonixTestsDir}/openfoamTutorialTestLauncher.sh"
+compileLauncher="${setonixFunctionalityTestsDir}/openfoamCompileToolTestLauncher.sh"
+tutorialLauncher="${setonixFunctionalityTestsDir}/openfoamTutorialTestLauncher.sh"
 
 # Validate the complete directory layout before changing Podman state or starting
 # any image operation.
@@ -442,6 +444,7 @@ requiredDirectories=(
     "$buildingScriptsDir"
     "$basicTestsDir"
     "$setonixTestsDir"
+    "$setonixFunctionalityTestsDir"
 )
 
 for directory in "${requiredDirectories[@]}"; do

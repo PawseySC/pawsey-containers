@@ -41,9 +41,9 @@
 #
 # Required layout
 # ---------------
-# Store this script beside the two canonical launchers under tests/setonix. Unless
-# --root-directory is supplied, the project root is inferred as two levels above
-# this script.
+# Store this script beside the two canonical launchers under
+# tests/setonix/functionality. Unless --root-directory is supplied, the project
+# root (pawsey-staff) is inferred as three levels above this script.
 
 # Detect accidental references to unset variables. Individual test failures remain
 # under explicit status handling so later matrix entries can continue.
@@ -112,8 +112,8 @@ Container-runtime option:
 
 Path and Slurm options:
   --root-directory <directory>   Project root containing openfoam/, openfoam-org/
-                                 and tests/setonix/. By default, derive it from
-                                 this script's tests/setonix location.
+                                 and tests/setonix/functionality/. By default,
+                                 derive it from this script's location.
   --partition, -p <name>         Pass a partition override to both launchers
   --reservation <name>           Pass a reservation to both launchers
   --submit-only                  Submit tests without waiting. Summary entries
@@ -245,13 +245,39 @@ done
 # =============================================================================
 # Project and launcher discovery
 # =============================================================================
-# An explicit root is authoritative. Otherwise derive the project root from the
-# required tests/setonix placement of this orchestrator.
+# Discover the pawsey-staff root dynamically by walking upward from scriptDir
+# (with a git rev-parse fallback) so reorganizing subdirectories under
+# tests/setonix never breaks path resolution.
+findPawseyStaffRoot() {
+   local dir=$1
+   while [[ -n "$dir" && "$dir" != "/" ]]; do
+      if [[ "$(basename "$dir")" == "pawsey-staff" ]] || \
+         [[ -d "${dir}/buildingScripts" && -d "${dir}/openfoam" ]]; then
+         printf '%s\n' "$dir"
+         return 0
+      fi
+      dir=$(dirname "$dir")
+   done
+   local gitRoot
+   if gitRoot=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); then
+      if [[ -d "${gitRoot}/setonix/applications/OpenFOAM/pawsey-staff" ]]; then
+         printf '%s\n' "${gitRoot}/setonix/applications/OpenFOAM/pawsey-staff"
+         return 0
+      fi
+   fi
+   return 1
+}
+
+# An explicit root is authoritative. Otherwise discover the pawsey-staff root
+# automatically without relying on a fixed number of '../' levels.
 if [[ -n "$rootDirectoryInput" ]]; then
    [[ -d "$rootDirectoryInput" ]] || { echo "ERROR: Root directory not found: $rootDirectoryInput" >&2; exit 1; }
    rootDirectory=$(realpath "$rootDirectoryInput")
 else
-   rootDirectory=$(realpath "${scriptDir}/../..")
+   rootDirectory=$(findPawseyStaffRoot "$scriptDir") || {
+      echo "ERROR: Could not locate pawsey-staff root from $scriptDir" >&2
+      exit 1
+   }
 fi
 
 # The canonical launchers must be executable siblings. Check their shell syntax

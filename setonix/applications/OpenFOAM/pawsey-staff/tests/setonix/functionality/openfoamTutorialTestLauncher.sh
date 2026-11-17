@@ -69,9 +69,31 @@
 # Treat any use of an unset variable as an error.
 set -u
 
+# --- Helper to locate pawsey-staff root regardless of subdirectory depth
+findPawseyStaffRoot() {
+   local dir=$1
+   while [[ -n "$dir" && "$dir" != "/" ]]; do
+      if [[ "$(basename "$dir")" == "pawsey-staff" ]] || \
+         [[ -d "${dir}/buildingScripts" && -d "${dir}/openfoam" ]]; then
+         printf '%s\n' "$dir"
+         return 0
+      fi
+      dir=$(dirname "$dir")
+   done
+   local gitRoot
+   if gitRoot=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); then
+      if [[ -d "${gitRoot}/setonix/applications/OpenFOAM/pawsey-staff" ]]; then
+         printf '%s\n' "${gitRoot}/setonix/applications/OpenFOAM/pawsey-staff"
+         return 0
+      fi
+   fi
+   return 1
+}
+
 # --- Initial settings
 thisScript=$(basename "$0")
 scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+pawseyStaffRoot=$(findPawseyStaffRoot "$scriptDir" || printf '%s' "$PWD")
 recipeDirInput=""
 configFileInput=""
 scriptsDirInput=""
@@ -229,6 +251,9 @@ if [[ -n "$recipeDirInput" ]]; then
       usage >&2
       exit 1
    }
+   if [[ ! -d "$recipeDirInput" && -d "${pawseyStaffRoot}/${recipeDirInput}" ]]; then
+      recipeDirInput="${pawseyStaffRoot}/${recipeDirInput}"
+   fi
    [[ -d "$recipeDirInput" ]] || { echo "ERROR: Recipe directory not found: $recipeDirInput" >&2; exit 1; }
    recipeDir=$(realpath "$recipeDirInput")
    configFile="${recipeDir}/buildAndValidationConfig/openfoamBuildAndValidation.config"
@@ -561,16 +586,25 @@ echo "Stage 4 - Waiting for submitted jobs"
 echo "Job IDs: $preJobId $runJobId"
 echo "Polling Slurm every ${pollInterval} seconds"
 while true; do
-   activeJobs=0
+   runningJobs=0
+   pendingJobs=0
 
    for jobId in "$preJobId" "$runJobId"; do
-      if [[ -n "$(squeue --noheader --jobs="$jobId" 2>/dev/null)" ]]; then
-         activeJobs=$((activeJobs + 1))
-      fi
+      jobState=$(squeue --noheader --jobs="$jobId" --format="%T" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+      [[ -n "$jobState" ]] || continue
+      case "$jobState" in
+         PENDING)
+            pendingJobs=$((pendingJobs + 1))
+            ;;
+         *)
+            runningJobs=$((runningJobs + 1))
+            ;;
+      esac
    done
 
+   activeJobs=$((runningJobs + pendingJobs))
    [[ $activeJobs -gt 0 ]] || break
-   echo "Jobs still pending or running: $activeJobs"
+   echo "Slurm queue status: running=$runningJobs, pending=$pendingJobs (total active=$activeJobs)"
    sleep "$pollInterval"
 done
 

@@ -1,0 +1,268 @@
+.
+├── installationsWithAdditionalTools
+│   └── legacy
+│       ├── openfoam-extend
+│       │   └── 4.1_navalhydro
+│       │       └── Dockerfile
+│       └── openfoam-org
+│           ├── 2.4.x_swak4Foam
+│           │   └── Dockerfile
+│           ├── 2.4.x_waves2Foam2079
+│           │   └── Dockerfile
+│           └── 5.x_CFDEM
+│               ├── Dockerfile
+│               └── testCases
+│                   └── enzu_test
+│                       ├── CFD.base
+│                       │   ├── 0
+│                       │   │   ├── Ksl
+│                       │   │   ├── nu
+│                       │   │   ├── p
+│                       │   │   ├── rho
+│                       │   │   ├── U
+│                       │   │   ├── Us
+│                       │   │   └── voidfraction
+│                       │   ├── constant
+│                       │   │   ├── couplingProperties
+│                       │   │   ├── g
+│                       │   │   ├── liggghtsCommands
+│                       │   │   ├── polyMesh
+│                       │   │   │   ├── boundary
+│                       │   │   │   ├── cellZones
+│                       │   │   │   ├── faces
+│                       │   │   │   ├── faceZones
+│                       │   │   │   ├── neighbour
+│                       │   │   │   ├── owner
+│                       │   │   │   ├── points
+│                       │   │   │   └── pointZones
+│                       │   │   ├── postSpanwiseAverageDict
+│                       │   │   ├── transportProperties
+│                       │   │   └── turbulenceProperties
+│                       │   └── system
+│                       │       ├── controlDict
+│                       │       ├── controlDict.foam
+│                       │       ├── createPatchDict
+│                       │       ├── decomposeParDict
+│                       │       ├── fvSchemes
+│                       │       └── fvSolution
+│                       ├── cleanHere.sh
+│                       ├── DEM.base
+│                       │   ├── in.liggghts_init
+│                       │   ├── in.liggghts_resume
+│                       │   └── post
+│                       │       ├── pipe_15000.vtk
+│                       │       ├── pipe_boundingBox_15000.vtk
+│                       │       ├── restart
+│                       │       │   └── liggghts.restart
+│                       │       └── thermo.txt
+│                       ├── README.txt
+│                       └── runScript.sh
+├── openfoam
+│   ├── legacy
+│   │   ├── README.md
+│   │   ├── v1712
+│   │   │   └── openfoam--v1712.legacy.oldStyle.dockerfile
+│   │   ├── v1812
+│   │   │   └── openfoam--v1812.legacy.oldStyle.dockerfile
+│   │   ├── v1912
+│   │   │   └── openfoam--v1912.legacy.oldStyle.dockerfile
+│   │   ├── v2006
+│   │   │   └── openfoam--v2006.legacy.oldStyle.dockerfile
+│   │   ├── v2012
+│   │   │   └── openfoam--v2012.legacy.oldStyle.dockerfile
+│   │   ├── v2206
+│   │   │   └── openfoam--v2206.legacy.oldStyle.dockerfile
+│   │   └── v2212
+│   │       └── openfoam--v2212.legacy.oldStyle.dockerfile
+│   ├── v2012
+│   │   ├── docker-entrypoint-openfoam-template.sh
+│   │   ├── openfoam--v2012.dockerfile
+│   │   └── singularity-environment-openfoam-template.sh
+│   ├── v2206
+│   │   ├── docker-entrypoint-openfoam-template.sh
+│   │   ├── openfoam--v2206.dockerfile
+│   │   └── singularity-environment-openfoam-template.sh
+│   ├── v2212
+│   │   ├── docker-entrypoint-openfoam-template.sh
+│   │   ├── openfoam--v2212.dockerfile
+│   │   └── singularity-environment-openfoam-template.sh
+│   ├── v2406
+│   │   ├── docker-entrypoint-openfoam-template.sh
+│   │   ├── openfoam--v2406.dockerfile
+│   │   └── singularity-environment-openfoam-template.sh
+│   ├── v2412
+│   │   ├── docker-entrypoint-openfoam-template.sh
+│   │   ├── openfoam--v2412.dockerfile
+│   │   └── singularity-environment-openfoam-template.sh
+│   └── v2606
+│       ├── docker-entrypoint-openfoam-template.sh
+│       ├── openfoam--v2606.dockerfile
+│       └── singularity-environment-openfoam-template.sh
+├── openfoamextend
+│   └── legacy
+│       └── v41
+│           └── Dockerfile
+├── openfoam-org
+│   ├── 10
+│   │   ├── docker-entrypoint-openfoam-template.sh
+│   │   ├── openfoam-org--10.dockerfile
+│   │   └── singularity-environment-openfoam-template.sh
+│   ├── 12
+│   │   ├── docker-entrypoint-openfoam-template.sh
+│   │   ├── openfoam-org--12.dockerfile
+│   │   └── singularity-environment-openfoam-template.sh
+│   ├── 14
+│   │   ├── docker-entrypoint-openfoam-template.sh
+│   │   ├── openfoam-org--14.dockerfile
+│   │   └── singularity-environment-openfoam-template.sh
+│   └── legacy
+│       ├── 10
+│       │   └── openfoam-org--10.legacy.oldStyle.dockerfile
+│       ├── 12
+│       │   └── openfoam-org--12.legacy.oldStyle.dockerfile
+│       ├── 2.2.0
+│       │   └── Dockerfile
+│       ├── 2.4.x
+│       │   └── Dockerfile
+│       ├── 5.x
+│       │   └── Dockerfile
+│       ├── 7
+│       │   ├── Dockerfile
+│       │   └── sha1-fix.patch
+│       ├── 8
+│       │   ├── Dockerfile
+│       │   └── sha1-fix.patch
+│       └── 9
+│           └── Dockerfile
+├── pawsey-staff
+│   ├── buildingScripts
+│   │   ├── buildAll_openfoam.slurm.sh
+│   │   ├── checkPodmanNode.sh
+│   │   ├── cleanPodmanNode.sh
+│   │   ├── openfoamContainerBuild.sh
+│   │   └── openfoamSingularityBuild.sh
+│   ├── openfoam
+│   │   ├── v2012
+│   │   │   ├── buildAndValidationConfig
+│   │   │   │   └── openfoamBuildAndValidation.config
+│   │   │   ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam/v2012/docker-entrypoint-openfoam-template.sh
+│   │   │   ├── openfoam--v2012.dockerfile -> ../../../openfoam/v2012/openfoam--v2012.dockerfile
+│   │   │   ├── singularity-environment-openfoam-template.sh -> ../../../openfoam/v2012/singularity-environment-openfoam-template.sh
+│   │   │   └── tutorialTest
+│   │   │       ├── extractCase.sh
+│   │   │       ├── preFoam.slurm.sh
+│   │   │       └── runFoam.slurm.sh
+│   │   ├── v2206
+│   │   │   ├── buildAndValidationConfig
+│   │   │   │   └── openfoamBuildAndValidation.config
+│   │   │   ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam/v2206/docker-entrypoint-openfoam-template.sh
+│   │   │   ├── openfoam--v2206.dockerfile -> ../../../openfoam/v2206/openfoam--v2206.dockerfile
+│   │   │   ├── singularity-environment-openfoam-template.sh -> ../../../openfoam/v2206/singularity-environment-openfoam-template.sh
+│   │   │   └── tutorialTest
+│   │   │       ├── extractCase.sh
+│   │   │       ├── preFoam.slurm.sh
+│   │   │       └── runFoam.slurm.sh
+│   │   ├── v2212
+│   │   │   ├── buildAndValidationConfig
+│   │   │   │   └── openfoamBuildAndValidation.config
+│   │   │   ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam/v2212/docker-entrypoint-openfoam-template.sh
+│   │   │   ├── openfoam--v2212.dockerfile -> ../../../openfoam/v2212/openfoam--v2212.dockerfile
+│   │   │   ├── singularity-environment-openfoam-template.sh -> ../../../openfoam/v2212/singularity-environment-openfoam-template.sh
+│   │   │   └── tutorialTest
+│   │   │       ├── extractCase.sh
+│   │   │       ├── preFoam.slurm.sh
+│   │   │       └── runFoam.slurm.sh
+│   │   ├── v2406
+│   │   │   ├── auxiliaryScripts
+│   │   │   │   ├── bashismsTest.sh
+│   │   │   │   ├── checkingEntrypointMeaning.sh
+│   │   │   │   ├── check_vtk_binaries.sh
+│   │   │   │   ├── check_vtk_sources.sh
+│   │   │   │   ├── docker-entrypoint-openfoam-template-debugging.sh
+│   │   │   │   ├── singularity-environment-openfoam-template-debugging.sh
+│   │   │   │   └── ubuntu24.04.dockerfile
+│   │   │   ├── buildAndValidationConfig
+│   │   │   │   └── openfoamBuildAndValidation.config
+│   │   │   ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam/v2406/docker-entrypoint-openfoam-template.sh
+│   │   │   ├── openfoam--v2406.dockerfile -> ../../../openfoam/v2406/openfoam--v2406.dockerfile
+│   │   │   ├── README.md
+│   │   │   ├── singularity-environment-openfoam-template.sh -> ../../../openfoam/v2406/singularity-environment-openfoam-template.sh
+│   │   │   ├── strongScalingTest
+│   │   │   │   ├── decomposeFoam.slurm.sh
+│   │   │   │   ├── extractCase.sh
+│   │   │   │   ├── meshFoam.slurm.sh
+│   │   │   │   └── runFoam.slurm.sh
+│   │   │   └── tutorialTest
+│   │   │       ├── extractCase.sh
+│   │   │       ├── preFoam.slurm.sh
+│   │   │       └── runFoam.slurm.sh
+│   │   ├── v2412
+│   │   │   ├── buildAndValidationConfig
+│   │   │   │   └── openfoamBuildAndValidation.config
+│   │   │   ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam/v2412/docker-entrypoint-openfoam-template.sh
+│   │   │   ├── openfoam--v2412.dockerfile -> ../../../openfoam/v2412/openfoam--v2412.dockerfile
+│   │   │   ├── singularity-environment-openfoam-template.sh -> ../../../openfoam/v2412/singularity-environment-openfoam-template.sh
+│   │   │   └── tutorialTest
+│   │   │       ├── extractCase.sh
+│   │   │       ├── preFoam.slurm.sh
+│   │   │       └── runFoam.slurm.sh
+│   │   └── v2606
+│   │       ├── buildAndValidationConfig
+│   │       │   └── openfoamBuildAndValidation.config
+│   │       ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam/v2606/docker-entrypoint-openfoam-template.sh
+│   │       ├── openfoam--v2606.dockerfile -> ../../../openfoam/v2606/openfoam--v2606.dockerfile
+│   │       ├── singularity-environment-openfoam-template.sh -> ../../../openfoam/v2606/singularity-environment-openfoam-template.sh
+│   │       └── tutorialTest
+│   │           ├── extractCase.sh
+│   │           ├── preFoam.slurm.sh
+│   │           └── runFoam.slurm.sh
+│   ├── openfoam-org
+│   │   ├── 10
+│   │   │   ├── buildAndValidationConfig
+│   │   │   │   └── openfoamBuildAndValidation.config
+│   │   │   ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam-org/10/docker-entrypoint-openfoam-template.sh
+│   │   │   ├── openfoam-org--10.dockerfile -> ../../../openfoam-org/10/openfoam-org--10.dockerfile
+│   │   │   ├── singularity-environment-openfoam-template.sh -> ../../../openfoam-org/10/singularity-environment-openfoam-template.sh
+│   │   │   └── tutorialTest
+│   │   │       ├── extractCase.sh
+│   │   │       ├── preFoam.slurm.sh
+│   │   │       └── runFoam.slurm.sh
+│   │   ├── 12
+│   │   │   ├── buildAndValidationConfig
+│   │   │   │   └── openfoamBuildAndValidation.config
+│   │   │   ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam-org/12/docker-entrypoint-openfoam-template.sh
+│   │   │   ├── openfoam-org--12.dockerfile -> ../../../openfoam-org/12/openfoam-org--12.dockerfile
+│   │   │   ├── singularity-environment-openfoam-template.sh -> ../../../openfoam-org/12/singularity-environment-openfoam-template.sh
+│   │   │   └── tutorialTest
+│   │   │       ├── extractCase.sh
+│   │   │       ├── preFoam.slurm.sh
+│   │   │       └── runFoam.slurm.sh
+│   │   └── 14
+│   │       ├── buildAndValidationConfig
+│   │       │   └── openfoamBuildAndValidation.config
+│   │       ├── docker-entrypoint-openfoam-template.sh -> ../../../openfoam-org/14/docker-entrypoint-openfoam-template.sh
+│   │       ├── openfoam-org--14.dockerfile -> ../../../openfoam-org/14/openfoam-org--14.dockerfile
+│   │       ├── singularity-environment-openfoam-template.sh -> ../../../openfoam-org/14/singularity-environment-openfoam-template.sh
+│   │       └── tutorialTest
+│   │           ├── extractCase.sh
+│   │           ├── preFoam.slurm.sh
+│   │           └── runFoam.slurm.sh
+│   ├── SHPC
+│   │   └── generateOpenfoamSHPCAliases.sh
+│   └── tests
+│       ├── basic
+│       │   ├── checkOpenFoamBinaries.sh
+│       │   ├── openfoamBasicTests.sh
+│       │   └── openfoamImageValidation.sh
+│       └── setonix
+│           ├── functionality
+│           │   ├── openfoamCompileToolTestJob.slurm.sh
+│           │   ├── openfoamCompileToolTestLauncher.sh
+│           │   ├── openfoamTutorialTestLauncher.sh
+│           │   └── testAll_openfoamInstallations.sh
+│           └── scaling
+│               ├── openfoamStrongScalingPostProcess.sh
+│               └── openfoamStrongScalingTestLauncher.sh
+└── README.md
+
+88 directories, 178 files

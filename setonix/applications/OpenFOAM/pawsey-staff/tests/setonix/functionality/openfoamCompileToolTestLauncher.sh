@@ -68,9 +68,31 @@
 # Treat any use of an unset variable as an error.
 set -u
 
+# --- Helper to locate pawsey-staff root regardless of subdirectory depth
+findPawseyStaffRoot() {
+   local dir=$1
+   while [[ -n "$dir" && "$dir" != "/" ]]; do
+      if [[ "$(basename "$dir")" == "pawsey-staff" ]] || \
+         [[ -d "${dir}/buildingScripts" && -d "${dir}/openfoam" ]]; then
+         printf '%s\n' "$dir"
+         return 0
+      fi
+      dir=$(dirname "$dir")
+   done
+   local gitRoot
+   if gitRoot=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); then
+      if [[ -d "${gitRoot}/setonix/applications/OpenFOAM/pawsey-staff" ]]; then
+         printf '%s\n' "${gitRoot}/setonix/applications/OpenFOAM/pawsey-staff"
+         return 0
+      fi
+   fi
+   return 1
+}
+
 # --- Initial settings
 thisScript=$(basename "$0")
 scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+pawseyStaffRoot=$(findPawseyStaffRoot "$scriptDir" || printf '%s' "$PWD")
 recipeDirInput=""
 configFileInput=""
 imageInput=""
@@ -230,6 +252,9 @@ if [[ -n "$configFileInput" ]]; then
    }
    recipeDir=$(dirname "$configDir")
 elif [[ -n "$recipeDirInput" ]]; then
+   if [[ ! -d "$recipeDirInput" && -d "${pawseyStaffRoot}/${recipeDirInput}" ]]; then
+      recipeDirInput="${pawseyStaffRoot}/${recipeDirInput}"
+   fi
    [[ -d "$recipeDirInput" ]] || {
       echo "ERROR: Recipe directory does not exist: $recipeDirInput" >&2
       usage >&2

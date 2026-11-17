@@ -1,0 +1,106 @@
+/scratch/pawsey0001/espinosa/pawsey-containers/setonix/applications/OpenFOAM/pawsey-staff/openfoam/v2212/artifacts/tests/strong-scaling/cavity3D
+├── 20261116T152858+0800_3138926_shpc_64M
+│   ├── blockMesh.log
+│   ├── extractCase.run.log
+│   ├── extractCase.status.txt
+│   ├── jobs
+│   │   ├── N1_tpn128_cores128
+│   │   └── N8_tpn128_cores1024
+│   ├── launcher.run.log
+│   ├── meshFoam.status.txt
+│   ├── slurm-meshFoam-53235171.out
+│   ├── source-provenance.env
+│   ├── status.txt
+│   └── test-details.txt
+├── 20261116T154254+0800_3192452_shpc_64M
+│   ├── extractCase.run.log
+│   ├── extractCase.status.txt
+│   ├── jobs
+│   │   ├── N1_tpn128_cores128
+│   │   └── N8_tpn128_cores1024
+│   ├── launcher.run.log
+│   ├── source-provenance.env
+│   ├── status.txt
+│   └── test-details.txt
+├── 20261116T154438+0800_3201068_shpc_64M
+│   ├── blockMesh.log
+│   ├── checkMesh.log
+│   ├── extractCase.run.log
+│   ├── extractCase.status.txt
+│   ├── jobs
+│   │   ├── N1_tpn128_cores128
+│   │   └── N8_tpn128_cores1024
+│   ├── launcher.run.log
+│   ├── meshFoam.status.txt
+│   ├── mesh-info.env
+│   ├── prepareFoam.status.txt
+│   ├── slurm-meshFoam-53236418.out
+│   ├── slurm-prepareFoam-53236419.out
+│   ├── source-provenance.env
+│   ├── status.txt
+│   └── test-details.txt
+├── 20261116T191916+0800_4047919_shpc_64M
+│   ├── jobs
+│   │   ├── N1_tpn128_cores128
+│   │   └── N8_tpn128_cores1024
+│   ├── launcher.run.log
+│   ├── meshFoam.status.txt
+│   ├── mesh-info.env
+│   ├── reused-mesh-source
+│   │   ├── checkMesh.log
+│   │   ├── meshFoam.status.txt
+│   │   ├── mesh-info.env
+│   │   └── source-provenance.env
+│   ├── status.txt
+│   └── test-details.txt
+├── 20261116T192011+0800_4049938_shpc_64M
+│   ├── jobs
+│   │   ├── N1_tpn128_cores128
+│   │   │   ├── decomposeFoam.status.txt
+│   │   │   ├── decomposePar.log
+│   │   │   ├── icoFoam.log
+│   │   │   ├── job-info.env
+│   │   │   ├── renumberMesh-parallel.log
+│   │   │   ├── runFoam.status.txt
+│   │   │   ├── scaling-metrics.env
+│   │   │   ├── slurm-decomposeFoam-53243412.out
+│   │   │   └── slurm-runFoam-53243414.out
+│   │   └── N8_tpn128_cores1024
+│   │       ├── decomposeFoam.status.txt
+│   │       ├── decomposePar.log
+│   │       ├── icoFoam.log
+│   │       ├── job-info.env
+│   │       ├── renumberMesh-parallel.log
+│   │       ├── runFoam.status.txt
+│   │       ├── scaling-metrics.env
+│   │       ├── slurm-decomposeFoam-53243416.out
+│   │       └── slurm-runFoam-53243418.out
+│   ├── launcher.run.log
+│   ├── meshFoam.status.txt
+│   ├── mesh-info.env
+│   ├── prepared-case-details
+│   │   ├── 0
+│   │   │   ├── p
+│   │   │   └── U
+│   │   ├── checksums.sha256
+│   │   ├── constant
+│   │   │   └── transportProperties
+│   │   └── system
+│   │       ├── blockMeshDict
+│   │       ├── controlDict
+│   │       ├── decomposeParDict
+│   │       ├── fvSchemes
+│   │       └── fvSolution
+│   ├── prepared-case.env
+│   ├── prepareFoam.status.txt
+│   ├── reused-mesh-source
+│   │   ├── checkMesh.log
+│   │   ├── meshFoam.status.txt
+│   │   ├── mesh-info.env
+│   │   └── source-provenance.env
+│   ├── slurm-prepareFoam-53243409.out
+│   ├── status.txt
+│   └── test-details.txt
+└── latest -> 20261116T192011+0800_4049938_shpc_64M
+
+27 directories, 76 files
