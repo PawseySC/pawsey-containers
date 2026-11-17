@@ -9,6 +9,9 @@
 # Most of this file taken from Deva's settings.py file in reframe/setup_files/ on bitbucket
 #
 
+from reframe.core.backends import register_launcher
+from reframe.core.launchers import JobLauncher
+
 # Custom launcher that is more explicit with options passed to srun
 @register_launcher('srun_explicit')
 class SrunExplicitLauncher(JobLauncher):
@@ -17,7 +20,6 @@ class SrunExplicitLauncher(JobLauncher):
             'srun',
             '-N', str(job.num_tasks // job.num_tasks_per_node),
             '-n', str(job.num_tasks),
-            '-c', str(job.num_cpus_per_task),
             f'--ntasks-per-node={job.num_tasks_per_node}',
         ]
 
