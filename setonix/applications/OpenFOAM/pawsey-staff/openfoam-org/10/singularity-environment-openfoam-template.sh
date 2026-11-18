@@ -1,0 +1,1 @@
+../../../openfoam-org/10/singularity-environment-openfoam-template.sh

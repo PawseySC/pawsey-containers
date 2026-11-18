@@ -4,7 +4,7 @@ This repository contains a collection of Dockerfiles for container images built 
 
 ## Overview
 
-Dockerfiles are organised by target platform — Setonix and Quantum — with a shared common/ directory for Dockerfiles shared by both.
+Dockerfiles are organised by target platform — Setonix and Quantum — with a shared `common/` directory for Dockerfiles shared by both.
 
 ### Setonix
 
