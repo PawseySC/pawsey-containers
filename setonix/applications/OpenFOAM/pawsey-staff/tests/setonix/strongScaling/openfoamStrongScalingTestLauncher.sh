@@ -1,841 +1,583 @@
 #!/bin/bash --login
 # =============================================================================
-# OpenFOAM strong-scaling launcher: one mandatory five-stage workflow
+# Generic OpenFOAM five-stage strong-scaling launcher
 # =============================================================================
-# Design
-# ------
-# Each case must supply all five scripts under:
-#   <recipe-dir>/strongScalingTests/<case>/
+# Purpose and design
+# ------------------
+# Coordinate any strong-scaling experiment that provides case.conf and the five
+# mandatory stage scripts: extract, mesh, prepare, decompose, and run. Case policy
+# and stage interfaces live beside the case scripts; this launcher never branches
+# on a case name. Command-line values override case.conf defaults.
 #
-#   extractCase.sh -> meshFoam.slurm.sh -> prepareFoam.slurm.sh
-#       -> decomposeFoam.slurm.sh -> runFoam.slurm.sh
+# The launcher owns campaign paths, Slurm resources, dependencies, mesh reuse,
+# monitoring, status verification, and optional Python postprocessing. Case files
+# own scientific preparation, OpenFOAM commands, and solver-specific validation.
 #
-# Extraction runs directly. Mesh and preparation run once per campaign. Each
-# topology then receives its own decomposition and solver jobs. Dependencies are
-# always mesh -> prepare -> decompose -> run; preparation is never optional.
-# Missing scripts stop validation before extraction or Slurm submission.
-# An explicit --resume-from-mesh reuses completed extraction/mesh stages after
-# validating their evidence, then copies the serial case into a new campaign.
-# Preparation remains mandatory and the source case is never modified.
+# Common scratch contract:
+#   <work-root>/source-case/<case>/
+#   <work-root>/base-case/<case>/
+#   <work-root>/jobs/<topology>/<case>/
 #
-# The launcher owns paths, resource requests, dependencies and status reporting.
-# Case scripts own mesh construction, numerical settings and solver execution.
-# This revision uses the --foam-module interface of the delivered cavity3D
-# scripts. Image-mode arguments remain recognized but are rejected explicitly:
-# those case scripts do not implement direct-image execution.
-#
-# Persistent evidence lives under:
-#   <recipe-dir>/artifacts/tests/strong-scaling/<case>/<campaign>/
-# Scratch working cases are separate. Raw logs remain the analysis authority.
-# Postprocessing runs only when BOTH physical-time endpoints are supplied; no
-# interval from another case is silently applied to a 15-step cavity benchmark.
-#
-# Based on the user's .100 launcher: retain its editable scalingJobsTable,
-# recipe/config selection, runtime validation, clean Slurm submission environment,
-# campaign namespace, submit-only mode and queue reporting.
+# Persistent artifacts:
+#   <recipe>/artifacts/tests/strong-scaling/<case>/<campaign>/
 # =============================================================================
-
 set -u
 
 # =============================================================================
-# 1. Campaign defaults and editable scaling topology
+# 1. Editable campaign topology and launcher defaults
 # =============================================================================
-DEFAULT_CELLS_MILLIONS="64"
 DEFAULT_MESH_WALLTIME="01:00:00"
 DEFAULT_PREPARE_WALLTIME="00:20:00"
+ENABLE_SLURM_CPU_SPREADING=true
+# Using this for periodicPlaneChannel experiment
+#scalingJobsTable=(
+#   #"1  16  02:00:00  00:20:00"
+#   #"1  32  02:00:00  00:20:00"
+#   "1  64  02:00:00  00:20:00"
+#   #"2  32  02:00:00  00:20:00"
+#   #"1  128  02:00:00  00:20:00"
+#   #"2  128  02:00:00  00:20:00"
+#   #"4  128  02:00:00  00:20:00"
+#   #"8  128  02:00:00  00:20:00"
+#   #"16  128  02:00:00  00:20:00"
+#)
 
-# Each entry defines one strong-scaling job:
-#   "NODES  TASKS_PER_NODE  DECOMPOSE_WALLTIME  RUN_WALLTIME"
+#Using this for cavity3D experiment
 scalingJobsTable=(
-#   "1  16   02:00:00  00:20:00"
-#   "1  32   02:00:00  00:20:00"
-#   "1  64   02:00:00  00:20:00"
-   "1  128  02:00:00  00:30:00"
-#   "2  128  02:00:00  00:20:00"
-#   "4  128  02:00:00  00:20:00"
-   "8  128  02:00:00  00:20:00"
-#   "16  128  02:00:00  00:20:00"
+   #"1  128  02:00:00  00:20:00"
+   "4  128  02:00:00  00:20:00"
+   #"8  128  02:00:00  00:20:00"
+   "16  128  02:00:00  00:20:00"
 )
 
 # =============================================================================
-# 2. Repository location
+# 2. Repository discovery and public interface
 # =============================================================================
-# Resolve paths independently of the current working directory.
 findPawseyStaffRoot() {
    local dir=$1
-   while [[ -n "$dir" && "$dir" != "/" ]]; do
-      if [[ "$(basename "$dir")" == "pawsey-staff" ]] || \
-         [[ -d "${dir}/buildingScripts" && -d "${dir}/openfoam" ]]; then
-         printf '%s\n' "$dir"
-         return 0
-      fi
+   while [[ -n "$dir" && "$dir" != / ]]; do
+      if [[ -d "$dir/openfoam" && -d "$dir/tests" ]]; then printf '%s\n' "$dir"; return 0; fi
       dir=$(dirname "$dir")
    done
-   local gitRoot
-   if gitRoot=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null); then
-      if [[ -d "${gitRoot}/setonix/applications/OpenFOAM/pawsey-staff" ]]; then
-         printf '%s\n' "${gitRoot}/setonix/applications/OpenFOAM/pawsey-staff"
-         return 0
-      fi
-   fi
    return 1
 }
 
-# =============================================================================
-# 3. Launcher state
-# =============================================================================
-# Keep command-line inputs separate from resolved campaign paths.
+# Accept the status format generated by current mesh stages and the one-word
+# marker retained by historical campaigns. Any other content remains invalid.
+meshStatusIsSuccessful() {
+   local statusFile=$1
+   local normalizedStatus
+
+   [[ -f "$statusFile" && -r "$statusFile" && -s "$statusFile" ]] || return 1
+   normalizedStatus=$(tr -d '\r' < "$statusFile" | awk 'NF { print; exit }')
+
+   [[ "$normalizedStatus" == "SUCCESS" || "$normalizedStatus" == "STATUS=PASS" ]]
+}
 thisScript=$(basename "$0")
 scriptDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 pawseyStaffRoot=$(findPawseyStaffRoot "$scriptDir" || printf '%s' "$PWD")
-postProcessScript="${scriptDir}/openfoamStrongScalingPostProcess.py"
-recipeDirInput=""
-scalingCase=""
-configFileInput=""
-scriptsDirInput=""
-imageInput=""
-singularityModule="singularity/4.3.5-mpi"
-singularityModuleSpecified=false
-useSHPC=false
-useBareMetal=false
-workRootInput=""
-cellsMillions="$DEFAULT_CELLS_MILLIONS"
-statsStartTime=""
-statsEndTime=""
-meshWalltime="$DEFAULT_MESH_WALLTIME"
-prepareWalltime="$DEFAULT_PREPARE_WALLTIME"
-benchmarkSourceInput=""
-dryRun=false
-resumeMeshInput=""
-meshArtifactsInput=""
-runWalltimeOverride=""
-partitionInput="${PARTITION:-}"
-reservationInput="${RESERVATION:-}"
-pollInterval=${POLL_INTERVAL_SECONDS:-20}
-submitOnly=false
-
-# =============================================================================
-# 4. Command-line documentation
-# =============================================================================
-# Describe the public interface used for repeatable campaign submission.
-
 usage() {
-   cat <<USAGE
-Usage:
-  $thisScript --recipe-dir <directory> --case <name> --image <file> [options]
-  $thisScript --recipe-dir <directory> --case <name> --shpc [options]
-  $thisScript --recipe-dir <directory> --case <name> --bare-metal [options]
-  $thisScript --config <file> --scripts-dir <directory> --image <file> [options]
-  $thisScript --config <file> --scripts-dir <directory> --shpc [options]
-  $thisScript --config <file> --scripts-dir <directory> --bare-metal [options]
-  $thisScript --help
-
-Test-location selection (choose one complete mode):
-  --recipe-dir, -r <directory>  OpenFOAM version directory containing
-                                buildAndValidationConfig/ and strongScalingTests/<case>/
-  --case <name>                 Strong-scaling case directory under strongScalingTests/
-  --config <file>               Explicit version configuration file; requires
-                                --scripts-dir and cannot be used with --recipe-dir
-  --scripts-dir <directory>     Directory containing extractCase.sh,
-                                meshFoam.slurm.sh, prepareFoam.slurm.sh,
-                                decomposeFoam.slurm.sh, and
-                                runFoam.slurm.sh
-
-Runtime selection (choose exactly one):
-  --image, -i <file>            Recognized but unsupported by the supplied case stages
-  --singularity-module <module> Recognized but unsupported by the supplied case stages
-  --shpc                        Use <OPENFOAM_FORK>-container/<OPENFOAM_VERSION>
-  --bare-metal                  Use <OPENFOAM_FORK>/<OPENFOAM_VERSION>
-
-Strong-scaling benchmark options:
-  --cells-millions <number>     Target total mesh cells in millions
-                                (default: $DEFAULT_CELLS_MILLIONS)
-  --stats-start-time <time>     Post-processing reference (requires --stats-end-time)
-  --stats-end-time <time>       Final included time (requires --stats-start-time)
-  --prepare-walltime <HH:MM:SS> Shared preparation walltime (default: $DEFAULT_PREPARE_WALLTIME)
-  --resume-from-mesh <dir>      Reuse an existing successful serial meshed case
-  --mesh-artifacts-dir <dir>    Source campaign with mesh-info.env and PASS status;
-                                required with --resume-from-mesh
-  --benchmark-source <dir>      Local authoritative cavity3D benchmark source
-  --dry-run                     Validate and report without creating a campaign
-  --mesh-walltime <HH:MM:SS>    Slurm walltime limit for meshFoam.slurm.sh
-                                (default: $DEFAULT_MESH_WALLTIME)
-  --run-walltime <HH:MM:SS>     Override the table's RUN_WALLTIME column for
-                                all solver jobs
-
-Optional settings:
-  --work-root, -w <directory>   Host work root shared by all stages
-  --partition, -p <name>        Override the partition in all Slurm jobs
-  --reservation <name>          Submit all Slurm jobs using this reservation
-  --submit-only                 Submit all jobs and return without waiting
-  --help, -h                    Show this help message and exit
+cat <<USAGE
+Usage: $thisScript --recipe-dir DIR --case NAME (--shpc|--bare-metal) [options]
+Options:
+  --cells-millions N          Override case.conf mesh default
+  --stats-start-time T        Override analysis start reference
+  --stats-end-time T          Override final included analysis time
+  --case-end-time T           Override solver physical end time
+  --benchmark-source DIR      Optional local benchmark source
+  --resume-from-mesh DIR      Reuse a successful serial mesh
+  --mesh-artifacts-dir DIR    Mesh evidence directory used with resume
+  --work-root DIR             Override scratch campaign root
+  --mesh-walltime HH:MM:SS    Mesh stage limit
+  --prepare-walltime HH:MM:SS Preparation stage limit
+  --run-walltime HH:MM:SS     Override all solver limits
+  --partition NAME            Slurm partition override
+  --reservation NAME          Slurm reservation
+  --dry-run                   Validate and print the generic plan
+  --submit-only               Submit without monitoring
+  --help                      Show this help
 USAGE
 }
 
 # =============================================================================
-# 5. Command-line parsing
+# 3. Command-line parsing
 # =============================================================================
-# Read selectors and overrides without performing work.
-while [[ $# -gt 0 ]]; do
+recipeDirInput=""; scalingCase=""; runtime=""; cellsMillions=""
+statsStartTime=""; statsEndTime=""; caseEndTime=""; benchmarkSource=""
+resumeMesh=""; meshArtifacts=""; workRootInput=""; runWalltime=""
+meshWalltime=$DEFAULT_MESH_WALLTIME; prepareWalltime=""
+partition="${PARTITION:-}"; reservation="${RESERVATION:-}"
+dryRun=false; submitOnly=false; pollInterval=${POLL_INTERVAL_SECONDS:-20}
+while (($#)); do
    case "$1" in
-      --recipe-dir|-r)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --recipe-dir requires <directory>" >&2; usage >&2; exit 1; }
-         recipeDirInput="$2"; shift 2 ;;
-      --case)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --case requires <name>" >&2; usage >&2; exit 1; }
-         scalingCase="$2"; shift 2 ;;
-      --config)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --config requires <file>" >&2; usage >&2; exit 1; }
-         configFileInput="$2"; shift 2 ;;
-      --scripts-dir)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --scripts-dir requires <directory>" >&2; usage >&2; exit 1; }
-         scriptsDirInput="$2"; shift 2 ;;
-      --image|-i)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --image requires <file>" >&2; usage >&2; exit 1; }
-         imageInput="$2"; shift 2 ;;
-      --singularity-module)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --singularity-module requires <module>" >&2; usage >&2; exit 1; }
-         singularityModule="$2"; singularityModuleSpecified=true; shift 2 ;;
-      --shpc)
-         useSHPC=true; shift ;;
-      --bare-metal)
-         useBareMetal=true; shift ;;
-      --cells-millions)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --cells-millions requires <number>" >&2; usage >&2; exit 1; }
-         cellsMillions="$2"; shift 2 ;;
-      --stats-start-time)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --stats-start-time requires <time>" >&2; usage >&2; exit 1; }
-         statsStartTime="$2"; shift 2 ;;
-      --stats-end-time)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --stats-end-time requires <time>" >&2; usage >&2; exit 1; }
-         statsEndTime="$2"; shift 2 ;;
-      --prepare-walltime)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --prepare-walltime requires a value" >&2; exit 1; }
-         prepareWalltime="$2"; shift 2 ;;
-      --resume-from-mesh)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --resume-from-mesh requires a directory" >&2; exit 1; }
-         resumeMeshInput=$2
-         shift 2
-         ;;
-      --mesh-artifacts-dir)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --mesh-artifacts-dir requires a directory" >&2; exit 1; }
-         meshArtifactsInput=$2
-         shift 2
-         ;;
-      --benchmark-source)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --benchmark-source requires a directory" >&2; exit 1; }
-         benchmarkSourceInput="$2"; shift 2 ;;
-      --dry-run)
-         dryRun=true; shift ;;
-      --mesh-walltime)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --mesh-walltime requires <HH:MM:SS>" >&2; usage >&2; exit 1; }
-         meshWalltime="$2"; shift 2 ;;
-      --run-walltime)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --run-walltime requires <HH:MM:SS>" >&2; usage >&2; exit 1; }
-         runWalltimeOverride="$2"; shift 2 ;;
-      --work-root|-w)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --work-root requires <directory>" >&2; usage >&2; exit 1; }
-         workRootInput="$2"; shift 2 ;;
-      --partition|-p)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --partition requires <name>" >&2; usage >&2; exit 1; }
-         partitionInput="$2"; shift 2 ;;
-      --reservation)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --reservation requires <name>" >&2; usage >&2; exit 1; }
-         reservationInput="$2"; shift 2 ;;
-      --submit-only)
-         submitOnly=true; shift ;;
-      -h|--help)
-         usage; exit 0 ;;
-      *)
-         echo "ERROR: Unknown option '$1'" >&2; usage >&2; exit 1 ;;
+      --recipe-dir|-r) recipeDirInput=$2; shift 2 ;;
+      --case) scalingCase=$2; shift 2 ;;
+      --shpc) runtime=shpc; shift ;;
+      --bare-metal) runtime=bare-metal; shift ;;
+      --cells-millions) cellsMillions=$2; shift 2 ;;
+      --stats-start-time) statsStartTime=$2; shift 2 ;;
+      --stats-end-time) statsEndTime=$2; shift 2 ;;
+      --case-end-time) caseEndTime=$2; shift 2 ;;
+      --benchmark-source) benchmarkSource=$2; shift 2 ;;
+      --resume-from-mesh) resumeMesh=$2; shift 2 ;;
+      --mesh-artifacts-dir) meshArtifacts=$2; shift 2 ;;
+      --work-root|-w) workRootInput=$2; shift 2 ;;
+      --mesh-walltime) meshWalltime=$2; shift 2 ;;
+      --prepare-walltime) prepareWalltime=$2; shift 2 ;;
+      --run-walltime) runWalltime=$2; shift 2 ;;
+      --partition|-p) partition=$2; shift 2 ;;
+      --reservation) reservation=$2; shift 2 ;;
+      --dry-run) dryRun=true; shift ;;
+      --submit-only) submitOnly=true; shift ;;
+      --help|-h) usage; exit 0 ;;
+      *) echo "ERROR: Unknown option: $1" >&2; usage >&2; exit 1 ;;
    esac
 done
-
-awk -v m="$cellsMillions" 'BEGIN { exit (m ~ /^[0-9]+([.][0-9]+)?$/ && m + 0 > 0 ? 0 : 1) }' || {
-   echo "ERROR: --cells-millions must be a positive number; got '$cellsMillions'" >&2
-   exit 1
-}
-# An analysis interval is explicit and independent of the solver's end time.
-if [[ -n "$statsStartTime" || -n "$statsEndTime" ]]; then
-   awk -v a="$statsStartTime" -v b="$statsEndTime" 'BEGIN { exit !(a ~ /^[0-9]+([.][0-9]+)?$/ && b ~ /^[0-9]+([.][0-9]+)?$/ && b+0>a+0) }' || {
-      echo "ERROR: Supply both numeric statistics endpoints with end greater than start" >&2
-      exit 1
-   }
-fi
+[[ -n "$recipeDirInput" && -n "$scalingCase" && -n "$runtime" ]] || { usage >&2; exit 1; }
 
 # =============================================================================
-# 6. Version and configuration resolution
+# 4. Resolve case contract and OpenFOAM identity
 # =============================================================================
-# Resolve one recipe and load its OpenFOAM identity.
-if [[ -n "$recipeDirInput" ]]; then
-   [[ -z "$configFileInput" && -z "$scriptsDirInput" ]] || {
-      echo "ERROR: --recipe-dir cannot be used with --config or --scripts-dir" >&2
-      usage >&2
-      exit 1
-   }
-   if [[ ! -d "$recipeDirInput" && -d "${pawseyStaffRoot}/${recipeDirInput}" ]]; then
-      recipeDirInput="${pawseyStaffRoot}/${recipeDirInput}"
-   fi
-   [[ -d "$recipeDirInput" ]] || { echo "ERROR: Recipe directory not found: $recipeDirInput" >&2; exit 1; }
-   recipeDir=$(realpath "$recipeDirInput")
-   [[ -n "$scalingCase" ]] || { echo "ERROR: --case <name> is required with --recipe-dir" >&2; exit 1; }
-   [[ "$scalingCase" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "ERROR: Invalid --case name: $scalingCase" >&2; exit 1; }
-   configFile="${recipeDir}/buildAndValidationConfig/openfoamBuildAndValidation.config"
-   scalingScriptDir="${recipeDir}/strongScalingTests/${scalingCase}"
-elif [[ -n "$configFileInput" || -n "$scriptsDirInput" ]]; then
-   [[ -n "$configFileInput" && -n "$scriptsDirInput" ]] || {
-      echo "ERROR: --config and --scripts-dir must be provided together" >&2
-      usage >&2
-      exit 1
-   }
-   [[ -r "$configFileInput" ]] || { echo "ERROR: Configuration is not readable: $configFileInput" >&2; exit 1; }
-   [[ -d "$scriptsDirInput" ]] || { echo "ERROR: Scripts directory not found: $scriptsDirInput" >&2; exit 1; }
-   configFile=$(realpath "$configFileInput")
-   scalingScriptDir=$(realpath "$scriptsDirInput")
-   recipeDir=$(dirname "$(dirname "$configFile")")
-   detectedCase=$(basename "$scalingScriptDir")
-   if [[ -n "$scalingCase" && "$scalingCase" != "$detectedCase" ]]; then
-      echo "ERROR: --case '$scalingCase' does not match scripts directory case '$detectedCase'" >&2
-      exit 1
-   fi
-   scalingCase=$detectedCase
-   [[ "$(basename "$(dirname "$scalingScriptDir")")" == "strongScalingTests" ]] || {
-      echo "ERROR: Scripts directory must be strongScalingTests/<case>: $scalingScriptDir" >&2
-      exit 1
-   }
-else
-   echo "ERROR: Provide --recipe-dir, or provide --config and --scripts-dir together" >&2
-   usage >&2
-   exit 1
-fi
-[[ -r "$configFile" ]] || { echo "ERROR: Configuration is not readable: $configFile" >&2; exit 1; }
-unset OPENFOAM_FORK OPENFOAM_VERSION
+[[ -d "$recipeDirInput" ]] || recipeDirInput="$pawseyStaffRoot/$recipeDirInput"
+recipeDir=$(realpath "$recipeDirInput") || exit 1
+caseDir="$recipeDir/strongScalingTests/$scalingCase"
+caseConfig="$caseDir/case.conf"
+buildConfig="$recipeDir/buildAndValidationConfig/openfoamBuildAndValidation.config"
+[[ -r "$caseConfig" && -r "$buildConfig" ]] || { echo "ERROR: Missing case.conf or build configuration" >&2; exit 1; }
+bash -n "$caseConfig" || exit 1
 # shellcheck source=/dev/null
-source "$configFile"
-for requiredSetting in OPENFOAM_FORK OPENFOAM_VERSION; do
-   [[ -n "${!requiredSetting:-}" ]] || { echo "ERROR: $requiredSetting is not defined in $configFile" >&2; exit 1; }
+source "$caseConfig"
+# shellcheck source=/dev/null
+source "$buildConfig"
+[[ ${CASE_CONTRACT_VERSION:-} == 1 && ${CASE_NAME:-} == "$scalingCase" ]] || { echo "ERROR: Invalid case contract" >&2; exit 1; }
+for arrayName in SUPPORTED_CELLS_MILLIONS MESH_STATE_REQUIRED_PATHS EXTRACT_ARGUMENT_TEMPLATE MESH_ARGUMENT_TEMPLATE PREPARE_ARGUMENT_TEMPLATE DECOMPOSE_ARGUMENT_TEMPLATE RUN_ARGUMENT_TEMPLATE; do
+   declare -p "$arrayName" >/dev/null 2>&1 || { echo "ERROR: case.conf missing $arrayName" >&2; exit 1; }
 done
+cellsMillions=${cellsMillions:-$DEFAULT_CELLS_MILLIONS}
+statsStartTime=${statsStartTime:-$DEFAULT_STATS_START_TIME}
+statsEndTime=${statsEndTime:-$DEFAULT_STATS_END_TIME}
+caseEndTime=${caseEndTime:-$DEFAULT_CASE_END_TIME}
+prepareWalltime=${prepareWalltime:-${DEFAULT_PREPARE_WALLTIME:-$DEFAULT_PREPARE_WALLTIME}}
+[[ " ${SUPPORTED_CELLS_MILLIONS[*]} " == *" $cellsMillions "* ]] || { echo "ERROR: Unsupported mesh size $cellsMillions" >&2; exit 1; }
+awk -v a="$statsStartTime" -v b="$statsEndTime" -v c="$caseEndTime" 'BEGIN{exit !(b>a && c>=b)}' || { echo "ERROR: Require stats start < stats end <= case end" >&2; exit 1; }
+foamModule="${OPENFOAM_FORK}$([[ $runtime == shpc ]] && printf '%s' '-container')/${OPENFOAM_VERSION}"
+runtimeArgs=(--"$runtime")
+targetCells=$(awk -v m="$cellsMillions" 'BEGIN{printf "%.0f",m*1000000}')
 
 # =============================================================================
-# 7. Runtime selection
+# 5. Validate mandatory stages and template expansion
 # =============================================================================
-# Resolve the configured SHPC or bare-metal module consistently for every stage.
-
-runtimeSelectorCount=0
-[[ -n "$imageInput" ]] && ((runtimeSelectorCount += 1))
-[[ "$useSHPC" == true ]] && ((runtimeSelectorCount += 1))
-[[ "$useBareMetal" == true ]] && ((runtimeSelectorCount += 1))
-[[ $runtimeSelectorCount -eq 1 ]] || { echo "ERROR: Choose exactly one of --image <file>, --shpc, or --bare-metal" >&2; exit 1; }
-
-if [[ "$singularityModuleSpecified" == true && "$useBareMetal" == true ]]; then
-   echo "ERROR: --singularity-module cannot be used with --bare-metal" >&2
-   exit 1
-fi
-
-SINGULARITY_IMAGE=""
-imageChecksum=""
-shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
-bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
-if [[ -n "$imageInput" ]]; then
-   [[ -f "$imageInput" ]] || { echo "ERROR: Image not found: $imageInput" >&2; exit 1; }
-   SINGULARITY_IMAGE=$(realpath "$imageInput")
-   imageChecksum=$(sha256sum "$SINGULARITY_IMAGE" | awk '{print $1}')
-   runtimeMode="Explicit Singularity image"
-   runtimeOption=(--image "$SINGULARITY_IMAGE" --singularity-module "$singularityModule")
-   artifactRuntimeName="singularity"
-elif [[ "$useSHPC" == true ]]; then
-   runtimeMode="SHPC module"
-   runtimeOption=(--shpc)
-   if [[ "$singularityModuleSpecified" == true ]]; then
-      runtimeOption+=(--singularity-module "$singularityModule")
-   fi
-   artifactRuntimeName="shpc"
-else
-   runtimeMode="Bare-metal module"
-   runtimeOption=(--bare-metal)
-   artifactRuntimeName="bare-metal"
-fi
-
-# =============================================================================
-# 8. Mandatory stage validation
-# =============================================================================
-# All five scripts are required before extraction or submission.
-extractScript="${scalingScriptDir}/extractCase.sh"
-meshScript="${scalingScriptDir}/meshFoam.slurm.sh"
-prepareScript="${scalingScriptDir}/prepareFoam.slurm.sh"
-decomposeScript="${scalingScriptDir}/decomposeFoam.slurm.sh"
-runScript="${scalingScriptDir}/runFoam.slurm.sh"
-
-for requiredScript in "$extractScript" "$meshScript" "$prepareScript" "$decomposeScript" "$runScript"; do
-   [[ -r "$requiredScript" ]] || { echo "ERROR: Required strong-scaling script not found: $requiredScript" >&2; exit 1; }
-   bash -n "$requiredScript" || { echo "ERROR: Bash syntax check failed: $requiredScript" >&2; exit 1; }
+for stage in extractCase.sh meshFoam.slurm.sh prepareFoam.slurm.sh decomposeFoam.slurm.sh runFoam.slurm.sh; do
+   [[ -x "$caseDir/$stage" ]] || { echo "ERROR: Missing executable stage: $caseDir/$stage" >&2; exit 1; }
+   bash -n "$caseDir/$stage" || exit 1
 done
-[[ -x "$extractScript" ]] || { echo "ERROR: Extraction script is not executable: $extractScript" >&2; exit 1; }
-# All stages use the same module-based interface. Reject unsupported requests
-# rather than forwarding flags that the delivered stage scripts cannot accept.
-if [[ -n "$imageInput" || "$singularityModuleSpecified" == true ]]; then
-   echo "ERROR: These five-stage scripts accept --foam-module, not direct images or Singularity overrides" >&2
-   exit 1
-fi
-caseFoamModule=$shpcModule
-[[ "$useBareMetal" == false ]] || caseFoamModule=$bareMetalModule
-if [[ -n "$benchmarkSourceInput" ]]; then
-   [[ -d "$benchmarkSourceInput" ]] || { echo "ERROR: Benchmark source not found" >&2; exit 1; }
-   benchmarkSourceInput=$(realpath "$benchmarkSourceInput")
-fi
-# The supplied cavity3D stages currently implement exactly 64M/fixedIter.
-if [[ "$scalingCase" == cavity3D && "$cellsMillions" != 64 ]]; then
-   echo "ERROR: The supplied cavity3D stages support --cells-millions 64" >&2
-   exit 1
-fi
-targetCells=$(awk -v m="$cellsMillions" 'BEGIN { printf "%.0f",m*1000000 }')
-actualCells=$targetCells
-
-# Validate every table row before any filesystem or scheduler mutation.
-for row in "${scalingJobsTable[@]}"; do
-   read -r n t dw rw extra <<< "$row"
-   [[ "$n" =~ ^[1-9][0-9]*$ && "$t" =~ ^[1-9][0-9]*$ && -z "$extra" ]] || {
-      echo "ERROR: Invalid scalingJobsTable row: $row" >&2; exit 1;
-   }
-   for walltime in "$dw" "$rw" "$meshWalltime" "$prepareWalltime" "${runWalltimeOverride:-$rw}"; do
-      [[ "$walltime" =~ ^[0-9]+:[0-5][0-9]:[0-5][0-9]$ ]] || {
-         echo "ERROR: Invalid walltime: $walltime" >&2; exit 1;
-      }
+expandTemplate() {
+   local templateName=$1 outputName=$2 token item
+   local -n template=$templateName output=$outputName
+   output=()
+   for item in "${template[@]}"; do
+      case "$item" in
+         @RUNTIME_ARGS@) output+=("${runtimeArgs[@]}") ;;
+         @BENCHMARK_SOURCE_ARGS@) [[ -z "$benchmarkSource" ]] || output+=(--benchmark-source "$benchmarkSource") ;;
+         *)
+            item=${item//@RECIPE_DIR@/$recipeDir}; item=${item//@WORK_ROOT@/$workRoot}
+            item=${item//@CAMPAIGN_ARTIFACTS@/$campaignArtifacts}; item=${item//@JOB_ARTIFACTS@/${jobArtifacts:-}}
+            item=${item//@SOURCE_CASE_DIR@/$sourceCaseDir}; item=${item//@BASE_CASE_DIR@/$baseCaseDir}
+            item=${item//@JOB_CASE_DIR@/${jobCaseDir:-}}; item=${item//@CELLS_MILLIONS@/$cellsMillions}
+            item=${item//@TARGET_CELLS@/$targetCells}; item=${item//@CASE_END_TIME@/$caseEndTime}
+            item=${item//@NODES@/${nodes:-}}; item=${item//@TASKS_PER_NODE@/${tasksPerNode:-}}
+            item=${item//@CPU_SPREADING@/$ENABLE_SLURM_CPU_SPREADING}; item=${item//@FOAM_MODULE@/$foamModule}
+            output+=("$item") ;;
+      esac
    done
-done
-[[ "$pollInterval" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: Invalid poll interval" >&2; exit 1; }
+}
 
-# --- Validate completed mesh evidence before creating a resumed campaign
-# The metadata files are trusted artifacts generated by these project scripts.
-# Read them in a subshell so their variables cannot replace launcher state.
-if [[ -n "$resumeMeshInput" || -n "$meshArtifactsInput" ]]; then
-   [[ -n "$resumeMeshInput" && -n "$meshArtifactsInput" ]] || {
-      echo "ERROR: Supply --resume-from-mesh and --mesh-artifacts-dir together" >&2
+# =============================================================================
+# 6. Campaign paths and mesh-reuse admission
+# =============================================================================
+runId="${CI_PIPELINE_ID:-$(date '+%Y%m%dT%H%M%S%z')_$$}"
+workRoot=${workRootInput:-${MYSCRATCH:-${TMPDIR:-$HOME}}/OpenFOAM-strong-scaling/${USER}-${OPENFOAM_VERSION}/$runId}
+artifactRoot="$recipeDir/artifacts/tests/strong-scaling/$scalingCase"
+campaignArtifacts="$artifactRoot/${runId}_${runtime}_${cellsMillions}M"
+sourceCaseDir="$workRoot/source-case/$scalingCase"
+baseCaseDir="$workRoot/base-case/$scalingCase"
+if [[ -n "$resumeMesh" || -n "$meshArtifacts" ]]; then
+   [[ -n "$resumeMesh" && -n "$meshArtifacts" ]] || { echo "ERROR: Both mesh-reuse options are required" >&2; exit 1; }
+   resumeMesh=$(realpath -e "$resumeMesh") || exit 1
+   meshArtifacts=$(realpath -e "$meshArtifacts") || exit 1
+   meshStatusFile="$meshArtifacts/meshFoam.status.txt"
+   meshStatusIsSuccessful "$meshStatusFile" || {
+      echo "ERROR: Mesh evidence is neither historical SUCCESS nor current STATUS=PASS: $meshStatusFile" >&2
       exit 1
    }
-   [[ -z "$benchmarkSourceInput" ]] || {
-      echo "ERROR: --benchmark-source cannot be combined with mesh reuse" >&2
-      exit 1
-   }
-   resumeMeshInput=$(realpath -e "$resumeMeshInput") || exit 1
-   meshArtifactsInput=$(realpath -e "$meshArtifactsInput") || exit 1
-   for file in mesh-info.env meshFoam.status.txt; do
-      [[ -r "$meshArtifactsInput/$file" ]] || {
-         echo "ERROR: Missing mesh evidence: $meshArtifactsInput/$file" >&2
-         exit 1
-      }
-   done
-   grep -qx 'STATUS=PASS' "$meshArtifactsInput/meshFoam.status.txt" &&
-      grep -qx 'EXIT_CODE=0' "$meshArtifactsInput/meshFoam.status.txt" || {
-         echo "ERROR: Source mesh stage has no successful completion record" >&2
-         exit 1
-      }
-   meshEvidence=$(bash -c '
-      set -eu
-      source "$1"
-      printf "%s\t%s\t%s\t%s" "$CASE_DIRECTORY" "$ACTUAL_CELLS" "$EXPECTED_CELLS" "$OPENFOAM_MODULE"
-   ' bash "$meshArtifactsInput/mesh-info.env") || exit 1
-   IFS=$'\t' read -r evidenceCase evidenceCells evidenceExpected evidenceModule <<< "$meshEvidence"
-   [[ "$(realpath -e "$evidenceCase")" == "$resumeMeshInput" &&
-      "$evidenceCells" == "$targetCells" && "$evidenceExpected" == "$targetCells" &&
-      "$evidenceModule" == "$caseFoamModule" ]] || {
-         echo "ERROR: Reused mesh path, cell count, or OpenFOAM module does not match this campaign" >&2
-         exit 1
-      }
-   # Check the required serial inputs, including compressed OpenFOAM mesh files.
-   for file in points faces owner neighbour boundary; do
-      [[ -s "$resumeMeshInput/constant/polyMesh/$file" || -s "$resumeMeshInput/constant/polyMesh/$file.gz" ]] || {
-         echo "ERROR: Missing mesh component: $file" >&2
-         exit 1
-      }
-   done
-   for file in 0/U 0/p system/controlDict system/fvSolution system/fvSchemes; do
-      [[ -s "$resumeMeshInput/$file" ]] || {
-         echo "ERROR: Missing serial input: $file" >&2
-         exit 1
-      }
-   done
-   # Decomposed or evolved cases are not accepted as pristine serial inputs.
-   while IFS= read -r directory; do
-      name=$(basename "$directory")
-      if [[ "$name" == processor* || ( "$name" =~ ^[0-9]+([.][0-9]+)?$ && "$name" != 0 ) ]]; then
-         echo "ERROR: Reused case contains generated results: $directory" >&2
-         exit 1
+   # OpenFOAM reads dictionary and field files in either plain or gzip-compressed
+   # form. Accept both representations so historical reusable meshes remain valid
+   # without weakening validation of the case-declared required paths.
+   for relativePath in "${MESH_STATE_REQUIRED_PATHS[@]}"; do
+      plainPath="$resumeMesh/$relativePath"
+      compressedPath="${plainPath}.gz"
+
+      if [[ -e "$plainPath" || -e "$compressedPath" ]]; then
+         continue
       fi
-   done < <(find "$resumeMeshInput" -mindepth 1 -maxdepth 1 -type d)
+
+      echo "ERROR: Reused mesh is missing both $relativePath and ${relativePath}.gz" >&2
+      exit 1
+   done
 fi
 
-# --- Report the fixed workflow without extracting or submitting anything
-if [[ "$dryRun" == true ]]; then
+# =============================================================================
+# 7. Dry-run plan
+# =============================================================================
+if [[ $dryRun == true ]]; then
    echo "Workflow: extract -> mesh -> prepare -> decompose -> run"
-   if [[ -n "$resumeMeshInput" ]]; then
-      echo "Resume: reuse completed extraction/mesh; submit prepare -> decompose -> run"
-      echo "Source serial case: $resumeMeshInput"
-      echo "Source mesh evidence: $meshArtifactsInput"
-   fi
-   echo "Case scripts: $scalingScriptDir"
-   echo "Artifacts root: ${recipeDir}/artifacts/tests/strong-scaling/${scalingCase}"
-   echo "OpenFOAM module: $caseFoamModule"
+   [[ -z "$resumeMesh" ]] || echo "Resume: validated mesh -> prepare -> decompose -> run"
+   echo "Case contract: $caseConfig"
+   echo "Case: $scalingCase"
+   echo "Runtime module: $foamModule"
+   echo "Mesh: ${cellsMillions}M"
+   echo "Analysis interval: ($statsStartTime, $statsEndTime]"
+   echo "Case end time: $caseEndTime"
    printf 'Scaling point: %s\n' "${scalingJobsTable[@]}"
    exit 0
 fi
 
 # =============================================================================
-# 9. Persistent campaign initialization
+# 8. Persistent campaign initialization and Slurm helper
 # =============================================================================
-# Keep durable evidence separate from the shared scratch case.
-runTimestamp=$(date '+%Y%m%dT%H%M%S%z')
-runId="${CI_PIPELINE_ID:-${runTimestamp}_$$}"
-scalingArtifactsDir="${recipeDir}/artifacts/tests/strong-scaling/${scalingCase}"
-if [[ -n "$workRootInput" ]]; then
-   workRoot=$(realpath -m "$workRootInput")
-else
-   baseWorkDir=${MYSCRATCH:-${TMPDIR:-$HOME}}
-   workRoot="${baseWorkDir}/OpenFOAM-strong-scaling/${USER}-${OPENFOAM_VERSION}/${runId}"
-fi
-
-# A resumed campaign must never overwrite its source or source artifacts.
-if [[ -n "$resumeMeshInput" ]]; then
-   resolvedWork=$(realpath -m "$workRoot")
-   for sourcePath in "$resumeMeshInput" "$meshArtifactsInput"; do
-      if [[ "$resolvedWork" == "$sourcePath" || "$resolvedWork" == "$sourcePath/"* || "$sourcePath" == "$resolvedWork/"* ]]; then
-         echo "ERROR: Work root overlaps mesh-reuse source: $sourcePath" >&2
-         exit 1
-      fi
-   done
-fi
-mkdir -p "$scalingArtifactsDir"
-latestLink="${scalingArtifactsDir}/latest"
-if [[ -e "$latestLink" && ! -L "$latestLink" ]]; then
-   echo "ERROR: Refusing to remove non-symbolic-link path: $latestLink" >&2
-   exit 1
-fi
-rm -f "$latestLink"
-runArtifactsName="${runId}_${artifactRuntimeName}_${cellsMillions}M"
-runArtifactsDir="${scalingArtifactsDir}/${runArtifactsName}"
-mkdir -p "${runArtifactsDir}/jobs" || exit 1
-ln -sfn "$runArtifactsName" "$latestLink"
-
-runLog="${runArtifactsDir}/launcher.run.log"
-statusFile="${runArtifactsDir}/status.txt"
-testDetailsFile="${runArtifactsDir}/test-details.txt"
-testSummaryFile="${runArtifactsDir}/test-summary.txt"
-printf '%s\n' RUNNING > "$statusFile"
-record_test_status() {
-   local exitStatus=$?
-   trap - EXIT
-   if [[ $exitStatus -eq 0 ]]; then
-      printf '%s\n' SUCCESS > "$statusFile"
-   else
-      printf '%s\n' FAILED > "$statusFile"
-   fi
-   exit "$exitStatus"
-}
-trap record_test_status EXIT
-exec > >(tee "$runLog") 2>&1
-
-mkdir -p "$workRoot"
-
-# =============================================================================
-# 10. Campaign plan
-# =============================================================================
-# Report the unchanged editable topology table before extraction.
-echo "================================================================================"
-echo "OpenFOAM Strong-Scaling Test Launcher"
-echo "================================================================================"
-echo "Version directory         : $recipeDir"
-echo "Strong-scaling case       : $scalingCase"
-echo "Configuration             : $configFile"
-echo "Strong-scaling scripts    : $scalingScriptDir"
-echo "OpenFOAM identity         : ${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
-echo "Runtime mode              : $runtimeMode"
-[[ -n "$SINGULARITY_IMAGE" ]] && echo "SIF image                 : $SINGULARITY_IMAGE"
-echo "Work root                 : $workRoot"
-echo "Artifacts directory       : $runArtifactsDir"
-echo "Target mesh size          : ${cellsMillions}M ($targetCells cells)"
-echo "Expected mesh cells       : $actualCells (verified by mesh stage)"
-echo "Solver procedure          : owned by the case runFoam.slurm.sh"
-echo "Preparation walltime      : $prepareWalltime"
-echo "Partition override        : ${partitionInput:-none}"
-echo "Reservation               : ${reservationInput:-none}"
-echo "Launcher mode             : $([[ "$submitOnly" == true ]] && echo "submit only" || echo "submit and wait")"
-echo "--------------------------------------------------------------------------------"
-printf "%-6s  %-6s  %-10s  %-12s  %-14s  %-14s  %-12s  %-12s\n" \
-   "Job#" "Nodes" "Tasks/Node" "Total Cores" "X-Axis Label" "Cells/Core" "Decomp Time" "Run Time"
-printf "%-6s  %-6s  %-10s  %-12s  %-14s  %-14s  %-12s  %-12s\n" \
-   "------" "------" "----------" "------------" "--------------" "--------------" "------------" "------------"
-
-jobIndex=0
-for row in "${scalingJobsTable[@]}"; do
-   ((++jobIndex))
-   read -r jNodes jTpn jDecompTime jRunTime <<< "$row"
-   [[ -n "$runWalltimeOverride" ]] && jRunTime="$runWalltimeOverride"
-   jCores=$((jNodes * jTpn))
-   jCellsPerCore=$(awk -v c="$actualCells" -v p="$jCores" 'BEGIN { printf "%.1f", c / p }')
-   printf "%-6d  %-6d  %-10d  %-12d  %-14s  %-14s  %-12s  %-12s\n" \
-      "$jobIndex" "$jNodes" "$jTpn" "$jCores" "${jCores} (${jNodes})" "$jCellsPerCore" "$jDecompTime" "$jRunTime"
-done
-echo "================================================================================"
-echo
-
-cp -f "$runLog" "$testDetailsFile" 2>/dev/null || true
-{
-   printf 'SCALING_CASE=%s\n' "$scalingCase"
-   printf 'CASE_SCRIPT_DIRECTORY=%s\n' "$scalingScriptDir"
-   printf 'ARTIFACT_CASE_DIRECTORY=%s\n' "$scalingArtifactsDir"
-} >> "$testDetailsFile"
-
-# =============================================================================
-# 11. Scheduler setup
-# =============================================================================
-# Pass partition and reservation overrides to every submitted job.
-command -v sbatch >/dev/null 2>&1 || { echo "ERROR: sbatch not found." >&2; exit 1; }
-
+mkdir -p "$campaignArtifacts/jobs" "$workRoot" || exit 1
+ln -sfn "$(basename "$campaignArtifacts")" "$artifactRoot/latest"
+statusFile="$campaignArtifacts/status.txt"
+printf 'RUNNING\n' > "$statusFile"
 submissionOverrides=()
-[[ -n "$partitionInput" ]] && submissionOverrides+=(--partition="$partitionInput")
-[[ -n "$reservationInput" ]] && submissionOverrides+=(--reservation="$reservationInput")
+[[ -z "$partition" ]] || submissionOverrides+=(--partition="$partition")
+[[ -z "$reservation" ]] || submissionOverrides+=(--reservation="$reservation")
 
-# =============================================================================
-# 12. Direct extraction of the authoritative case
-# =============================================================================
-# Extraction materializes the benchmark and version reference before requesting
-# compute resources. All following stages consume explicit absolute paths.
+declare -A jobLabels=()
+declare -A jobOutputPaths=()
 
-sourceCaseDir="${workRoot}/source-case/${scalingCase}"
-baseCaseDir="${workRoot}/base-case/${scalingCase}"
-extractArgs=(
-   --campaign-dir "$workRoot"
-   --artifacts-dir "$runArtifactsDir"
-   --foam-module "$caseFoamModule"
-   --mesh "${cellsMillions}M"
-   --mode fixedIter
-)
-[[ -z "$benchmarkSourceInput" ]] || extractArgs+=(--benchmark-source "$benchmarkSourceInput")
-if [[ -z "$resumeMeshInput" ]]; then
-   echo "Stage 1 - Extracting case source"
-   "$extractScript" "${extractArgs[@]}" 2>&1 | tee "${runArtifactsDir}/extractCase.run.log"
-   [[ ${PIPESTATUS[0]} -eq 0 ]] || { echo "ERROR: Extraction failed" >&2; exit 1; }
-else
-   # Copy rather than link: preparation may remove stale directories or later
-   # modify configuration. Reflinks are used only when the filesystem supports them.
-   echo "Stages 1-2 - Reusing validated serial mesh in a new campaign copy"
-   [[ ! -e "$baseCaseDir" ]] || {
-      echo "ERROR: Resume destination already exists" >&2
-      exit 1
-   }
-   mkdir -p "$(dirname "$baseCaseDir")" || exit 1
-   cp -a --reflink=auto "$resumeMeshInput" "$baseCaseDir" || exit 1
-
-   # Preserve original evidence separately; do not invent a new mesh job ID.
-   mkdir -p "$runArtifactsDir/reused-mesh-source" || exit 1
-   cp -p "$meshArtifactsInput/mesh-info.env" "$meshArtifactsInput/meshFoam.status.txt" \
-      "$runArtifactsDir/reused-mesh-source/" || exit 1
-   for file in checkMesh.log source-provenance.env; do
-      if [[ -r "$meshArtifactsInput/$file" ]]; then
-         cp -p "$meshArtifactsInput/$file" "$runArtifactsDir/reused-mesh-source/" || exit 1
-      fi
-   done
-   printf 'EXPECTED_CELLS=%q\nACTUAL_CELLS=%q\nCASE_DIRECTORY=%q\nOPENFOAM_MODULE=%q\n' \
-      "$targetCells" "$evidenceCells" "$baseCaseDir" "$caseFoamModule" > "$runArtifactsDir/mesh-info.env"
-   printf 'STATUS=PASS\nEXIT_CODE=0\nREUSED=true\n' > "$runArtifactsDir/meshFoam.status.txt"
-   {
-      printf 'MESH_REUSED=true\nMESH_SOURCE_CASE=%q\nMESH_SOURCE_ARTIFACTS=%q\n' "$resumeMeshInput" "$meshArtifactsInput"
-   } >> "$testDetailsFile"
-fi
-
-# Submit from a clean memory-request environment while retaining the original
-# export policy. Parse sbatch's optional cluster suffix in one place.
 submitStage() {
-   local submission jobId
-   submission=$(env -u SLURM_MEM_PER_CPU -u SLURM_MEM_PER_GPU -u SLURM_MEM_PER_NODE \
+   local response id
+
+   response=$(env -u SLURM_MEM_PER_CPU -u SLURM_MEM_PER_GPU -u SLURM_MEM_PER_NODE \
       SLURM_EXPORT_ENV=ALL sbatch --export=NONE --parsable \
       "${submissionOverrides[@]}" "$@") || return 1
-   IFS=';' read -r jobId _ <<< "$submission"
-   [[ "$jobId" =~ ^[0-9]+$ ]] || { echo "ERROR: Invalid sbatch response: $submission" >&2; return 1; }
-   printf '%s\n' "$jobId"
+   IFS=';' read -r id _ <<< "$response"
+   [[ $id =~ ^[0-9]+$ ]] || return 1
+   printf '%s\n' "$id"
 }
 
+printf '\n=== Strong-scaling campaign ===\n'
+printf 'Case:               %s\n' "$scalingCase"
+printf 'Runtime module:     %s\n' "$foamModule"
+printf 'Mesh target:        %sM cells\n' "$cellsMillions"
+printf 'Analysis interval:  (%s, %s]\n' "$statsStartTime" "$statsEndTime"
+printf 'Case end time:      %s\n' "$caseEndTime"
+printf 'CPU spreading:      %s\n' "$ENABLE_SLURM_CPU_SPREADING"
+printf 'Scratch workspace:  %s\n' "$workRoot"
+printf 'Campaign artifacts: %s\n' "$campaignArtifacts"
+if [[ -n "$resumeMesh" ]]; then
+   printf 'Mesh workflow:      reuse validated mesh\n'
+   printf 'Reusable case:      %s\n' "$resumeMesh"
+   printf 'Mesh evidence:      %s\n' "$meshArtifacts"
+else
+   printf 'Mesh workflow:      extract and generate mesh\n'
+fi
+printf 'Scaling points:     %s\n' "${#scalingJobsTable[@]}"
+printf 'Monitor interval:   %ss\n\n' "$pollInterval"
 
 # =============================================================================
-# 13. Shared mesh and mandatory preparation jobs
+# 9. Shared extraction, mesh, and preparation stages
 # =============================================================================
-# Fresh campaigns require mesh success; resumed campaigns validate completed
-# mesh evidence before submission. Every decomposition depends on preparation.
-
-meshJobId=""
-allSubmittedJobIds=()
+allJobs=()
+meshJob=""
 prepareDependency=()
-if [[ -z "$resumeMeshInput" ]]; then
-   echo "Stage 2 - Submitting mesh generation"
-   meshJobId=$(submitStage \
-      --nodes=1 --ntasks=1 --time="$meshWalltime" \
-      --output="${runArtifactsDir}/slurm-meshFoam-%j.out" \
-      "$meshScript" \
-      --source-case "$sourceCaseDir" --case-dir "$baseCaseDir" \
-      --artifacts-dir "$runArtifactsDir" --expected-cells "$targetCells" \
-      --foam-module "$caseFoamModule") || exit 1
-   allSubmittedJobIds+=("$meshJobId")
-   prepareDependency=(--dependency="afterok:${meshJobId}" --kill-on-invalid-dep=yes)
+if [[ -z "$resumeMesh" ]]; then
+   echo "Running extraction stage locally..."
+   expandTemplate EXTRACT_ARGUMENT_TEMPLATE extractArgs
+   "$caseDir/extractCase.sh" "${extractArgs[@]}" 2>&1 |
+      tee "$campaignArtifacts/extractCase.run.log"
+   [[ ${PIPESTATUS[0]} -eq 0 ]] || {
+      echo "ERROR: Extraction failed; see $campaignArtifacts/extractCase.run.log" >&2
+      printf 'FAILED\n' > "$statusFile"
+      exit 1
+   }
+   echo "Extraction completed successfully."
+
+   expandTemplate MESH_ARGUMENT_TEMPLATE meshArgs
+   meshOutput="$campaignArtifacts/slurm-meshFoam-%j.out"
+   meshJob=$(submitStage --nodes=1 --ntasks=1 --time="$meshWalltime" \
+      --output="$meshOutput" "$caseDir/meshFoam.slurm.sh" \
+      "${meshArgs[@]}") || {
+      echo "ERROR: Could not submit mesh stage" >&2
+      printf 'FAILED\n' > "$statusFile"
+      exit 1
+   }
+   allJobs+=("$meshJob")
+   jobLabels[$meshJob]="mesh"
+   jobOutputPaths[$meshJob]="${meshOutput//%j/$meshJob}"
+   prepareDependency=(--dependency="afterok:$meshJob" --kill-on-invalid-dep=yes)
+   printf 'Submitted mesh: job=%s output=%s\n' \
+      "$meshJob" "${jobOutputPaths[$meshJob]}"
+else
+   echo "Reusing validated mesh; extraction and mesh submission are skipped."
+   mkdir -p "$(dirname "$baseCaseDir")" "$campaignArtifacts/reused-mesh-source"
+   cp -a --reflink=auto "$resumeMesh" "$baseCaseDir" || exit 1
+   cp -p "$meshArtifacts/mesh-info.env" "$meshArtifacts/meshFoam.status.txt" \
+      "$campaignArtifacts/reused-mesh-source/" || exit 1
+   cp -p "$meshArtifacts/mesh-info.env" "$campaignArtifacts/mesh-info.env" || exit 1
+
+   # Restore the standard mesh-to-preparation handoff beside the copied base
+   # case. Every five-stage experiment reads mesh-info.env from the common
+   # base-case directory, regardless of whether the mesh was built or reused.
+   cp -p "$meshArtifacts/mesh-info.env" \
+      "$(dirname "$baseCaseDir")/mesh-info.env" || exit 1
+
+   printf 'STATUS=PASS\nEXIT_CODE=0\nREUSED=true\n' \
+      > "$campaignArtifacts/meshFoam.status.txt"
+   printf 'Reusable mesh copied to: %s\n' "$baseCaseDir"
 fi
 
-# Reused meshes have already passed; preparation can start without a fictitious
-# scheduler dependency. Fresh campaigns still depend on their actual mesh job.
-echo "Stage 3 - Submitting mandatory case preparation"
-prepareJobId=$(submitStage \
-   "${prepareDependency[@]}" \
-   --nodes=1 --ntasks=1 --time="$prepareWalltime" \
-   --output="${runArtifactsDir}/slurm-prepareFoam-%j.out" \
-   "$prepareScript" \
-   --case-dir "$baseCaseDir" --artifacts-dir "$runArtifactsDir" \
-   --expected-steps 15 --foam-module "$caseFoamModule") || exit 1
-allSubmittedJobIds+=("$prepareJobId")
-decomposeJobIds=()
-runJobIds=()
+expandTemplate PREPARE_ARGUMENT_TEMPLATE prepareArgs
+prepareOutput="$campaignArtifacts/slurm-prepareFoam-%j.out"
+prepareJob=$(submitStage "${prepareDependency[@]}" --nodes=1 --ntasks=1 \
+   --time="$prepareWalltime" --output="$prepareOutput" \
+   "$caseDir/prepareFoam.slurm.sh" "${prepareArgs[@]}") || {
+   echo "ERROR: Could not submit prepare stage" >&2
+   printf 'FAILED\n' > "$statusFile"
+   exit 1
+}
+allJobs+=("$prepareJob")
+jobLabels[$prepareJob]="prepare"
+jobOutputPaths[$prepareJob]="${prepareOutput//%j/$prepareJob}"
+printf 'Submitted prepare: job=%s dependency=%s output=%s\n' \
+   "$prepareJob" "${prepareDependency[*]:-none}" "${jobOutputPaths[$prepareJob]}"
+
+# =============================================================================
+# 10. Per-topology decomposition and solver chains
+# =============================================================================
 jobTags=()
-echo "Mesh job: ${meshJobId:-reused}; mandatory preparation job: $prepareJobId"
-
-
-# =============================================================================
-# 14. Per-topology decomposition and solver chains
-# =============================================================================
-# Keep the supplied scalingJobsTable intact. Each row receives an independent
-# working case and artifact directory, but the same prepared serial input.
-
+runJobs=()
+declare -A decomposeIds=()
+declare -A runIds=()
 for row in "${scalingJobsTable[@]}"; do
-   read -r jNodes jTpn jDecompTime jRunTime <<< "$row"
-   [[ -z "$runWalltimeOverride" ]] || jRunTime=$runWalltimeOverride
-   jCores=$((jNodes * jTpn))
-   jobTag="N${jNodes}_tpn${jTpn}_cores${jCores}"
-   jobArtifactsDir="${runArtifactsDir}/jobs/${jobTag}"
-   jobCaseDir="${workRoot}/run/case_${jobTag}/${scalingCase}"
-   mkdir -p "$jobArtifactsDir" || exit 1
+   read -r nodes tasksPerNode decomposeTime solverTime <<< "$row"
+   [[ -z "$runWalltime" ]] || solverTime=$runWalltime
+   cores=$((nodes * tasksPerNode))
+   jobTag="N${nodes}_tpn${tasksPerNode}_cores${cores}"
+   jobArtifacts="$campaignArtifacts/jobs/$jobTag"
+   jobCaseDir="$workRoot/jobs/$jobTag/$scalingCase"
+   mkdir -p "$jobArtifacts"
 
-   # Decomposition is a serial utility with a memory-heavy shared mesh input.
-   decompJobId=$(submitStage \
-      --dependency="afterok:${prepareJobId}" --kill-on-invalid-dep=yes \
-      --nodes=1 --ntasks=1 --job-name="decomp-${jobTag}" \
-      --time="$jDecompTime" --output="${jobArtifactsDir}/slurm-decomposeFoam-%j.out" \
-      "$decomposeScript" \
-      --prepared-case "$baseCaseDir" --job-case "$jobCaseDir" \
-      --job-artifacts "$jobArtifactsDir" --nodes "$jNodes" \
-      --tasks-per-node "$jTpn" --foam-module "$caseFoamModule") || exit 1
+   expandTemplate DECOMPOSE_ARGUMENT_TEMPLATE decomposeArgs
+   decomposeOutput="$jobArtifacts/slurm-decomposeFoam-%j.out"
+   decomposeJob=$(submitStage --dependency="afterok:$prepareJob" \
+      --kill-on-invalid-dep=yes --nodes=1 --ntasks=1 \
+      --time="$decomposeTime" --output="$decomposeOutput" \
+      "$caseDir/decomposeFoam.slurm.sh" "${decomposeArgs[@]}") || {
+      echo "ERROR: Could not submit decomposition for $jobTag" >&2
+      printf 'FAILED\n' > "$statusFile"
+      exit 1
+   }
 
-   # Allocate the exact rank topology; the case script owns its solver duration.
-   runJobId=$(submitStage \
-      --dependency="afterok:${decompJobId}" --kill-on-invalid-dep=yes \
-      --job-name="run-${jobTag}" --nodes="$jNodes" --ntasks="$jCores" \
-      --ntasks-per-node="$jTpn" --cpus-per-task=1 --exclusive \
-      --time="$jRunTime" --output="${jobArtifactsDir}/slurm-runFoam-%j.out" \
-      "$runScript" \
-      --case-dir "$jobCaseDir" --job-artifacts "$jobArtifactsDir" \
-      --nodes "$jNodes" --tasks-per-node "$jTpn" \
-      --expected-steps 15 --foam-module "$caseFoamModule") || exit 1
+   expandTemplate RUN_ARGUMENT_TEMPLATE runArgs
+   runOutput="$jobArtifacts/slurm-runFoam-%j.out"
+   runJob=$(submitStage --dependency="afterok:$decomposeJob" \
+      --kill-on-invalid-dep=yes --nodes="$nodes" --ntasks="$cores" \
+      --ntasks-per-node="$tasksPerNode" --cpus-per-task=1 --exclusive \
+      --time="$solverTime" --output="$runOutput" \
+      "$caseDir/runFoam.slurm.sh" "${runArgs[@]}") || {
+      echo "ERROR: Could not submit solver run for $jobTag" >&2
+      printf 'FAILED\n' > "$statusFile"
+      exit 1
+   }
 
    jobTags+=("$jobTag")
-   decomposeJobIds+=("$decompJobId")
-   runJobIds+=("$runJobId")
-   allSubmittedJobIds+=("$decompJobId" "$runJobId")
-   echo "$jobTag: decompose=$decompJobId (afterok:$prepareJobId); run=$runJobId (afterok:$decompJobId)"
+   runJobs+=("$runJob")
+   allJobs+=("$decomposeJob" "$runJob")
+   decomposeIds[$jobTag]=$decomposeJob
+   runIds[$jobTag]=$runJob
+   jobLabels[$decomposeJob]="decompose $jobTag"
+   jobLabels[$runJob]="run $jobTag"
+   jobOutputPaths[$decomposeJob]="${decomposeOutput//%j/$decomposeJob}"
+   jobOutputPaths[$runJob]="${runOutput//%j/$runJob}"
+   printf 'Submitted %-28s job=%s dependency=afterok:%s output=%s\n' \
+      "decompose $jobTag" "$decomposeJob" "$prepareJob" \
+      "${jobOutputPaths[$decomposeJob]}"
+   printf 'Submitted %-28s job=%s dependency=afterok:%s output=%s\n' \
+      "run $jobTag" "$runJob" "$decomposeJob" "${jobOutputPaths[$runJob]}"
 done
 
-# Persist the dependency evidence independently of the human-readable run log.
-{
-   printf 'MESH_JOB_ID=%s\nPREPARE_JOB_ID=%s\n' "$meshJobId" "$prepareJobId"
-   printf 'RUN_JOB_IDS=%s\nOPENFOAM_MODULE=%s\n' "${runJobIds[*]}" "$caseFoamModule"
-} >> "$testDetailsFile"
-
-
-# =============================================================================
-# 15. Submit-only reporting
-# =============================================================================
-# Submission is not execution success. Leave the campaign marked SUBMITTED and
-# preserve the complete dependency chain for subsequent inspection.
-
-if [[ "$submitOnly" == true ]]; then
-   printf '%s\n' SUBMITTED > "$statusFile"
-   trap - EXIT
-   {
-      echo "Result: SUBMITTED"
-      echo "Artifacts directory: $runArtifactsDir"
-      echo "Mesh job: ${meshJobId:-reused from validated source}"
-      echo "Preparation job: $prepareJobId"
-      for ((i=0; i<${#jobTags[@]}; i++)); do
-         echo "${jobTags[$i]}: decompose=${decomposeJobIds[$i]} run=${runJobIds[$i]}"
-      done
-      echo "Analysis: select a common interval from the completed raw logs."
-   } > "$testSummaryFile"
-   cat "$testSummaryFile"
+printf '\nSubmitted %s Slurm job(s).\n' "${#allJobs[@]}"
+if [[ $submitOnly == true ]]; then
+   printf 'SUBMITTED\n' > "$statusFile"
+   echo "Submit-only mode requested; monitoring skipped."
+   printf 'Campaign artifacts: %s\n' "$campaignArtifacts"
    exit 0
 fi
 
-
 # =============================================================================
-# 16. Queue monitoring and mandatory stage-status verification
+# 11. Visible live-queue monitoring and durable status verification
 # =============================================================================
-# An empty queue does not establish success. Check every stage's durable status
-# before invoking analysis or marking the campaign successful.
+watched=("${allJobs[@]}")
+monitorFailures=0
+declare -A previousStates=()
 
-while true; do
-   runningJobs=0
-   pendingJobs=0
-   otherActiveJobs=0
-   for jobId in "${allSubmittedJobIds[@]}"; do
-      jobState=$(squeue --noheader --jobs="$jobId" --format="%T") || {
-         echo "ERROR: Cannot query Slurm job $jobId" >&2; exit 1;
-      }
-      case "$jobState" in
-         '') ;;
-         RUNNING|COMPLETING) ((++runningJobs)) ;;
-         PENDING) ((++pendingJobs)) ;;
-         *) ((++otherActiveJobs)) ;;
-      esac
-   done
-   activeJobs=$((runningJobs + pendingJobs + otherActiveJobs))
-   ((activeJobs > 0)) || break
-   echo "Slurm queue: running=$runningJobs pending=$pendingJobs other=$otherActiveJobs"
-   sleep "$pollInterval"
-done
-
-# The supplied stage scripts write STATUS=PASS and EXIT_CODE=0.
-checkStageStatus() {
-   local path=$1
-   [[ -r "$path" ]] && grep -qx 'STATUS=PASS' "$path" && grep -qx 'EXIT_CODE=0' "$path"
-}
-stagesFailed=false
-for stage in meshFoam prepareFoam; do
-   if checkStageStatus "${runArtifactsDir}/${stage}.status.txt"; then
-      echo "$stage: PASS"
-   else
-      echo "ERROR: $stage failed or has no successful status record" >&2
-      stagesFailed=true
+echo
+printf 'Monitoring %s submitted job(s)...\n' "${#watched[@]}"
+while ((${#watched[@]})); do
+   if ! snapshot=$(squeue --noheader --user="$(id -un)" --format='%i|%T'); then
+      ((monitorFailures += 1))
+      printf '[%s] WARNING: squeue failed (%s/3); retrying in %ss.\n' \
+         "$(date '+%Y-%m-%d %H:%M:%S')" "$monitorFailures" "$pollInterval" >&2
+      if ((monitorFailures >= 3)); then
+         printf 'MONITORING_FAILED\n' > "$statusFile"
+         echo "ERROR: Three consecutive squeue queries failed; jobs were not cancelled." >&2
+         printf 'Campaign artifacts: %s\n' "$campaignArtifacts" >&2
+         exit 1
+      fi
+      sleep "$pollInterval"
+      continue
    fi
-done
-for jobTag in "${jobTags[@]}"; do
-   for stage in decomposeFoam runFoam; do
-      if ! checkStageStatus "${runArtifactsDir}/jobs/${jobTag}/${stage}.status.txt"; then
-         echo "ERROR: $jobTag/$stage failed or has no successful status record" >&2
-         stagesFailed=true
+
+   monitorFailures=0
+   declare -A liveStates=()
+   while IFS='|' read -r id state; do
+      [[ -z "$id" ]] || liveStates[$id]=$state
+   done <<< "$snapshot"
+
+   waitingCount=0
+   runningCount=0
+   completingCount=0
+   otherCount=0
+   leftCount=0
+   nextWatched=()
+
+   for id in "${watched[@]}"; do
+      state=${liveStates[$id]:-}
+      if [[ -z "$state" ]]; then
+         ((leftCount += 1))
+         printf '[%s] Job %s (%s): left queue; awaiting status verification.\n' \
+            "$(date '+%Y-%m-%d %H:%M:%S')" "$id" "${jobLabels[$id]}"
+         unset 'previousStates[$id]'
+         continue
+      fi
+
+      nextWatched+=("$id")
+      case "$state" in
+         PENDING|CONFIGURING) ((waitingCount += 1)) ;;
+         RUNNING) ((runningCount += 1)) ;;
+         COMPLETING) ((completingCount += 1)) ;;
+         *) ((otherCount += 1)) ;;
+      esac
+
+      if [[ ${previousStates[$id]:-} != "$state" ]]; then
+         printf '[%s] Job %s (%s): %s\n' \
+            "$(date '+%Y-%m-%d %H:%M:%S')" "$id" "${jobLabels[$id]}" "$state"
+         previousStates[$id]=$state
       fi
    done
+
+   watched=("${nextWatched[@]}")
+   printf '[%s] Queue summary: waiting=%s running=%s completing=%s other=%s left=%s remaining=%s total=%s\n' \
+      "$(date '+%Y-%m-%d %H:%M:%S')" "$waitingCount" "$runningCount" \
+      "$completingCount" "$otherCount" "$leftCount" "${#watched[@]}" "${#allJobs[@]}"
+   ((${#watched[@]} == 0)) || sleep "$pollInterval"
 done
-[[ "$stagesFailed" == false ]] || exit 1
 
-
-# =============================================================================
-# 17. Independent Python analysis and final result
-# =============================================================================
-# Do not guess physical times for a new case. Raw artifacts are sufficient for a
-# later analysis. Explicit endpoints enable automatic analysis after completion.
-
-if [[ -n "$statsStartTime" ]]; then
-   [[ -r "$postProcessScript" ]] || { echo "ERROR: Missing Python postprocessor" >&2; exit 1; }
-   module load python/3.11.6 || exit 1
-   python3 -c 'import sys, matplotlib; assert sys.version_info >= (3, 11)' || exit 1
-   python3 "$postProcessScript" \
-      --artifacts-dir "$runArtifactsDir" --case "$scalingCase" \
-      --start-time "$statsStartTime" --end-time "$statsEndTime" || exit 1
-   echo "Analysis completed; interval-specific outputs remain in the artifact tree."
+if command -v sacct >/dev/null 2>&1; then
+   jobList=$(IFS=,; echo "${allJobs[*]}")
+   echo
+   echo "Slurm accounting summary:"
+   sacct -j "$jobList" --noheader --parsable2 \
+      --format=JobID,JobName%30,State,ExitCode,Elapsed,Reason 2>/dev/null || \
+      echo "WARNING: sacct summary unavailable; continuing with status files." >&2
 fi
-printf 'Result: PASS\nArtifacts directory: %s\n' "$runArtifactsDir" > "$testSummaryFile"
-echo "RESULT: PASS"
-exit 0
+
+verifyStageStatus() {
+   local label=$1
+   local path=$2
+   local outputPath=${3:-}
+   local firstNonEmptyLine recordedStatus recordedExit
+
+   if [[ ! -r "$path" ]]; then
+      printf 'FAIL: %-32s status file missing: %s\n' "$label" "$path" >&2
+      [[ -z "$outputPath" ]] || \
+         printf '      Slurm output: %s\n' "$outputPath" >&2
+      return 1
+   fi
+
+   # Historical stage scripts wrote a single SUCCESS marker. Accept that
+   # representation while retaining the structured STATUS/EXIT_CODE contract
+   # used by current scripts. Removing carriage returns also supports files
+   # copied through environments that introduced CRLF line endings.
+   firstNonEmptyLine=$(tr -d '\r' < "$path" | awk 'NF {print; exit}')
+   if [[ "$firstNonEmptyLine" == SUCCESS ]]; then
+      printf 'PASS: %-32s status=SUCCESS (historical format)\n' "$label"
+      return 0
+   fi
+
+   recordedStatus=$(tr -d '\r' < "$path" | \
+      awk -F= '$1 == "STATUS" {print $2; exit}')
+   recordedExit=$(tr -d '\r' < "$path" | \
+      awk -F= '$1 == "EXIT_CODE" {print $2; exit}')
+   if [[ "$recordedStatus" == PASS && "$recordedExit" == 0 ]]; then
+      printf 'PASS: %-32s status=%s exit=%s\n' \
+         "$label" "$recordedStatus" "$recordedExit"
+      return 0
+   fi
+
+   printf 'FAIL: %-32s status=%s exit=%s file=%s\n' \
+      "$label" "${recordedStatus:-missing}" "${recordedExit:-missing}" \
+      "$path" >&2
+   [[ -z "$outputPath" ]] || \
+      printf '      Slurm output: %s\n' "$outputPath" >&2
+   echo "      Recorded contents:" >&2
+   sed 's/^/        /' "$path" >&2
+   return 1
+}
+
+statusFailures=0
+echo
+echo "Durable stage-status summary:"
+verifyStageStatus "mesh" "$campaignArtifacts/meshFoam.status.txt" || \
+   ((statusFailures += 1))
+verifyStageStatus "prepare" "$campaignArtifacts/prepareFoam.status.txt" \
+   "${jobOutputPaths[$prepareJob]}" || ((statusFailures += 1))
+for tag in "${jobTags[@]}"; do
+   verifyStageStatus "decompose $tag" \
+      "$campaignArtifacts/jobs/$tag/decomposeFoam.status.txt" \
+      "${jobOutputPaths[${decomposeIds[$tag]}]}" || ((statusFailures += 1))
+   verifyStageStatus "run $tag" \
+      "$campaignArtifacts/jobs/$tag/runFoam.status.txt" \
+      "${jobOutputPaths[${runIds[$tag]}]}" || ((statusFailures += 1))
+done
+
+if ((statusFailures > 0)); then
+   printf 'FAILED\n' > "$statusFile"
+   echo >&2
+   printf 'RESULT: FAIL (%s stage-status failure(s))\n' "$statusFailures" >&2
+   printf 'Campaign artifacts: %s\n' "$campaignArtifacts" >&2
+   printf 'Scratch workspace:  %s\n' "$workRoot" >&2
+   exit 1
+fi
+
+# =============================================================================
+# 12. Generic postprocessing and completion
+# =============================================================================
+postProcessScript="$scriptDir/openfoamStrongScalingPostProcess.py"
+if [[ -r "$postProcessScript" ]]; then
+   echo
+   printf 'Running postprocessor: %s\n' "$postProcessScript"
+   module load python/3.11.6 || exit 1
+   python3 "$postProcessScript" --artifacts-dir "$campaignArtifacts" \
+      --case "$scalingCase" --start-time "$statsStartTime" \
+      --end-time "$statsEndTime" || exit 1
+else
+   echo "Postprocessor not found; validation completed without postprocessing."
+fi
+printf 'SUCCESS\n' > "$statusFile"
+echo
+printf 'RESULT: PASS\n'
+printf 'Campaign artifacts: %s\n' "$campaignArtifacts"
+printf 'Scratch workspace:  %s\n' "$workRoot"

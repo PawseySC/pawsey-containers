@@ -1,4 +1,13 @@
 #!/bin/bash --login
+# =============================================================================
+# Generic five-stage launcher contract
+# =============================================================================
+# This case-owned stage is coordinated through case.conf. The generic launcher
+# supplies this script's documented native arguments from a declarative argument
+# template, while this script remains responsible for its OpenFOAM-specific work,
+# validation, artifacts, status record, and failure handling. The shared scratch
+# contract is source-case/<case>, base-case/<case>, and jobs/<topology>/<case>.
+# =============================================================================
 #SBATCH --job-name=cavity3D-prepare
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

@@ -1,12 +1,27 @@
 #!/bin/bash --login
-# Copy the meshed base case into a job-specific directory, decompose it with
+# =============================================================================
+# Generic five-stage launcher contract
+# =============================================================================
+# This case-owned stage is coordinated through case.conf. The generic launcher
+# supplies this script's documented native arguments from a declarative argument
+# template, while this script remains responsible for its OpenFOAM-specific work,
+# validation, artifacts, status record, and failure handling. The shared scratch
+# contract is source-case/<case>, base-case/<case>, and jobs/<topology>/<case>.
+# =============================================================================
+# Copy the prepared base case into a job-specific directory, decompose it with
 # scotch for the requested (nodes x tasks-per-node) core count, report the
 # cells-per-core and scotch 3D partition statistics, and validate the collated
 # processor directories.
 #
-# This Slurm job is the third stage of the version-specific strong-scaling
-# workflow. It expects meshFoam.slurm.sh to have created the base mesh under
-# <work-root>/run/baseCase/<CASE_NAME> and recorded mesh-info.env.
+# This Slurm job is stage 4 of the mandatory five-stage strong-scaling workflow.
+# It expects prepareFoam.slurm.sh to have validated and prepared the shared case
+# under <work-root>/base-case/<CASE_NAME>. Each topology receives an isolated
+# copy, a scotch decomposition, and a reproducible run-input snapshot.
+#
+# Inputs: the prepared serial case, mesh/preparation metadata, target nodes and
+# tasks per node, runtime identity, and an isolated job-artifact path.
+# Outputs: the decomposed job case, decomposePar.log, job-info.env, run-inputs/
+# checksums, and a strict stage status record.
 #
 # Usage:
 #   sbatch decomposeFoam.slurm.sh --image <file> --config <file> [options]
@@ -17,7 +32,7 @@
 #   sbatch decomposeFoam.slurm.sh --bare-metal --recipe-dir <directory> [options]
 #
 # Exit status:
-#   0  The job-specific case was copied, decomposed with scotch, and validated.
+#   0  The prepared case was copied, decomposed with scotch, and validated.
 #   1  Invalid input, missing base mesh, command failure, or validation failure.
 #
 # NOTE: This script was originally developed under the supervision of Alexis Espinosa at Pawsey Supercomputing Centre with the aid of Microsoft 365 Copilot (GPT 5.6).
@@ -33,13 +48,17 @@
 
 set -u
 
-# --- Default strong-scaling job decomposition parameters
+# =============================================================================
+# 1. Topology-specific decomposition policy
+# =============================================================================
 CASE_NAME="periodicPlaneChannel"
 targetNodes=1
 tasksPerNode=32
 mGroup=0 # 0 means auto-select one collated I/O group per node (tasksPerNode)
 
-# --- Initial settings
+# =============================================================================
+# 2. Initial settings and command-line interface
+# =============================================================================
 thisScript=$(basename "$0")
 imageInput=""
 useSHPC=false
@@ -142,7 +161,9 @@ if (( mGroup <= 0 )); then
    mGroup=$tasksPerNode
 fi
 
-# --- Validate common inputs and load version identity
+# =============================================================================
+# 3. Input validation and version identity
+# =============================================================================
 locationSelectorCount=0
 [[ -n "$recipeDirInput" ]] && ((locationSelectorCount += 1))
 [[ -n "$configFileInput" ]] && ((locationSelectorCount += 1))
@@ -190,14 +211,15 @@ else
    workRoot="${baseWorkDir}/OpenFOAM-strong-scaling/${USER}-${OPENFOAM_VERSION}"
 fi
 
-BASE_CASE_DIR="${workRoot}/run/baseCase/${CASE_NAME}"
-MESH_INFO_FILE="${workRoot}/run/baseCase/mesh-info.env"
+BASE_CASE_DIR="${workRoot}/base-case/${CASE_NAME}"
+MESH_INFO_FILE="${workRoot}/base-case/mesh-info.env"
+PREPARE_INFO_FILE="${workRoot}/base-case/prepare-info.env"
 jobTag="N${targetNodes}_tpn${tasksPerNode}_cores${nProcs}"
 
 if [[ -n "$caseDirInput" ]]; then
    TEST_CASE=$(realpath -m "$caseDirInput")
 else
-   TEST_CASE="${workRoot}/run/case_${jobTag}/${CASE_NAME}"
+   TEST_CASE="${workRoot}/jobs/${jobTag}/${CASE_NAME}"
 fi
 
 if [[ -n "$testArtifactsDirInput" ]]; then
@@ -224,11 +246,33 @@ record_stage_status() {
 trap record_stage_status EXIT
 exec > >(tee "$stageRunLog") 2>&1
 
-# --- Load base mesh metadata and compute cells per core
-[[ -d "$BASE_CASE_DIR" ]] || { echo "ERROR: Meshed base case not found: $BASE_CASE_DIR" >&2; exit 1; }
+# =============================================================================
+# 4. Prepared-case handoff validation
+# =============================================================================
+# Both mesh and preparation records are required. This prevents accidental
+# decomposition of a mesh whose fields or solver controls were not prepared.
+[[ -d "$BASE_CASE_DIR" ]] || { echo "ERROR: Prepared base case not found: $BASE_CASE_DIR" >&2; exit 1; }
 [[ -r "$MESH_INFO_FILE" ]] || { echo "ERROR: Base mesh metadata file not found: $MESH_INFO_FILE" >&2; exit 1; }
 # shellcheck source=/dev/null
 source "$MESH_INFO_FILE"
+[[ -r "$PREPARE_INFO_FILE" ]] || { echo "ERROR: Preparation metadata file not found: $PREPARE_INFO_FILE" >&2; exit 1; }
+configuredFork=$OPENFOAM_FORK
+configuredVersion=$OPENFOAM_VERSION
+# shellcheck source=/dev/null
+source "$PREPARE_INFO_FILE"
+[[ "${PREPARED_CASE:-}" == "$BASE_CASE_DIR" ]] || {
+   echo "ERROR: Preparation metadata identifies a different base case: ${PREPARED_CASE:-missing}" >&2
+   exit 1
+}
+[[ "${SOLVER:-}" == pimpleFoam ]] || { echo "ERROR: Prepared solver is not pimpleFoam" >&2; exit 1; }
+awk -v a="${START_TIME:-}" -v b="${END_TIME:-}" 'BEGIN {
+   numeric = "^[-+]?[0-9]+([.][0-9]+)?([eE][-+]?[0-9]+)?$"
+   exit !(a ~ numeric && b ~ numeric && b + 0 > a + 0)
+}' || { echo "ERROR: Prepared OpenFOAM-time interval is invalid" >&2; exit 1; }
+[[ "$OPENFOAM_FORK" == "$configuredFork" && "$OPENFOAM_VERSION" == "$configuredVersion" ]] || {
+   echo "ERROR: Prepared OpenFOAM identity does not match the selected configuration" >&2
+   exit 1
+}
 
 cellsPerCore=$(awk -v c="$ACTUAL_CELLS" -v p="$nProcs" 'BEGIN { printf "%.1f", c / p }')
 
@@ -249,7 +293,9 @@ echo "Decomposition method  : scotch"
 echo "======================================================"
 echo
 
-# --- Set up and validate the selected OpenFOAM runtime
+# =============================================================================
+# 5. OpenFOAM runtime setup
+# =============================================================================
 if [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"
    shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
@@ -277,8 +323,10 @@ else
    module load "$singularityModule" || { echo "ERROR: Failed to load $singularityModule" >&2; exit 1; }
 fi
 
-# --- Copy the meshed base case into the job-specific case directory
-echo "Copying meshed base case to job directory: $TEST_CASE"
+# =============================================================================
+# 6. Isolated topology-specific case
+# =============================================================================
+echo "Copying prepared base case to job directory: $TEST_CASE"
 rm -rf "$TEST_CASE"
 mkdir -p "$(dirname "$TEST_CASE")" || exit 1
 cp -a "$BASE_CASE_DIR" "$TEST_CASE" || {
@@ -289,7 +337,9 @@ cp -a "$BASE_CASE_DIR" "$TEST_CASE" || {
 cd "$TEST_CASE" || { echo "ERROR: Could not enter $TEST_CASE" >&2; exit 1; }
 rm -rf "processors${nProcs}"*
 
-# --- Set the I/O ranks for collated file handling
+# =============================================================================
+# 7. Collated-I/O rank groups
+# =============================================================================
 of_ioRanks="0"
 iC=$mGroup
 while (( iC < nProcs )); do
@@ -300,7 +350,9 @@ export FOAM_IORANKS="($of_ioRanks)"
 echo "FOAM_IORANKS=$FOAM_IORANKS"
 echo
 
-# --- Configure system/decomposeParDict for scotch decomposition
+# =============================================================================
+# 8. Scotch dictionary configuration and decomposition
+# =============================================================================
 echo "Updating system/decomposeParDict for $nProcs subdomains using method=scotch"
 srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
    foamDictionary system/decomposeParDict \
@@ -315,7 +367,7 @@ srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
       exit 1
    }
 
-# --- Run decomposePar -cellDist -force
+# Run the serial decomposition utility inside the one-task allocation.
 decomposeLog="${outputDir}/decomposePar.log"
 echo "Running: decomposePar -fileHandler collated -cellDist -force"
 srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
@@ -333,7 +385,9 @@ grep -qE 'FOAM FATAL (ERROR|IO ERROR)' "$decomposeLog" && {
 echo "PASS: decomposePar completed successfully"
 echo
 
-# --- Extract and report scotch partition statistics and 3D cell distribution
+# =============================================================================
+# 9. Partition statistics and collated-layout validation
+# =============================================================================
 echo "======================================================"
 echo "Scotch Partitioning Report ($nProcs subdomains)"
 echo "======================================================"
@@ -368,7 +422,7 @@ fi
 echo "======================================================"
 echo
 
-# --- Verify collated processor directories
+# Verify every expected collated I/O group before the dependent run starts.
 echo "Checking collated processor directories ..."
 IORANKS_ARRAY=($of_ioRanks)
 for rank in "${IORANKS_ARRAY[@]}"; do
@@ -395,7 +449,29 @@ done
 echo "PASS: Collated processor directories verified"
 echo
 
-# --- Save job decomposition metadata for runFoam.slurm.sh and post-processing
+# =============================================================================
+# 10. Effective run-input snapshot
+# =============================================================================
+# Archive the topology-specific system dictionary after decomposeParDict edits,
+# plus configuration-only constant/ and 0/ files. Exclude constant/polyMesh and
+# processor directories so artifacts remain small and scientifically auditable.
+runInputSnapshot="${outputDir}/run-inputs"
+rm -rf "$runInputSnapshot"
+mkdir -p "$runInputSnapshot/0" "$runInputSnapshot/constant"
+cp -a system "$runInputSnapshot/system"
+find 0 -maxdepth 1 -type f -exec cp -a {} "$runInputSnapshot/0/" \;
+find constant -maxdepth 1 -type f -exec cp -a {} "$runInputSnapshot/constant/" \;
+(
+   cd "$runInputSnapshot" || exit 1
+   find 0 constant system -type f -print0 \
+      | sort -z \
+      | xargs -0 sha256sum > checksums.sha256
+) || { echo "ERROR: Failed to create run-input checksums" >&2; exit 1; }
+
+# =============================================================================
+# 11. Decomposition metadata and final summary
+# =============================================================================
+# Save topology and prepared-input provenance for runFoam and post-processing.
 cat > "${outputDir}/job-info.env" <<EOF
 JOB_TAG=${jobTag}
 CASE_NAME=${CASE_NAME}
@@ -408,6 +484,10 @@ TARGET_CELLS_MILLIONS=${TARGET_CELLS_MILLIONS}
 TARGET_CELLS=${TARGET_CELLS}
 ACTUAL_CELLS=${ACTUAL_CELLS}
 CELLS_PER_CORE=${cellsPerCore}
+SOLVER=${SOLVER}
+START_TIME=${START_TIME}
+END_TIME=${END_TIME}
+PREPARE_INFO_FILE=${PREPARE_INFO_FILE}
 EOF
 
 echo "======================================================"
@@ -418,5 +498,6 @@ echo "Case directory   : $TEST_CASE"
 echo "Nodes x TPN      : ${targetNodes} x ${tasksPerNode} = ${nProcs} cores"
 echo "Actual mesh cells: $ACTUAL_CELLS"
 echo "Cells per core   : $cellsPerCore"
+echo "Run-input snapshot: $runInputSnapshot"
 echo "ALL STEPS PASSED: Scotch decomposition completed successfully."
 exit 0

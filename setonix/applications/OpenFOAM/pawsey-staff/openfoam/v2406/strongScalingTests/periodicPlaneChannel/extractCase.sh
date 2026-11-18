@@ -1,12 +1,27 @@
 #!/bin/bash --login
+# =============================================================================
+# Generic five-stage launcher contract
+# =============================================================================
+# This case-owned stage is coordinated through case.conf. The generic launcher
+# supplies this script's documented native arguments from a declarative argument
+# template, while this script remains responsible for its OpenFOAM-specific work,
+# validation, artifacts, status record, and failure handling. The shared scratch
+# contract is source-case/<case>, base-case/<case>, and jobs/<topology>/<case>.
+# =============================================================================
 # Extract and validate an OpenFOAM tutorial case from an explicit
 # Singularity image, the installed SHPC container module, or the corresponding
 # bare-metal OpenFOAM module.
 #
 # This script is the first stage of the version-specific OpenFOAM strong-scaling
 # workflow. It locates the selected tutorial inside the active runtime, copies a
-# clean base case tree to the host, and verifies the files required by the
-# subsequent meshing, decomposition, and solver stages.
+# clean immutable source-case tree to the host, and verifies the files required by the
+# subsequent mesh, preparation, decomposition, and solver stages. Extraction
+# deliberately leaves numerical dictionaries unchanged; later stages own all
+# generated mesh data and benchmark-specific edits.
+#
+# Inputs: runtime/version selection, an isolated work root, and artifact path.
+# Outputs: an unmodified tutorial case under source-case/periodicPlaneChannel,
+# plus extraction logs and status. The active runtime must expose FOAM_TUTORIALS.
 #
 # Runtime modes
 # -------------
@@ -40,9 +55,11 @@
 # Treat any use of an unset variable as an error.
 set -u
 
-# --- Version-specific tutorial settings
-# This extraction script belongs to the same version-specific strong-scaling
-# workflow as meshFoam.slurm.sh, decomposeFoam.slurm.sh, and runFoam.slurm.sh.
+# =============================================================================
+# 1. Version-specific tutorial settings
+# =============================================================================
+# This extraction script is stage 1 of the mandatory five-script workflow:
+# extract -> mesh -> prepare -> decompose -> run.
 CASE_NAME="periodicPlaneChannel"
 
 # In explicit-image mode, SINGULARITY_IMAGE is resolved from --image. In SHPC
@@ -51,7 +68,10 @@ CASE_NAME="periodicPlaneChannel"
 # execution, checks, and reporting use SINGULARITY_IMAGE. Bare-metal mode uses
 # neither image variable.
 #
-# --- Initial settings
+# =============================================================================
+# 2. Initial settings and command-line interface
+# =============================================================================
+# Defaults are collected here so parsing and validation remain easy to audit.
 thisScript=$(basename "$0")
 imageInput=""
 useSHPC=false
@@ -103,7 +123,7 @@ Optional settings:
   --help, -h                  Show this help message and exit
 
 The target base case is created as:
-  <work-root>/run/baseCase/$CASE_NAME
+  <work-root>/source-case/$CASE_NAME
 
 In SHPC mode, the module provides SINGULARITY_CONTAINER for provenance and the
 <OPENFOAM_FORK>-exec wrapper used for generic commands inside its backing image.
@@ -162,7 +182,9 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 
-# --- Validate common inputs and load version identity
+# =============================================================================
+# 3. Common input validation and version identity
+# =============================================================================
 # The configuration is the authoritative source of OpenFOAM fork and version in
 # both runtime modes. The image filename is never used to derive that identity.
 locationSelectorCount=0
@@ -226,9 +248,11 @@ else
    baseWorkDir=${MYSCRATCH:-${TMPDIR:-$HOME}}
    workRoot="${baseWorkDir}/OpenFOAM-strong-scaling/${USER}-${OPENFOAM_VERSION}"
 fi
-hostRunDir="${workRoot}/run/baseCase"
+hostRunDir="${workRoot}/source-case"
 
-# --- Resolve the persistent test-artifact directory
+# =============================================================================
+# 4. Persistent stage artifacts and status handling
+# =============================================================================
 # The launcher passes its timestamped invocation directory. When this stage is
 # run independently, the default is the stable <work-root>/test-output path.
 workOutputPath="${workRoot}/test-output"
@@ -269,7 +293,9 @@ echo "Stage status: $stageStatusFile"
 echo
 testCase="${hostRunDir}/${CASE_NAME}"
 
-# --- Container execution helper
+# =============================================================================
+# 5. Runtime execution helper
+# =============================================================================
 # Select the execution interface for generic commands. SHPC mode uses its
 # generic execution wrapper, bare-metal mode runs directly in the loaded host
 # environment, and explicit-image mode uses singularity exec.
@@ -283,7 +309,9 @@ runInOpenFOAMRuntime() {
    fi
 }
 
-# --- Step 1: Set up and validate the selected OpenFOAM runtime
+# =============================================================================
+# 6. Runtime setup and validation
+# =============================================================================
 echo "$thisScript: -----------------------------------------"
 echo "Step 1 - Setting up the OpenFOAM container runtime"
 if [[ "$useSHPC" == true ]]; then
@@ -394,7 +422,9 @@ echo "PASS: Runtime WM_PROJECT_VERSION matches OPENFOAM_VERSION='$OPENFOAM_VERSI
 echo "PASS: OpenFOAM container runtime ready"
 echo
 
-# --- Step 2: Prepare a clean host destination
+# =============================================================================
+# 7. Clean host destination
+# =============================================================================
 # Do not overwrite an existing case. The launcher must use an isolated work root
 # or remove a previous test run explicitly before starting this stage.
 echo "$thisScript: -----------------------------------------"
@@ -423,7 +453,9 @@ echo "Target case: $testCase"
 echo "PASS: Host destination ready"
 echo
 
-# --- Step 3: Locate the tutorial case inside the image
+# =============================================================================
+# 8. Unique tutorial discovery
+# =============================================================================
 # Exactly one match is required. Multiple matches would make case selection
 # ambiguous and could cause a different tutorial to be tested across versions.
 echo "$thisScript: -----------------------------------------"
@@ -450,7 +482,9 @@ echo "Tutorial source: $internalCase"
 echo "PASS: Unique tutorial case found"
 echo
 
-# --- Step 4: Copy the tutorial case to the host
+# =============================================================================
+# 9. Source-case extraction
+# =============================================================================
 # Pawsey scratch filesystems are available in all three runtime modes. Use the
 # common runtime helper without an additional bind: SHPC mode invokes
 # <OPENFOAM_FORK>-exec, bare-metal mode runs cp directly, and explicit-image mode
@@ -465,9 +499,11 @@ runInOpenFOAMRuntime cp -a --no-preserve=timestamps "$internalCase" "$testCase" 
 echo "PASS: Tutorial case copied"
 echo
 
-# --- Step 5: Validate the extracted case
-# These checks establish the minimum case structure required by preFoam.slurm.sh
-# and runFoam.slurm.sh. Version-specific scripts may perform additional checks themselves.
+# =============================================================================
+# 10. Extracted-case validation
+# =============================================================================
+# These checks establish the minimum structure required by meshFoam.slurm.sh and
+# prepareFoam.slurm.sh. Later stages perform their own stage-specific checks.
 echo "$thisScript: -----------------------------------------"
 echo "Step 5 - Validating the extracted tutorial case"
 [[ -d "$testCase" ]] || { echo "ERROR: Extracted case directory not found: $testCase" >&2; exit 1; }
@@ -490,7 +526,9 @@ echo "Extracted case: $testCase"
 echo "PASS: Extracted tutorial case is complete"
 echo
 
-# --- Final summary
+# =============================================================================
+# 11. Final summary
+# =============================================================================
 echo "======================================================"
 echo "$thisScript: FINAL SUMMARY"
 echo "======================================================"

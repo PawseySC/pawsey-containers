@@ -1,15 +1,28 @@
 #!/bin/bash --login
+# =============================================================================
+# Generic five-stage launcher contract
+# =============================================================================
+# This case-owned stage is coordinated through case.conf. The generic launcher
+# supplies this script's documented native arguments from a declarative argument
+# template, while this script remains responsible for its OpenFOAM-specific work,
+# validation, artifacts, status record, and failure handling. The shared scratch
+# contract is source-case/<case>, base-case/<case>, and jobs/<topology>/<case>.
+# =============================================================================
 # Run and benchmark the version-specific OpenFOAM strong-scaling case in parallel.
 #
-# This Slurm job is the fourth stage of the version-specific strong-scaling
-# workflow. It expects decomposeFoam.slurm.sh to have copied and decomposed the
-# job-specific case. It optimizes local subdomain cell bandwidth with
-# renumberMesh -parallel, configures system/controlDict with stopAt=nextWrite,
-# writeControl=clockTime, writeInterval=<solverSeconds>, and
-# runTimeModifiable=false so pimpleFoam stops natively after the configured
-# wall-clock window (--solver-minutes, default 10 minutes) without per-step
-# dictionary polling, and extracts per-time-step ExecutionTime statistics for
-# strong-scaling analysis.
+# This Slurm job is stage 5 of the mandatory five-stage strong-scaling workflow.
+# It expects decomposeFoam.slurm.sh to have copied, configured, and decomposed the
+# topology-specific case. It optimizes local subdomain cell bandwidth with
+# renumberMesh -parallel, runs the already prepared pimpleFoam case, and extracts
+# per-time-step ExecutionTime statistics for strong-scaling analysis.
+#
+# prepareFoam.slurm.sh owns all common initial-field and controlDict changes.
+# This run stage deliberately does not rewrite scientific dictionaries, ensuring
+# that every topology executes the same archived prepared input.
+#
+# Inputs: the decomposed case, job-info.env, exact Slurm topology, and runtime.
+# Outputs: parallel renumbering and pimpleFoam logs, scaling-metrics.env, and a
+# strict stage status record. Slurm provides the requested multi-node resources.
 #
 # Usage:
 #   sbatch runFoam.slurm.sh --image <file> --config <file> [options]
@@ -20,7 +33,7 @@
 #   sbatch runFoam.slurm.sh --bare-metal --recipe-dir <directory> [options]
 #
 # Exit status:
-#   0  The solver ran for the configured window and step-time metrics were recorded.
+#   0  The prepared solver run completed and step-time metrics were recorded.
 #   1  Invalid input, missing decomposition output, solver failure, or metric failure.
 #
 # NOTE: This script was originally developed under the supervision of Alexis Espinosa at Pawsey Supercomputing Centre with the aid of Microsoft 365 Copilot (GPT 5.6).
@@ -36,13 +49,16 @@
 
 set -u
 
-# --- Version-specific strong-scaling solver settings
+# =============================================================================
+# 1. Version-specific solver policy
+# =============================================================================
 CASE_NAME="periodicPlaneChannel"
 SOLVER="pimpleFoam"
-DEFAULT_SOLVER_MINUTES="10"
 mGroup=0 # 0 means auto-select one collated I/O group per node (TASKS_PER_NODE)
 
-# --- Initial settings
+# =============================================================================
+# 2. Initial settings and command-line interface
+# =============================================================================
 thisScript=$(basename "$0")
 imageInput=""
 useSHPC=false
@@ -52,7 +68,7 @@ recipeDirInput=""
 configFileInput=""
 testArtifactsDirInput=""
 caseDirInput=""
-solverMinutesInput="$DEFAULT_SOLVER_MINUTES"
+slurmCpuSpreading=false
 singularityModule="singularity/4.3.5-mpi"
 singularityModuleSpecified=false
 
@@ -84,14 +100,14 @@ Configuration selection (choose exactly one):
   --config <file>             Version configuration file defining runtime identity
 
 Solver and path options:
-  --solver-minutes <minutes>  Target wall-clock execution window in minutes for
-                              the solver configured via writeControl=clockTime
-                              and stopAt=nextWrite (default: $DEFAULT_SOLVER_MINUTES)
   --io-group <g>              Group size for collated file handling (default: tasks-per-node)
   --case-dir <directory>      Explicit decomposed case directory
   --work-root, -w <directory> Override the shared host work root
   --test-artifacts-dir <directory>
                               Job-specific artifact destination
+  --slurm-cpu-spreading <true|false>
+                              Add block:cyclic task distribution and core binding
+                              to both parallel srun steps (default: false)
   --help, -h                  Show this help message and exit
 USAGE
 }
@@ -109,9 +125,6 @@ while [[ $# -gt 0 ]]; do
          useSHPC=true; shift ;;
       --bare-metal)
          useBareMetal=true; shift ;;
-      --solver-minutes)
-         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --solver-minutes requires <minutes>" >&2; usage >&2; exit 1; }
-         solverMinutesInput="$2"; shift 2 ;;
       --io-group)
          [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --io-group requires a positive integer" >&2; exit 1; }
          mGroup="$2"; shift 2 ;;
@@ -130,6 +143,9 @@ while [[ $# -gt 0 ]]; do
       --test-artifacts-dir)
          [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --test-artifacts-dir requires <directory>" >&2; exit 1; }
          testArtifactsDirInput="$2"; shift 2 ;;
+      --slurm-cpu-spreading)
+         [[ $# -ge 2 && -n "$2" ]] || { echo "ERROR: --slurm-cpu-spreading requires true or false" >&2; exit 1; }
+         slurmCpuSpreading="$2"; shift 2 ;;
       -h|--help)
          usage; exit 0 ;;
       *)
@@ -137,14 +153,18 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 
-awk -v m="$solverMinutesInput" 'BEGIN { exit (m ~ /^[0-9]+([.][0-9]+)?$/ && m + 0 > 0 ? 0 : 1) }' || {
-   echo "ERROR: --solver-minutes must be a positive number; got '$solverMinutesInput'" >&2
-   exit 1
-}
-solverSeconds=$(awk -v m="$solverMinutesInput" 'BEGIN { printf "%d", int(m * 60 + 0.5) }')
-(( solverSeconds >= 5 )) || solverSeconds=5
+case "$slurmCpuSpreading" in
+   true|false)
+      ;;
+   *)
+      echo "ERROR: --slurm-cpu-spreading must be true or false; got '$slurmCpuSpreading'" >&2
+      exit 1
+      ;;
+esac
 
-# --- Validate common inputs and load version identity
+# =============================================================================
+# 3. Input validation and version identity
+# =============================================================================
 locationSelectorCount=0
 [[ -n "$recipeDirInput" ]] && ((locationSelectorCount += 1))
 [[ -n "$configFileInput" ]] && ((locationSelectorCount += 1))
@@ -191,7 +211,9 @@ else
    workRoot="${baseWorkDir}/OpenFOAM-strong-scaling/${USER}-${OPENFOAM_VERSION}"
 fi
 
-# --- Derive Slurm allocation parameters
+# =============================================================================
+# 4. Allocated topology and job paths
+# =============================================================================
 NODES=${SLURM_JOB_NUM_NODES:-1}
 if [[ -n "${SLURM_NTASKS_PER_NODE:-}" ]]; then
    TASKS_PER_NODE=${SLURM_NTASKS_PER_NODE%%[(,]*}
@@ -236,8 +258,10 @@ record_stage_status() {
 trap record_stage_status EXIT
 exec > >(tee "$stageRunLog") 2>&1
 
-# --- Load mesh / job metadata to report cells per core
-MESH_INFO_FILE="${workRoot}/run/baseCase/mesh-info.env"
+# =============================================================================
+# 5. Mesh, preparation, and decomposition handoff validation
+# =============================================================================
+MESH_INFO_FILE="${workRoot}/base-case/mesh-info.env"
 if [[ -r "$MESH_INFO_FILE" ]]; then
    # shellcheck source=/dev/null
    source "$MESH_INFO_FILE"
@@ -245,6 +269,27 @@ fi
 ACTUAL_CELLS=${ACTUAL_CELLS:-0}
 TARGET_CELLS_MILLIONS=${TARGET_CELLS_MILLIONS:-unknown}
 cellsPerCore=$(awk -v c="$ACTUAL_CELLS" -v p="$nProcs" 'BEGIN { printf "%.1f", (p > 0 ? c / p : 0) }')
+
+jobInfoFile="${outputDir}/job-info.env"
+[[ -r "$jobInfoFile" ]] || { echo "ERROR: Decomposition metadata not found: $jobInfoFile" >&2; exit 1; }
+# Preserve allocation-derived values while checking the decomposition handoff.
+expectedNodes=$NODES
+expectedTasksPerNode=$TASKS_PER_NODE
+expectedCores=$nProcs
+expectedCase=$TEST_CASE
+# shellcheck source=/dev/null
+source "$jobInfoFile"
+[[ "$NODES" == "$expectedNodes" && "$TASKS_PER_NODE" == "$expectedTasksPerNode" && "$CORES" == "$expectedCores" ]] || {
+   echo "ERROR: Decomposition topology does not match the run allocation" >&2
+   exit 1
+}
+[[ "${TEST_CASE:-}" == "$expectedCase" ]] || { echo "ERROR: Decomposition metadata identifies a different case directory" >&2; exit 1; }
+[[ "${CASE_NAME:-}" == periodicPlaneChannel ]] || { echo "ERROR: Decomposition metadata identifies an unexpected case" >&2; exit 1; }
+[[ "${SOLVER:-}" == pimpleFoam ]] || { echo "ERROR: Prepared solver is not pimpleFoam" >&2; exit 1; }
+awk -v a="${START_TIME:-}" -v b="${END_TIME:-}" 'BEGIN {
+   numeric = "^[-+]?[0-9]+([.][0-9]+)?([eE][-+]?[0-9]+)?$"
+   exit !(a ~ numeric && b ~ numeric && b + 0 > a + 0)
+}' || { echo "ERROR: Prepared OpenFOAM-time interval is invalid" >&2; exit 1; }
 
 echo "======================================================"
 echo "Strong-Scaling Solver Execution ($jobTag)"
@@ -258,11 +303,13 @@ echo "Allocated nodes       : $NODES"
 echo "Tasks per node        : $TASKS_PER_NODE"
 echo "Total MPI cores       : $nProcs"
 echo "Cells per core        : $cellsPerCore"
-echo "Solver time window    : ${solverMinutesInput} min (${solverSeconds}s)"
+echo "Prepared OpenFOAM range: ($START_TIME, $END_TIME]"
 echo "======================================================"
 echo
 
-# --- Set up and validate the selected OpenFOAM runtime
+# =============================================================================
+# 6. OpenFOAM runtime setup
+# =============================================================================
 if [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"
    runtimeKey="shpc"
@@ -270,7 +317,7 @@ if [[ "$useSHPC" == true ]]; then
    shpcExec="${OPENFOAM_FORK}-exec"
    solverCommandPrefix=()
    module load "$shpcModule" || { echo "ERROR: Failed to load $shpcModule" >&2; exit 1; }
-   for tool in "$SOLVER" renumberMesh foamDictionary; do
+    for tool in "$SOLVER" renumberMesh; do
       command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: Missing wrapper: $tool" >&2; exit 1; }
    done
    SINGULARITY_IMAGE=$(realpath "$SINGULARITY_CONTAINER")
@@ -283,7 +330,7 @@ elif [[ "$useBareMetal" == true ]]; then
    bareMetalModule="${OPENFOAM_FORK}/${OPENFOAM_VERSION}"
    solverCommandPrefix=()
    module load "$bareMetalModule" || { echo "ERROR: Failed to load bare-metal module: $bareMetalModule" >&2; exit 1; }
-   for tool in "$SOLVER" renumberMesh foamDictionary; do
+    for tool in "$SOLVER" renumberMesh; do
       command -v "$tool" >/dev/null 2>&1 || { echo "ERROR: Missing tool: $tool" >&2; exit 1; }
    done
 else
@@ -294,7 +341,20 @@ else
    command -v singularity >/dev/null 2>&1 || { echo "ERROR: singularity unavailable" >&2; exit 1; }
 fi
 
-# --- Set the I/O ranks for collated file handling
+# Use one optional placement array for every parallel step. When disabled, the
+# empty array preserves the original srun argument sequence. The enabled policy
+# is independent of NODES and TASKS_PER_NODE and emits no verbose binding output.
+srunPlacementArgs=()
+if [[ "$slurmCpuSpreading" == true ]]; then
+   srunPlacementArgs=(
+      --distribution=block:cyclic
+      --cpu-bind=cores
+   )
+fi
+
+# =============================================================================
+# 7. Collated-I/O rank groups
+# =============================================================================
 of_ioRanks="0"
 iC=$mGroup
 while (( iC < nProcs )); do
@@ -305,11 +365,15 @@ export FOAM_IORANKS="($of_ioRanks)"
 echo "FOAM_IORANKS=$FOAM_IORANKS"
 echo
 
-# --- Validate decomposed case
+# =============================================================================
+# 8. Decomposed-case validation
+# =============================================================================
 [[ -d "$TEST_CASE" ]] || { echo "ERROR: Case directory not found: $TEST_CASE" >&2; exit 1; }
 cd "$TEST_CASE" || { echo "ERROR: Could not enter case directory: $TEST_CASE" >&2; exit 1; }
 
-# --- Run parallel renumberMesh to optimize intra-rank matrix bandwidth after scotch decomposition
+# =============================================================================
+# 9. Parallel local-cell renumbering
+# =============================================================================
 renumberLog="${outputDir}/renumberMesh-parallel.log"
 echo "Running parallel renumberMesh across $nProcs MPI ranks ..."
 srun -l -u \
@@ -317,6 +381,7 @@ srun -l -u \
    -n "$nProcs" \
    -c "${SLURM_CPUS_PER_TASK:-1}" \
    --ntasks-per-node="$TASKS_PER_NODE" \
+   "${srunPlacementArgs[@]}" \
    "${solverCommandPrefix[@]}" \
    renumberMesh -parallel -fileHandler collated -overwrite -constant 2>&1 | tee "$renumberLog"
 renumberStatus=${PIPESTATUS[0]}
@@ -327,26 +392,9 @@ renumberStatus=${PIPESTATUS[0]}
 echo "PASS: Parallel renumberMesh completed"
 echo
 
-# --- Configure system/controlDict for native wall-clock bounded execution
-# Configure OpenFOAM from the start to stop after solverSeconds of wall-clock
-# time using stopAt=nextWrite, writeControl=clockTime, and
-# writeInterval=solverSeconds, with runTimeModifiable=false so OpenFOAM never
-# polls dictionary modification timestamps on Lustre at each time step.
-cp -f system/controlDict system/controlDict.bak
-srun -N 1 -n 1 -c 1 "${solverCommandPrefix[@]}" \
-   foamDictionary system/controlDict -entry stopAt -set nextWrite >/dev/null
-srun -N 1 -n 1 -c 1 "${solverCommandPrefix[@]}" \
-   foamDictionary system/controlDict -entry endTime -set 1000000 >/dev/null
-srun -N 1 -n 1 -c 1 "${solverCommandPrefix[@]}" \
-   foamDictionary system/controlDict -entry writeControl -set clockTime >/dev/null
-srun -N 1 -n 1 -c 1 "${solverCommandPrefix[@]}" \
-   foamDictionary system/controlDict -entry writeInterval -set "$solverSeconds" >/dev/null
-srun -N 1 -n 1 -c 1 "${solverCommandPrefix[@]}" \
-   foamDictionary system/controlDict -entry runTimeModifiable -set false >/dev/null
-echo "PASS: controlDict configured with stopAt=nextWrite, writeControl=clockTime, writeInterval=${solverSeconds}s, runTimeModifiable=false"
-echo
-
-# --- Execute pimpleFoam in parallel
+# =============================================================================
+# 10. Parallel pimpleFoam execution
+# =============================================================================
 LOGFILE="${outputDir}/${SOLVER}.log"
 echo "Starting $SOLVER on $NODES node(s), $TASKS_PER_NODE tasks/node ($nProcs total cores, $cellsPerCore cells/core) ..."
 srun -l -u \
@@ -354,6 +402,7 @@ srun -l -u \
    -n "$nProcs" \
    -c "${SLURM_CPUS_PER_TASK:-1}" \
    --ntasks-per-node="$TASKS_PER_NODE" \
+   "${srunPlacementArgs[@]}" \
    "${solverCommandPrefix[@]}" \
    "$SOLVER" -parallel -fileHandler collated 2>&1 | tee "$LOGFILE"
 solverStatus=${PIPESTATUS[0]}
@@ -368,7 +417,9 @@ grep -qE 'FOAM FATAL (ERROR|IO ERROR)' "$LOGFILE" && {
    exit 1
 }
 
-# --- Compute per-time-step ExecutionTime metrics from $LOGFILE
+# =============================================================================
+# 11. Per-time-step metrics and final artifacts
+# =============================================================================
 # OpenFOAM prints cumulative ExecutionTime at the end of every time step.
 # To exclude both start-up transient / initial caching overhead and any final
 # write / teardown effects at the end of the run, the steady strong-scaling
@@ -377,6 +428,9 @@ grep -qE 'FOAM FATAL (ERROR|IO ERROR)' "$LOGFILE" && {
 metricsFile="${outputDir}/scaling-metrics.env"
 awk -v ofFork="$OPENFOAM_FORK" \
     -v ofVersion="$OPENFOAM_VERSION" \
+     -v caseName="$CASE_NAME" \
+     -v solver="$SOLVER" \
+     -v rawLog="$LOGFILE" \
     -v runtimeKey="$runtimeKey" \
     -v nodes="$NODES" \
     -v tpn="$TASKS_PER_NODE" \
@@ -384,6 +438,8 @@ awk -v ofFork="$OPENFOAM_FORK" \
     -v cells="$ACTUAL_CELLS" \
     -v cellsPerCore="$cellsPerCore" \
     -v targetMillions="$TARGET_CELLS_MILLIONS" \
+    -v startTime="$START_TIME" \
+    -v endTime="$END_TIME" \
     -v metricsOut="$metricsFile" '
 /ExecutionTime =/ {
    for (i = 1; i <= NF; i++) {
@@ -465,6 +521,11 @@ END {
 
    printf "OPENFOAM_FORK=%s\n", ofFork > metricsOut
    printf "OPENFOAM_VERSION=%s\n", ofVersion >> metricsOut
+    printf "CASE_NAME=%s\n", caseName >> metricsOut
+    printf "SOLVER=%s\n", solver >> metricsOut
+    printf "RAW_LOG=%s\n", rawLog >> metricsOut
+   printf "START_TIME=%s\n", startTime >> metricsOut
+   printf "END_TIME=%s\n", endTime >> metricsOut
    printf "RUNTIME_KEY=%s\n", runtimeKey >> metricsOut
    printf "NODES=%d\n", nodes >> metricsOut
    printf "TASKS_PER_NODE=%d\n", tpn >> metricsOut
@@ -493,4 +554,3 @@ echo
 echo "Metrics saved to: $metricsFile"
 echo "ALL STEPS PASSED: Strong-scaling solver benchmark completed successfully."
 exit 0
-

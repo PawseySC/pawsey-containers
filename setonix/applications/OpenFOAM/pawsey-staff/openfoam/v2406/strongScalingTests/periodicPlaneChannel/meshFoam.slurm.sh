@@ -1,17 +1,30 @@
 #!/bin/bash --login
+# =============================================================================
+# Generic five-stage launcher contract
+# =============================================================================
+# This case-owned stage is coordinated through case.conf. The generic launcher
+# supplies this script's documented native arguments from a declarative argument
+# template, while this script remains responsible for its OpenFOAM-specific work,
+# validation, artifacts, status record, and failure handling. The shared scratch
+# contract is source-case/<case>, base-case/<case>, and jobs/<topology>/<case>.
+# =============================================================================
 # Generate and validate the scaled 3D base mesh for the OpenFOAM strong-scaling
 # workflow using an explicit Singularity image, the installed SHPC container
 # module, or the corresponding bare-metal OpenFOAM module.
 #
 # This Slurm job is the second stage of the version-specific strong-scaling
 # workflow. It expects extractCase.sh to have copied the base tutorial case to
-# <work-root>/run/baseCase/<CASE_NAME>. It scales the horizontal channel
+# <work-root>/base-case/<CASE_NAME>. It scales the horizontal channel
 # dimensions (x and z) while keeping the vertical wall separation (y in [0, 2])
 # fixed, refines the cell counts in all three directions (Nx, Ny, Nz) to reach
 # the requested target cell count in millions (--cells-millions, default 10),
-# runs blockMesh, renumberMesh, and checkMesh once on the shared base case, and
-# records the resulting mesh metadata in <work-root>/run/baseCase/mesh-info.env
-# for the downstream decomposition and solver jobs.
+# runs blockMesh, serial renumberMesh, and checkMesh once on the shared base
+# case, and records the resulting mesh metadata in
+# <work-root>/base-case/mesh-info.env for downstream stages.
+#
+# Inputs: the extracted tutorial, target cells in millions, and runtime identity.
+# Outputs: constant/polyMesh, blockMesh/checkMesh logs, mesh-info.env, and stage
+# status. Field conversion and solver controls are intentionally out of scope.
 #
 # Usage:
 #   sbatch meshFoam.slurm.sh --image <file> --config <file> [options]
@@ -38,7 +51,11 @@
 
 set -u
 
-# --- Version-specific strong-scaling base mesh settings
+# =============================================================================
+# 1. Version-specific base-mesh design
+# =============================================================================
+# Stage 2 owns mesh geometry and mesh utilities only. Initial-field conversion
+# and solver-control edits belong to mandatory stage 3, prepareFoam.slurm.sh.
 CASE_NAME="periodicPlaneChannel"
 DEFAULT_CELLS_MILLIONS="10"
 
@@ -54,7 +71,9 @@ BASE_NY_BLOCK=25
 BASE_NZ=30
 GRAD_Y="10.7028"
 
-# --- Initial settings
+# =============================================================================
+# 2. Initial settings and command-line interface
+# =============================================================================
 thisScript=$(basename "$0")
 imageInput=""
 useSHPC=false
@@ -106,7 +125,7 @@ Mesh and path options:
   --help, -h                  Show this help message and exit
 
 Expected extracted base case:
-  <work-root>/run/baseCase/$CASE_NAME
+  <work-root>/base-case/$CASE_NAME
 USAGE
 }
 
@@ -169,7 +188,9 @@ while [[ $# -gt 0 ]]; do
    esac
 done
 
-# --- Validate --cells-millions
+# =============================================================================
+# 3. Input validation and version identity
+# =============================================================================
 awk -v m="$cellsMillionsInput" 'BEGIN { exit (m ~ /^[0-9]+([.][0-9]+)?$/ && m + 0 > 0 ? 0 : 1) }' || {
    echo "ERROR: --cells-millions must be a positive number; got '$cellsMillionsInput'" >&2
    exit 1
@@ -225,10 +246,13 @@ else
    baseWorkDir=${MYSCRATCH:-${TMPDIR:-$HOME}}
    workRoot="${baseWorkDir}/OpenFOAM-strong-scaling/${USER}-${OPENFOAM_VERSION}"
 fi
-BASE_CASE_DIR="${workRoot}/run/baseCase/${CASE_NAME}"
-MESH_INFO_FILE="${workRoot}/run/baseCase/mesh-info.env"
+SOURCE_CASE_DIR="${workRoot}/source-case/${CASE_NAME}"
+BASE_CASE_DIR="${workRoot}/base-case/${CASE_NAME}"
+MESH_INFO_FILE="${workRoot}/base-case/mesh-info.env"
 
-# --- Resolve the persistent test-artifact directory
+# =============================================================================
+# 4. Persistent stage artifacts and status handling
+# =============================================================================
 workOutputPath="${workRoot}/test-output"
 if [[ -n "$testArtifactsDirInput" ]]; then
    outputDir=$(realpath -m "$testArtifactsDirInput")
@@ -266,7 +290,9 @@ echo "Stage run log: $stageRunLog"
 echo "Stage status: $stageStatusFile"
 echo
 
-# --- Set up and validate the selected OpenFOAM runtime
+# =============================================================================
+# 5. OpenFOAM runtime setup
+# =============================================================================
 if [[ "$useSHPC" == true ]]; then
    runtimeMode="SHPC module"
    shpcModule="${OPENFOAM_FORK}-container/${OPENFOAM_VERSION}"
@@ -274,7 +300,7 @@ if [[ "$useSHPC" == true ]]; then
    openfoamCommandPrefix=()
    module load "$shpcModule" || { echo "ERROR: Failed to load SHPC module: $shpcModule" >&2; exit 1; }
    command -v "$shpcExec" >/dev/null 2>&1 || { echo "ERROR: SHPC execution wrapper is unavailable: $shpcExec" >&2; exit 1; }
-   for openfoamTool in foamDictionary blockMesh renumberMesh checkMesh; do
+    for openfoamTool in blockMesh renumberMesh checkMesh; do
       command -v "$openfoamTool" >/dev/null 2>&1 || { echo "ERROR: OpenFOAM wrapper is unavailable: $openfoamTool" >&2; exit 1; }
    done
    [[ -n "${SINGULARITY_CONTAINER:-}" && -r "$SINGULARITY_CONTAINER" ]] || {
@@ -292,7 +318,7 @@ elif [[ "$useBareMetal" == true ]]; then
    shpcExec=""
    openfoamCommandPrefix=()
    module load "$bareMetalModule" || { echo "ERROR: Failed to load bare-metal module: $bareMetalModule" >&2; exit 1; }
-   for openfoamTool in foamDictionary blockMesh renumberMesh checkMesh; do
+    for openfoamTool in blockMesh renumberMesh checkMesh; do
       command -v "$openfoamTool" >/dev/null 2>&1 || { echo "ERROR: OpenFOAM tool is unavailable: $openfoamTool" >&2; exit 1; }
    done
 else
@@ -324,47 +350,35 @@ fi
 echo "PASS: Runtime WM_PROJECT_VERSION matches OPENFOAM_VERSION='$OPENFOAM_VERSION'"
 echo
 
-# --- Validate extracted base case
+# =============================================================================
+# 6. Source-to-base case materialization
+# =============================================================================
+# Preserve extraction as an immutable source. Every mesh campaign starts from a
+# fresh base-case copy so mesh generation cannot modify the extracted tutorial.
+[[ -d "$SOURCE_CASE_DIR" ]] || {
+   echo "ERROR: Extracted source case not found: $SOURCE_CASE_DIR" >&2
+   exit 1
+}
+mkdir -p "$(dirname "$BASE_CASE_DIR")" || exit 1
+rm -rf "$BASE_CASE_DIR"
+cp -a "$SOURCE_CASE_DIR" "$BASE_CASE_DIR" || {
+   echo "ERROR: Could not copy source case to base case: $BASE_CASE_DIR" >&2
+   exit 1
+}
+
+# =============================================================================
+# 7. Base-case validation
+# =============================================================================
 [[ -d "$BASE_CASE_DIR" ]] || { echo "ERROR: Base case directory not found: $BASE_CASE_DIR" >&2; exit 1; }
 [[ -d "${BASE_CASE_DIR}/system" ]] || { echo "ERROR: Missing directory: ${BASE_CASE_DIR}/system" >&2; exit 1; }
 [[ -d "${BASE_CASE_DIR}/constant" ]] || { echo "ERROR: Missing directory: ${BASE_CASE_DIR}/constant" >&2; exit 1; }
 [[ -d "${BASE_CASE_DIR}/0.orig" ]] || { echo "ERROR: Missing directory: ${BASE_CASE_DIR}/0.orig" >&2; exit 1; }
 
 cd "$BASE_CASE_DIR" || { echo "ERROR: Could not enter base case directory: $BASE_CASE_DIR" >&2; exit 1; }
-rm -rf 0
-cp -a 0.orig 0 || { echo "ERROR: Failed to restore 0 from 0.orig" >&2; exit 1; }
 
-# --- Convert hardcoded 60,000-cell nonuniform initial fields in 0/ to uniform fields
-# The upstream periodicPlaneChannel tutorial stores 60,000-element nonuniform
-# lists in 0.orig/{U,p,k,nut}.gz that only match the unscaled 40x50x30 mesh.
-# Uncompress 0/*.gz and replace those internalFields with uniform initial
-# values so decomposePar and pimpleFoam work for any scaled mesh size.
-shopt -s nullglob
-for gzFile in 0/*.gz; do
-   gunzip -f "$gzFile" || { echo "ERROR: Failed to gunzip $gzFile" >&2; exit 1; }
-done
-shopt -u nullglob
-
-srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
-   foamDictionary 0/U -entry internalField -set "uniform (0.1335 0 0)" || {
-      echo "ERROR: Failed to set uniform internalField in 0/U" >&2; exit 1;
-   }
-srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
-   foamDictionary 0/p -entry internalField -set "uniform 0" || {
-      echo "ERROR: Failed to set uniform internalField in 0/p" >&2; exit 1;
-   }
-srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
-   foamDictionary 0/k -entry internalField -set "uniform 5e-04" || {
-      echo "ERROR: Failed to set uniform internalField in 0/k" >&2; exit 1;
-   }
-srun -N 1 -n 1 -c 1 "${openfoamCommandPrefix[@]}" \
-   foamDictionary 0/nut -entry internalField -set "uniform 5e-05" || {
-      echo "ERROR: Failed to set uniform internalField in 0/nut" >&2; exit 1;
-   }
-echo "PASS: Initial fields in 0/ configured with mesh-independent uniform internalFields"
-echo
-
-# --- Compute scaled 3D channel geometry and cell counts
+# =============================================================================
+# 7. Scaled 3D geometry and cell counts
+# =============================================================================
 # Keep vertical wall distance fixed (y in [0, 2], midline at y=1), extend Lx and
 # Lz by the linear scaling factor k = (targetCells / 60000)^(1/3), and scale
 # (Nx, Ny_block, Nz) in all three directions so scotch sees a full 3D mesh.
@@ -402,7 +416,9 @@ echo "Resulting total cells       : $actualCells"
 echo "======================================================"
 echo
 
-# --- Write the scaled system/blockMeshDict
+# =============================================================================
+# 8. Generated blockMesh dictionary
+# =============================================================================
 cat > system/blockMeshDict <<EOF
 /*--------------------------------*- C++ -*----------------------------------*\\
 | =========                 |                                                 |
@@ -517,7 +533,9 @@ boundary
 // ************************************************************************* //
 EOF
 
-# --- Helper to run serial OpenFOAM mesh preparation steps
+# =============================================================================
+# 9. Serial mesh-command helper
+# =============================================================================
 runOpenFOAMStep() {
    local stepName="$1"
    shift
@@ -543,7 +561,9 @@ runOpenFOAMStep() {
    echo
 }
 
-# --- Generate, optimize bandwidth (Cuthill-McKee), and validate the base mesh
+# =============================================================================
+# 10. Mesh generation, serial renumbering, and validation
+# =============================================================================
 runOpenFOAMStep blockMesh blockMesh
 runOpenFOAMStep renumberMesh_serial renumberMesh -overwrite -constant
 runOpenFOAMStep checkMesh checkMesh -constant
@@ -556,7 +576,9 @@ grep -q "Mesh OK" "$checkMeshLog" || {
 echo "PASS: checkMesh reported 'Mesh OK'"
 echo
 
-# --- Persist base mesh metadata for downstream decomposition and solver jobs
+# =============================================================================
+# 11. Mesh-stage metadata and final summary
+# =============================================================================
 cat > "$MESH_INFO_FILE" <<EOF
 CASE_NAME=${CASE_NAME}
 TARGET_CELLS_MILLIONS=${cellsMillionsInput}

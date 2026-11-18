@@ -1,5 +1,14 @@
 #!/bin/bash --login
 # =============================================================================
+# Generic five-stage launcher contract
+# =============================================================================
+# This case-owned stage is coordinated through case.conf. The generic launcher
+# supplies this script's documented native arguments from a declarative argument
+# template, while this script remains responsible for its OpenFOAM-specific work,
+# validation, artifacts, status record, and failure handling. The shared scratch
+# contract is source-case/<case>, base-case/<case>, and jobs/<topology>/<case>.
+# =============================================================================
+# =============================================================================
 # extractCase.sh: OpenFOAM v2212 cavity3D, stage 1: source materialization
 # =============================================================================
 # Purpose and design

@@ -18,7 +18,10 @@ The postprocessor has four responsibilities:
 3. calculate per-run statistics over ``(start_time, end_time]``, where
    ``start_time`` is the new timing reference and the interval ending there is
    deliberately excluded; and
-4. write reproducible CSV, text, PNG, and PDF products under an analysis
+4. aggregate runs only when their complete topology matches, report repeated
+   measurements separately from the aggregate scaling table, and make
+   ``all-with-mean`` plots show both individual measurements and their means; and
+5. write reproducible CSV, text, PNG, and PDF products under an analysis
    directory named for the selected interval.
 
 ``scaling-metrics.env`` is retained only as topology and provenance metadata.
@@ -367,94 +370,371 @@ def output_dir(source_dir: Path, start: float, end: float) -> Path:
     return path
 
 
+def topology_key(result: Result) -> tuple[int, int, int]:
+    """Return the exact resource topology used to group repeated measurements.
+
+    Total core count alone is insufficient because, for example, one node with
+    64 ranks and two nodes with 32 ranks each exercise different communication
+    and memory-placement behaviour despite using the same total number of ranks.
+    """
+    run = result.run
+    return run.cores, run.nodes, run.tasks_per_node
+
+
+def topology_label(cores: int, nodes: int, tasks_per_node: int) -> str:
+    """Format one topology compactly for tables and plot annotations."""
+    return f"{cores} cores; N{nodes}; TPN {tasks_per_node}"
+
+
 def write_outputs(
     results: list[Result], source_dir: Path, label: str, args: argparse.Namespace
 ) -> None:
+    """Write raw, aggregate, repeated-run, textual, and graphical products.
+
+    The main scaling curve always uses one aggregate mean per exact topology.
+    ``all-with-mean`` additionally plots every run as a light marker. Repeated
+    topology measurements receive a dedicated table with source campaign names,
+    per-run statistics, and a final aggregate row so no measurement is hidden.
+    """
     target = output_dir(source_dir, args.start_time, args.end_time)
-    results = sorted(results, key=lambda item: (item.run.cores, item.run.launch))
+    results = sorted(
+        results,
+        key=lambda item: (
+            item.run.cores,
+            item.run.nodes,
+            item.run.tasks_per_node,
+            item.run.launch,
+        ),
+    )
 
     # Preserve the exact selected timing samples before aggregating repeated runs.
     with (target / "strong-scaling-step-times.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(("source_launch", "source_log", "cores", "nodes", "tasks_per_node", "step_end_time", "step_duration_s"))
+        writer.writerow(
+            (
+                "source_launch",
+                "source_log",
+                "cores",
+                "nodes",
+                "tasks_per_node",
+                "step_end_time",
+                "step_duration_s",
+            )
+        )
         for result in results:
             for time, duration in result.durations:
-                writer.writerow((result.run.launch, result.source_log, result.run.cores, result.run.nodes, result.run.tasks_per_node, f"{time:g}", f"{duration:.9f}"))
+                writer.writerow(
+                    (
+                        result.run.launch,
+                        result.source_log,
+                        result.run.cores,
+                        result.run.nodes,
+                        result.run.tasks_per_node,
+                        f"{time:g}",
+                        f"{duration:.9f}",
+                    )
+                )
 
-    # Record the analysis policy next to every generated product.
+    # Record the analysis and display policies next to every generated product.
     (target / "analysis-info.env").write_text(
         "ANALYSIS_MODE=physical-time\n"
         f"START_TIME={args.start_time:g}\nEND_TIME={args.end_time:g}\n"
         "REFERENCE_POLICY=start-time-is-zero\n"
         f"INCLUDED_INTERVAL=({args.start_time:g},{args.end_time:g}]\n"
-        "RAW_LOG_PREFERENCE=SOLVER.log,RAW_LOG-basename,historical-pimpleFoam.log,historical-runFoam.run.log\n"
+        f"POINT_MODE={args.point_mode}\n"
+        "REPEAT_GROUPING=cores,nodes,tasks_per_node\n"
+        "RAW_LOG_PREFERENCE=SOLVER.log,RAW_LOG-basename,"
+        "historical-pimpleFoam.log,historical-runFoam.run.log\n"
     )
 
-    fields = ("cores", "nodes", "tasks_per_node", "source_launch", "source_log", "actual_cells", "cells_per_core", "total_records", "stat_steps", "mean_step_time_s", "std_step_time_s", "min_step_time_s", "max_step_time_s")
+    fields = (
+        "cores",
+        "nodes",
+        "tasks_per_node",
+        "source_launch",
+        "source_log",
+        "actual_cells",
+        "cells_per_core",
+        "total_records",
+        "stat_steps",
+        "mean_step_time_s",
+        "std_step_time_s",
+        "min_step_time_s",
+        "max_step_time_s",
+    )
     with (target / "strong-scaling-all-runs.csv").open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
         for result in results:
             values = result.values
-            writer.writerow({
-                "cores": result.run.cores, "nodes": result.run.nodes,
-                "tasks_per_node": result.run.tasks_per_node,
-                "source_launch": result.run.launch, "source_log": result.source_log,
-                "actual_cells": result.run.actual_cells,
-                "cells_per_core": f"{result.run.cells_per_core:.1f}",
-                "total_records": result.total_records, "stat_steps": len(values),
-                "mean_step_time_s": f"{result.mean:.6f}",
-                "std_step_time_s": f"{result.stddev:.6f}",
-                "min_step_time_s": f"{min(values):.6f}",
-                "max_step_time_s": f"{max(values):.6f}",
-            })
+            writer.writerow(
+                {
+                    "cores": result.run.cores,
+                    "nodes": result.run.nodes,
+                    "tasks_per_node": result.run.tasks_per_node,
+                    "source_launch": result.run.launch,
+                    "source_log": result.source_log,
+                    "actual_cells": result.run.actual_cells,
+                    "cells_per_core": f"{result.run.cells_per_core:.1f}",
+                    "total_records": result.total_records,
+                    "stat_steps": len(values),
+                    "mean_step_time_s": f"{result.mean:.6f}",
+                    "std_step_time_s": f"{result.stddev:.6f}",
+                    "min_step_time_s": f"{min(values):.6f}",
+                    "max_step_time_s": f"{max(values):.6f}",
+                }
+            )
 
-    grouped: dict[int, list[Result]] = defaultdict(list)
+    # Repetitions are defined by complete topology, not by total cores alone.
+    grouped: dict[tuple[int, int, int], list[Result]] = defaultdict(list)
     for result in results:
-        grouped[result.run.cores].append(result)
-    points = []
-    for cores, group in sorted(grouped.items()):
+        grouped[topology_key(result)].append(result)
+
+    points: list[tuple[int, int, int, int, int, float, int, float, float]] = []
+    for (cores, nodes, tasks_per_node), group in sorted(grouped.items()):
         means = [item.mean for item in group]
         representative = group[-1]
-        points.append((cores, representative.run.nodes, representative.run.tasks_per_node, len(group), representative.run.actual_cells, representative.run.cells_per_core, len(representative.values), statistics.fmean(means), statistics.stdev(means) if len(means) > 1 else statistics.fmean(item.stddev for item in group)))
-    baseline_cores, baseline_mean = points[0][0], points[0][7]
+        between_run_stddev = statistics.stdev(means) if len(means) > 1 else 0.0
+        points.append(
+            (
+                cores,
+                nodes,
+                tasks_per_node,
+                len(group),
+                representative.run.actual_cells,
+                representative.run.cells_per_core,
+                len(representative.values),
+                statistics.fmean(means),
+                between_run_stddev,
+            )
+        )
 
+    baseline_cores, baseline_mean = points[0][0], points[0][7]
     with (target / "strong-scaling-summary.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(("cores", "nodes", "tasks_per_node", "runs", "actual_cells", "cells_per_core", "stat_steps", "mean_step_time_s", "std_step_time_s", "speedup", "efficiency_percent"))
+        writer.writerow(
+            (
+                "cores",
+                "nodes",
+                "tasks_per_node",
+                "runs",
+                "actual_cells",
+                "cells_per_core",
+                "stat_steps",
+                "mean_step_time_s",
+                "between_run_std_step_time_s",
+                "speedup",
+                "efficiency_percent",
+            )
+        )
         for point in points:
             speedup = baseline_mean / point[7]
             efficiency = 100.0 * speedup / (point[0] / baseline_cores)
-            writer.writerow((*point[:7], f"{point[7]:.6f}", f"{point[8]:.6f}", f"{speedup:.6f}", f"{efficiency:.3f}"))
+            writer.writerow(
+                (
+                    *point[:7],
+                    f"{point[7]:.6f}",
+                    f"{point[8]:.6f}",
+                    f"{speedup:.6f}",
+                    f"{efficiency:.3f}",
+                )
+            )
 
-    title = f"OpenFOAM Strong-Scaling Summary — {label}; physical time ({args.start_time:g}, {args.end_time:g}]"
-    lines = ["=" * 144, title, "=" * 144,
-             f"{'Cores (Nodes)':<15}{'Nodes':>7}{'TPN':>7}{'Runs':>7}{'Total Cells':>14}{'Cells/Core':>14}{'Stat Steps':>12}{'Mean Step (s)':>16}{'Std Step (s)':>14}{'Speedup':>11}{'Efficiency':>12}",
-             "-" * 144]
+    repeated_groups = [
+        (key, group) for key, group in sorted(grouped.items()) if len(group) > 1
+    ]
+    repeat_csv = target / "strong-scaling-repeated-runs.csv"
+    with repeat_csv.open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(
+            (
+                "row_type",
+                "cores",
+                "nodes",
+                "tasks_per_node",
+                "run_number",
+                "source_launch",
+                "source_log",
+                "stat_steps",
+                "mean_step_time_s",
+                "within_run_std_step_time_s",
+                "between_run_std_step_time_s",
+            )
+        )
+        for (cores, nodes, tasks_per_node), group in repeated_groups:
+            ordered = sorted(group, key=lambda item: item.run.launch)
+            for run_number, result in enumerate(ordered, start=1):
+                writer.writerow(
+                    (
+                        "run",
+                        cores,
+                        nodes,
+                        tasks_per_node,
+                        run_number,
+                        result.run.launch,
+                        result.source_log,
+                        len(result.values),
+                        f"{result.mean:.6f}",
+                        f"{result.stddev:.6f}",
+                        "",
+                    )
+                )
+            run_means = [item.mean for item in ordered]
+            writer.writerow(
+                (
+                    "mean",
+                    cores,
+                    nodes,
+                    tasks_per_node,
+                    "",
+                    "AVERAGE",
+                    "",
+                    len(ordered[0].values),
+                    f"{statistics.fmean(run_means):.6f}",
+                    "",
+                    f"{statistics.stdev(run_means):.6f}",
+                )
+            )
+
+    title = (
+        f"OpenFOAM Strong-Scaling Summary — {label}; "
+        f"physical time ({args.start_time:g}, {args.end_time:g}]"
+    )
+    width = 148
+    lines = [
+        "=" * width,
+        title,
+        "=" * width,
+        f"{'Cores (Nodes)':<15}{'Nodes':>7}{'TPN':>7}{'Runs':>7}"
+        f"{'Total Cells':>14}{'Cells/Core':>14}{'Stat Steps':>12}"
+        f"{'Mean Step (s)':>16}{'Between-run Std':>17}{'Speedup':>11}"
+        f"{'Efficiency':>12}",
+        "-" * width,
+    ]
     for point in points:
         speedup = baseline_mean / point[7]
         efficiency = 100.0 * speedup / (point[0] / baseline_cores)
-        lines.append(f"{f'{point[0]} ({point[1]})':<15}{point[1]:>7}{point[2]:>7}{point[3]:>7}{point[4]:>14}{point[5]:>14.1f}{point[6]:>12}{point[7]:>16.4f}{point[8]:>14.4f}{speedup:>10.2f}x{efficiency:>11.1f}%")
-    lines.append("=" * 144)
+        lines.append(
+            f"{f'{point[0]} ({point[1]})':<15}{point[1]:>7}{point[2]:>7}"
+            f"{point[3]:>7}{point[4]:>14}{point[5]:>14.1f}{point[6]:>12}"
+            f"{point[7]:>16.4f}{point[8]:>17.4f}{speedup:>10.2f}x"
+            f"{efficiency:>11.1f}%"
+        )
+    lines.append("=" * width)
+
+    if repeated_groups:
+        lines.extend(
+            (
+                "",
+                "Repeated measurements by exact topology",
+                "=" * width,
+                f"{'Topology':<28}{'Entry':<9}{'Source launch':<43}"
+                f"{'Mean Step (s)':>16}{'Within-run Std':>17}"
+                f"{'Between-run Std':>18}",
+                "-" * width,
+            )
+        )
+        for (cores, nodes, tasks_per_node), group in repeated_groups:
+            ordered = sorted(group, key=lambda item: item.run.launch)
+            label_text = topology_label(cores, nodes, tasks_per_node)
+            for run_number, result in enumerate(ordered, start=1):
+                shown_label = label_text if run_number == 1 else ""
+                lines.append(
+                    f"{shown_label:<28}{f'Run {run_number}':<9}"
+                    f"{result.run.launch:<43}{result.mean:>16.4f}"
+                    f"{result.stddev:>17.4f}{'':>18}"
+                )
+            run_means = [item.mean for item in ordered]
+            lines.append(
+                f"{'':<28}{'Mean':<9}{'AVERAGE':<43}"
+                f"{statistics.fmean(run_means):>16.4f}{'':>17}"
+                f"{statistics.stdev(run_means):>18.4f}"
+            )
+            lines.append("-" * width)
+        lines.append("=" * width)
+
     text = "\n".join(lines) + "\n"
     (target / "strong-scaling-summary.txt").write_text(text)
     print(text, end="")
 
-    # Plot runtime, normalized speedup, and efficiency on separate axes so each
-    # metric keeps its own scale and interpretation.
+    # Plot aggregate curves for every mode. ``all-with-mean`` overlays every
+    # individual run with small deterministic horizontal offsets so coincident
+    # repetitions remain visible without changing their reported core count.
     import matplotlib.pyplot as plt
+
     cores = [point[0] for point in points]
     means = [point[7] for point in points]
+    between_run_stddevs = [point[8] for point in points]
     speedups = [baseline_mean / value for value in means]
     ideal_speedups = [core / baseline_cores for core in cores]
-    efficiencies = [100.0 * speed / ideal for speed, ideal in zip(speedups, ideal_speedups)]
+    efficiencies = [
+        100.0 * speed / ideal
+        for speed, ideal in zip(speedups, ideal_speedups)
+    ]
+    speedup_errors = [
+        (baseline_mean * stddev / (mean * mean)) if stddev > 0 else 0.0
+        for mean, stddev in zip(means, between_run_stddevs)
+    ]
+    efficiency_errors = [
+        100.0 * error / ideal
+        for error, ideal in zip(speedup_errors, ideal_speedups)
+    ]
 
     fig, (time_axis, speedup_axis, efficiency_axis) = plt.subplots(
         3, 1, figsize=(9, 12), constrained_layout=True
     )
 
-    # Mean timestep time is compared with the ideal inverse-core-count trend.
-    time_axis.plot(cores, means, "o-", label="Measured mean step time")
+    if args.point_mode == "all-with-mean":
+        individual_x: list[float] = []
+        individual_times: list[float] = []
+        individual_speedups: list[float] = []
+        individual_efficiencies: list[float] = []
+        for (cores_value, _nodes, _tasks), group in sorted(grouped.items()):
+            ordered = sorted(group, key=lambda item: item.run.launch)
+            count = len(ordered)
+            for index, result in enumerate(ordered):
+                offset = index - (count - 1) / 2.0
+                x_value = cores_value * (1.025 ** offset)
+                run_speedup = baseline_mean / result.mean
+                run_ideal = cores_value / baseline_cores
+                individual_x.append(x_value)
+                individual_times.append(result.mean)
+                individual_speedups.append(run_speedup)
+                individual_efficiencies.append(100.0 * run_speedup / run_ideal)
+        time_axis.scatter(
+            individual_x,
+            individual_times,
+            s=28,
+            alpha=0.55,
+            label="Individual runs",
+            zorder=3,
+        )
+        speedup_axis.scatter(
+            individual_x,
+            individual_speedups,
+            s=28,
+            alpha=0.55,
+            label="Individual runs",
+            zorder=3,
+        )
+        efficiency_axis.scatter(
+            individual_x,
+            individual_efficiencies,
+            s=28,
+            alpha=0.55,
+            label="Individual runs",
+            zorder=3,
+        )
+
+    time_axis.errorbar(
+        cores,
+        means,
+        yerr=between_run_stddevs,
+        fmt="o-",
+        capsize=4,
+        label="Topology mean",
+        zorder=4,
+    )
     time_axis.plot(
         cores,
         [baseline_mean / ideal for ideal in ideal_speedups],
@@ -467,9 +747,15 @@ def write_outputs(
     time_axis.grid(True, which="both", alpha=0.3)
     time_axis.legend()
 
-    # A base-2 log-log scale shows each doubling clearly; ideal speedup is the
-    # straight line S(p) = p / p0 through the baseline value of 1.
-    speedup_axis.plot(cores, speedups, "o-", label="Measured speedup")
+    speedup_axis.errorbar(
+        cores,
+        speedups,
+        yerr=speedup_errors,
+        fmt="o-",
+        capsize=4,
+        label="Topology mean speedup",
+        zorder=4,
+    )
     speedup_axis.plot(cores, ideal_speedups, "--", label="Ideal speedup")
     speedup_axis.set_xscale("log", base=2)
     speedup_axis.set_yscale("log", base=2)
@@ -477,8 +763,15 @@ def write_outputs(
     speedup_axis.grid(True, which="both", alpha=0.3)
     speedup_axis.legend()
 
-    # Parallel efficiency remains a percentage and uses a 100% reference line.
-    efficiency_axis.plot(cores, efficiencies, "o-", label="Parallel efficiency")
+    efficiency_axis.errorbar(
+        cores,
+        efficiencies,
+        yerr=efficiency_errors,
+        fmt="o-",
+        capsize=4,
+        label="Topology mean efficiency",
+        zorder=4,
+    )
     efficiency_axis.axhline(100.0, linestyle="--", label="Ideal efficiency")
     efficiency_axis.set_xscale("log", base=2)
     efficiency_axis.set(xlabel="Cores", ylabel="Efficiency (%)")
