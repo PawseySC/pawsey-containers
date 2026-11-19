@@ -140,7 +140,7 @@ site_configuration = {
                     'resources': [
                         {
                             'name': 'gpu',
-                            'options': ['--gpus-per-node={num_gpus_per_node}']
+                            'options': ['--gres=gpu:{num_gpus_per_node}']
                         }
                     ],
                 },
@@ -162,7 +162,7 @@ site_configuration = {
                     'resources': [
                         {
                             'name': 'gpu',
-                            'options': ['--gpus-per-node={num_gpus_per_node}']
+                            'options': ['--gres=gpu:{num_gpus_per_node}']
                         }
                     ],
                 },
@@ -184,7 +184,7 @@ site_configuration = {
                     'resources': [
                         {
                             'name': 'gpu',
-                            'options': ['--gpus-per-node={num_gpus_per_node}']
+                            'options': ['--gres=gpu:{num_gpus_per_node}']
                         }
                     ],
                 },
@@ -259,7 +259,7 @@ site_configuration = {
                     'resources': [
                         {
                             'name': 'gpu',
-                            'options': ['--gpus-per-node={num_gpus_per_node}']
+                            'options': ['--gres=gpu:{num_gpus_per_node}']
                         }
                     ],
                 },
@@ -271,9 +271,9 @@ site_configuration = {
             'name': 'PrgEnv-cray',
             'target_systems': ['setonix'],
             'modules': [
-                'PrgEnv-cray/8.6.0',
-                'cray-mpich/8.1.32',
-                'cce/19.0.0',
+                'PrgEnv-cray/8.7.0',
+                'cray-mpich/9.1.0',
+                'cce/21.0.0',
             ]
         },
         {
@@ -289,8 +289,8 @@ site_configuration = {
             'name': 'PrgEnv-gnu',
             'target_systems': ['setonix'],
             'modules': [
-                'PrgEnv-gnu/8.6.0',
-                'cray-mpich/8.1.32',
+                'PrgEnv-gnu/8.7.0',
+                'cray-mpich/9.1.0',
                 'gcc-native/14.2',
             ]
         },
