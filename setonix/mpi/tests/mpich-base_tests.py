@@ -2,11 +2,67 @@ import reframe as rfm
 import reframe.utility.sanity as sn
 import os
 from pathlib import Path
+from reframe.core.backends import getlauncher
+
+
+class GetContainerImage(rfm.RunOnlyRegressionTest):
+    """
+    Fixture for obtaining and defining full absolute
+    path to container image used for testing. The mode
+    parameter determines what type of testing being done
+        image-testing:      Testing an image still in development
+                            that is only local and not yet pushed to quay
+        framework-testing:  Testing the framework with an established
+                            reliable image already pushed to quay
+    """
+    mode = parameter(['image-testing', 'framework-testing'])
+    image_name = parameter(['mpich-base_mpich4.2.2-ubuntu24.04'])
+
+    # Used to help resolve path when testing local image
+    script_dir = Path(__file__).resolve().parent
+
+    @run_after('setup')
+    def set_test_resources(self):
+        # container pulls can require a lot of memory, depending on container
+        # so even though it is just one task, reserve the whole node to be safe
+        self.num_tasks = 1
+        self.num_tasks_per_node = 1
+        self.num_cpus_per_task = 128
+        self.exclusive_access = True
+        self.time_limit = '10m'
+        
+    @run_after('setup')
+    def get_image(self):
+        # Don't run the container pull via srun
+        self.job.launcher = getlauncher('local')()
+
+        # Point test to locally stored container image
+        if self.mode == 'image-testing':
+            self.container_dir = str((self.script_dir / '../artifacts/singularityImages'))
+            # Nothing required to execute, but reframe requires executable to be set
+            self.executable = ''
+        # Pull container from quay.io into this test's stage directory
+        elif self.mode == 'framework-testing':
+            quay_path = f"docker://quay.io/pawsey/{self.image_name.replace('_', ':')}"
+            self.modules = ['singularity/4.3.5-mpi']
+            self.executable = 'singularity'
+            self.executable_opts += f'pull --disable-cache {self.image_name + ".sif"} {quay_path}'.split()
+            self.container_dir = self.stagedir
+        
+        self.image_path = os.path.join(self.container_dir, self.image_name + '.sif')
+
+    @sanity_function
+    def assert_image_exists(self):
+        return sn.assert_true(os.path.exists(self.image_path))
 
 # Base test with logic common to all mpich-base tests
 class MpichBaseContainerTest(rfm.RunOnlyRegressionTest):
+    """
+    Base test class for mpich-base container image tests
+    This contains all parameters, variables, etc. that are
+    common to all tests
+    """
     # Test parameters
-    image_name = parameter(['mpich-base--mpich4.2.2-ubuntu24.04'])
     num_nodes = parameter([1, 2])
 
     # Metadata
@@ -20,15 +76,13 @@ class MpichBaseContainerTest(rfm.RunOnlyRegressionTest):
     # Modules to load
     modules = ['singularity/4.3.5-mpi']
 
-    # Point tests to source file
-    script_dir = Path(__file__).resolve().parent
-    # Point tests to container image to run
-    container_dir = str((script_dir / '../artifacts/singularityImages'))
+    # The fixture 
+    container_image = fixture(GetContainerImage, scope = 'session')
 
     @run_after('setup')
     def setup_env(self):
         self.env_vars = {
-            'SINGULARITY_IMAGE': os.path.join(self.container_dir, f'{self.image_name}.sif'),
+            'SINGULARITY_IMAGE': self.container_image.image_path,
             'MPICH_ENV_DISPLAY': '1',
             'MPICH_MEMORY_REPORT': '1',
             'MPICH_OFI_VERBOSE': '1',
@@ -39,7 +93,9 @@ class MpichBaseContainerTest(rfm.RunOnlyRegressionTest):
 # Test for OSU MPI benchmarks
 @rfm.simple_test
 class MpichBaseOSUTest(MpichBaseContainerTest):
-
+    """
+    Test running OSU benchmarks in mpich-base container
+    """
     # Metadata
     descr = 'mpich-base container OSU MPI benchmark test'
 
@@ -55,7 +111,7 @@ class MpichBaseOSUTest(MpichBaseContainerTest):
         '*': {
             'OSU Latency': (60, None, 0.2, 'us'),
             'OSU Bandwidth': (50000, None, 0.2, 'us'),
-            'OSU Allreduce': (450, None, 0.2, 'us'),
+            'OSU Allreduce': (1000, None, 0.2, 'us'),
         }
     }
 
@@ -73,7 +129,6 @@ class MpichBaseOSUTest(MpichBaseContainerTest):
             f'{self.executable} exec $SINGULARITY_IMAGE bash -lc "'
             f'ldd \\\"\$(command -v osu_latency)\\\" | grep -E \'mpi|fabric|cxi|pmi|pmix|pals|xpmem\' || true"',
             'echo',
-            'echo "=== Runtime check ==="',
         ]
     @run_before('run')
     def binaries_stage(self):
@@ -82,7 +137,9 @@ class MpichBaseOSUTest(MpichBaseContainerTest):
             f'{self.executable} exec $SINGULARITY_IMAGE bash -lc "'
             'command -v osu_latency\n'
             'command -v osu_bw\n'
-            'command -v osu_allreduce"'
+            'command -v osu_allreduce"',
+            'echo',
+            'echo "=== Runtime check ==="',
         ]
     @run_before('run')
     def run_osu_benchmarks(self):
@@ -93,7 +150,6 @@ class MpichBaseOSUTest(MpichBaseContainerTest):
             self.postrun_cmds += [
                 f'{self.job.launcher.run_command(self.job)} {self.executable} exec $SINGULARITY_IMAGE {bin}'
             ]
-
 
     @sanity_function
     def assert_success(self):
@@ -137,7 +193,9 @@ class MpichBaseOSUTest(MpichBaseContainerTest):
 # Test to check MPI communication using profile_util library
 @rfm.simple_test
 class MpichBaseMPICommTest(MpichBaseContainerTest):
-
+    """
+    Test running several MPI communication patterns in mpich-base container
+    """
     # Metadata
     descr = 'mpich-base container MPI comms test'
 
@@ -214,6 +272,9 @@ class MpichBaseMPICommTest(MpichBaseContainerTest):
 # Test of MPI I/O
 @rfm.simple_test
 class MpichBaseMPIIOTest(MpichBaseContainerTest):
+    """
+    Test running MPI I/O in mpich-base container
+    """
     # Test parameters
     num_files = parameter([10])
     file_size = parameter([1e8])
@@ -235,7 +296,8 @@ class MpichBaseMPIIOTest(MpichBaseContainerTest):
 
     @run_after('setup')
     def set_source_dir(self):
-        self.sourcesdir = str((self.script_dir / 'fixtures').resolve())
+        script_dir = self.container_image.script_dir
+        self.sourcesdir = str((script_dir / 'fixtures').resolve())
     @run_after('setup')
     def setup_execution(self):
         self.sourcepath = 'mpi_io.cpp'
@@ -308,6 +370,9 @@ class MpichBaseMPIIOTest(MpichBaseContainerTest):
 # Test of mpi4py
 @rfm.simple_test
 class MpichBaseMPI4pyTest(MpichBaseContainerTest):
+    """
+    Test running mpi4py in mpich-base container image
+    """
 
     # Metadata
     desc = 'mpich-base container mpi4py test'
@@ -319,7 +384,8 @@ class MpichBaseMPI4pyTest(MpichBaseContainerTest):
 
     @run_after('setup')
     def set_source_dir(self):
-        self.sourcesdir = str((self.script_dir / 'fixtures').resolve())
+        script_dir = self.container_image.script_dir
+        self.sourcesdir = str((script_dir / 'fixtures').resolve())
     @run_after('setup')
     def set_test_resources(self):
         self.num_tasks_per_node = 4

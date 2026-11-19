@@ -7,7 +7,8 @@ from pathlib import Path
 @rfm.simple_test
 class LustreMpichBaseMPIIOTest(rfm.RunOnlyRegressionTest):
     # Test parameters
-    image_name = parameter(['mpich-lustre-base--mpich4.2.2-lustrerelease-ubuntu24.04'])
+    mode = parameter(['image-testing', 'framework-testing'])
+    image_name = parameter(['mpich-lustre-base_mpich4.2.2-lustrerelease-ubuntu24.04'])
     num_nodes = parameter([1, 2])
     num_files = parameter([10])
     file_size = parameter([1e8]) # 100MB file size
@@ -33,7 +34,13 @@ class LustreMpichBaseMPIIOTest(rfm.RunOnlyRegressionTest):
     # NOTE: These are conservative numbers since primary purpose of test is functionality
     #       Performance should always fall in these bounds unless there is a sharp decline (30% or more)
     reference = {
-        '*': {
+        'joey:work': {
+            'collective_write_avg': (500, -0.2, None, 'MB/s'),
+            'non-collective_write_avg': (1000, -0.2, None, 'MB/s'),
+            'collective_read_avg': (500, -0.2, None, 'MB/s'),
+            'non-collective_read_avg': (1000, -0.2, None, 'MB/s'),
+        },
+        'setonix:work': {
             'collective_write_avg': (500, -0.2, None, 'MB/s'),
             'non-collective_write_avg': (1000, -0.2, None, 'MB/s'),
             'collective_read_avg': (500, -0.2, None, 'MB/s'),
@@ -41,6 +48,19 @@ class LustreMpichBaseMPIIOTest(rfm.RunOnlyRegressionTest):
         }   
     }
 
+    @run_after('setup')
+    def get_image(self):
+        # Point test to locally stored container image
+        if self.mode == 'image-testing':
+            self.script_dir = Path(__file__).resolve().parent
+            self.container_dir = str((self.script_dir / '../artifacts/singularityImages'))
+        # Pull container from quay.io into this test's stage directory
+        elif self.mode == 'framework-testing':
+            quay_path = f"docker://quay.io/pawsey/{self.image_name.replace('_', ':')}"
+            self.modules = ['singularity/4.3.5-mpi']
+            self.prerun_cmds += [f'singularity pull --disable-cache {self.image_name + ".sif"} {quay_path}']
+            self.container_dir = self.stagedir
+        self.image_path = os.path.join(self.container_dir, self.image_name + '.sif')
     @run_after('setup')
     def set_test_resources(self):
         self.num_tasks_per_node = 4
@@ -50,7 +70,7 @@ class LustreMpichBaseMPIIOTest(rfm.RunOnlyRegressionTest):
     @run_after('setup')
     def setup_env(self):
         self.env_vars = {
-            'SINGULARITY_IMAGE': os.path.join(self.container_dir, f'{self.image_name}.sif'),
+            'SINGULARITY_IMAGE': self.image_path,
             'MPICH_ENV_DISPLAY': '1',
             'MPICH_MEMORY_REPORT': '1',
             'MPICH_OFI_VERBOSE': '1',

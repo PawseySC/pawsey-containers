@@ -2,11 +2,75 @@ import reframe as rfm
 import reframe.utility.sanity as sn
 import os
 from pathlib import Path
+from reframe.core.backends import getlauncher
+
+
+class GetContainerImage(rfm.RunOnlyRegressionTest):
+    """
+    Fixture for obtaining and defining full absolute
+    path to container image used for testing. The mode
+    parameter determines what type of testing being done
+        image-testing:      Testing an image still in development
+                            that is only local and not yet pushed to quay
+        framework-testing:  Testing the framework with an established
+                            reliable image already pushed to quay
+    """
+    mode = parameter(['image-testing', 'framework-testing'])
+    image_name = parameter(['rocm-mpich-base_rocm7.0.1-mpich4.2.2-lustrerelease-ubuntu24.04'])
+
+    # Used to help resolve path when testing local image
+    script_dir = Path(__file__).resolve().parent
+
+    @run_after('setup')
+    def set_test_resources(self):
+        # container pulls can require a lot of memory, depending on container
+        # so even though it is just one task, reserve the whole node to be safe
+        self.num_tasks = 8
+        self.num_tasks_per_node = 8
+        self.num_gpus_per_node = self.num_tasks_per_node
+        self.extra_resources = {
+            'gpu': {'num_gpus_per_node': str(self.num_gpus_per_node)}
+        }
+        self.exclusive_access = True
+        self.time_limit = '15m'
+        account = os.environ["PAWSEY_PROJECT"]
+        self.job.options += [f'--account={account}-gpu']
+        
+    @run_after('setup')
+    def get_image(self):
+        # Don't run the container pull via srun
+        self.job.launcher = getlauncher('local')()
+
+        # Point test to locally stored container image
+        if self.mode == 'image-testing':
+            self.container_dir = str((self.script_dir / '../artifacts/singularityImages'))
+            # Nothing required to execute, but reframe requires executable to be set
+            self.executable = ''
+        # Pull container from quay.io into this test's stage directory
+        elif self.mode == 'framework-testing':
+            quay_path = f"docker://quay.io/pawsey/{self.image_name.replace('_', ':')}"
+            self.modules = ['singularity/4.3.5-mpi-gpu']
+            self.executable = 'singularity'
+            self.executable_opts += f'pull --disable-cache {self.image_name + ".sif"} {quay_path}'.split()
+            self.container_dir = self.stagedir
+        
+        self.image_path = os.path.join(self.container_dir, self.image_name + '.sif')
+
+    @sanity_function
+    def assert_image_exists(self):
+        print('container_dir = ', self.container_dir)
+        print('image_path = ', self.image_path)
+        print('image_name = ', self.image_name)
+        return sn.assert_true(os.path.exists(self.image_path))
 
 # Base test with logic common to all rocm-mpich-base tests
 class RocmMpichBaseContainerTest(rfm.RunOnlyRegressionTest):
+    """
+    Base test class for rocm-mpich-base container image tests
+    This contains all parameters, variables, etc. that are
+    common to all tests
+    """
     # Test parameters
-    image_name = parameter(['rocm-mpich-base--rocm7.0.1-mpich4.2.2-ubuntu24.04'])
     num_nodes = parameter([1, 2])
 
     # Metadata
@@ -20,15 +84,13 @@ class RocmMpichBaseContainerTest(rfm.RunOnlyRegressionTest):
     # Modules to load
     modules = ['singularity/4.3.5-mpi-gpu']
 
-    # Point tests to source file
-    script_dir = Path(__file__).resolve().parent
-    # Point tests to container image to run
-    container_dir = str((script_dir / '../artifacts/singularityImages'))
+    # The fixture
+    container_image = fixture(GetContainerImage, scope = 'session')
 
     @run_after('setup')
     def setup_env(self):
         self.env_vars = {
-            'SINGULARITY_IMAGE': os.path.join(self.container_dir, f'{self.image_name}.sif'),
+            'SINGULARITY_IMAGE': self.container_image.image_path,
             'MPICH_ENV_DISPLAY': '1',
             'MPICH_MEMORY_REPORT': '1',
             'MPICH_OFI_VERBOSE': '1',
@@ -43,6 +105,9 @@ class RocmMpichBaseContainerTest(rfm.RunOnlyRegressionTest):
 # Test for OSU benchmarks using GPU-GPU communication
 @rfm.simple_test
 class RocmMpichBaseOSUTest(RocmMpichBaseContainerTest):
+    """
+    Test running OSU benchmarks using GPU-MPI in rocm-mpich-base container
+    """
     # Metadata
     descr = 'rocm-mpich-base container OSU GPU-MPI benchmark test'
 
@@ -144,6 +209,9 @@ class RocmMpichBaseOSUTest(RocmMpichBaseContainerTest):
 # Test to check GPU-GPU MPI communication using profile_util library
 @rfm.simple_test
 class RocmMpichBaseGPUMPICommTest(RocmMpichBaseContainerTest):
+    """
+    Test running several GPU-MPI communication patterns in rocm-mpich-base container
+    """
     # Metadata
     descr = 'rocm-mpich-base container GPU-MPI comms test'
 
@@ -218,6 +286,11 @@ class RocmMpichBaseGPUMPICommTest(RocmMpichBaseContainerTest):
 #       It is a check of MPI I/O functionality in the rocm-mpich-base container, not a check of GPU-MPI I/O
 @rfm.simple_test
 class RocmMpichBaseMPIIOTest(RocmMpichBaseContainerTest):
+    """
+    Test running MPI I/O in rocm-mpich-base container
+    Note that this tests MPI I/O using CPU buffers, not device buffers.
+    It is a check of MPI I/O functionality in the rocm-mpich-base container, not a check of GPU-MPI I/O
+    """
     # Test parameters
     num_files = parameter([10])
     file_size = parameter([1e8]) # in bytes
@@ -239,7 +312,8 @@ class RocmMpichBaseMPIIOTest(RocmMpichBaseContainerTest):
 
     @run_after('setup')
     def set_source_dir(self):
-        self.sourcesdir = str((self.script_dir / 'fixtures').resolve())
+        script_dir = self.container_image.script_dir
+        self.sourcesdir = str((script_dir / 'fixtures').resolve())
     @run_after('setup')
     def setup_execution(self):
         self.sourcepath = 'mpi_io.cpp'
