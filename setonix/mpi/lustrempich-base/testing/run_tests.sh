@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+TEST_SELECTION_FILTER=()
+case "${1:-}" in
+    "")
+        ;;
+    image_testing)
+        TEST_SELECTION_FILTER+=( -E "mode == 'image_testing'" )
+        ;;
+    framework_testing)
+        TEST_SELECTION_FILTER+=( -E "mode == 'framework_testing'" )
+        ;;
+    *)
+        echo "Usage: $0 [image_testing|framework_testing]" >&2
+        exit 1
+        ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTING_DIR="${SCRIPT_DIR}"
 
@@ -23,6 +39,7 @@ TESTS_SUPPORT_DIR="${SHARED_TESTS_DIR}/tests-support"
 RUN_ID="${CI_PIPELINE_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 ARTIFACTS_ROOT_DIR="${TESTING_DIR}/artifacts"
 ARTIFACTS_DIR="${ARTIFACTS_ROOT_DIR}/runs/${RUN_ID}"
+mkdir -p "${ARTIFACTS_DIR}"
 printf '%s\n' "${ARTIFACTS_DIR}" > "${ARTIFACTS_ROOT_DIR}/latest_run.txt"
 
 # Load reframe
@@ -33,7 +50,7 @@ RFM_TEST_FILE="${SHARED_TESTS_DIR}/lustrempich-base_tests.py"
 RFM_SETTINGS_FILE="${TESTS_SUPPORT_DIR}/rfm_settings.py"
 
 # Run tests - store stage and output directories under $ARTIFACTS_DIR
-reframe -C "${RFM_SETTINGS_FILE}" -c "${RFM_TEST_FILE}" -r --prefix="${ARTIFACTS_DIR}"
+reframe -C "${RFM_SETTINGS_FILE}" -c "${RFM_TEST_FILE}" "${TEST_SELECTION_FILTER[@]}" -r --prefix="${ARTIFACTS_DIR}"
 
 # Move output and log to directory for this run
 mv reframe.out "${ARTIFACTS_DIR}"

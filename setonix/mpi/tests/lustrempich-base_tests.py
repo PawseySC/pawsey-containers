@@ -7,7 +7,7 @@ from pathlib import Path
 @rfm.simple_test
 class LustreMpichBaseMPIIOTest(rfm.RunOnlyRegressionTest):
     # Test parameters
-    mode = parameter(['image-testing', 'framework-testing'])
+    mode = parameter(['image_testing', 'framework_testing'])
     image_name = parameter(['mpich-lustre-base_mpich4.2.2-lustrerelease-ubuntu24.04'])
     num_nodes = parameter([1, 2])
     num_files = parameter([10])

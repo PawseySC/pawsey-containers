@@ -12,10 +12,10 @@ class GetContainerImage(rfm.RunOnlyRegressionTest):
     parameter determines what type of testing being done
         image-testing:      Testing an image still in development
                             that is only local and not yet pushed to quay
-        framework-testing:  Testing the framework with an established
+        framework_testing:  Testing the framework with an established
                             reliable image already pushed to quay
     """
-    mode = parameter(['image-testing', 'framework-testing'])
+    mode = parameter(['image_testing', 'framework_testing'])
     image_name = parameter(['rocm-mpich-base_rocm7.0.1-mpich4.2.2-lustrerelease-ubuntu24.04'])
 
     # Used to help resolve path when testing local image
@@ -42,12 +42,12 @@ class GetContainerImage(rfm.RunOnlyRegressionTest):
         self.job.launcher = getlauncher('local')()
 
         # Point test to locally stored container image
-        if self.mode == 'image-testing':
+        if self.mode == 'image_testing':
             self.container_dir = str((self.script_dir / '../artifacts/singularityImages'))
             # Nothing required to execute, but reframe requires executable to be set
             self.executable = ''
         # Pull container from quay.io into this test's stage directory
-        elif self.mode == 'framework-testing':
+        elif self.mode == 'framework_testing':
             quay_path = f"docker://quay.io/pawsey/{self.image_name.replace('_', ':')}"
             self.modules = ['singularity/4.3.5-mpi-gpu']
             self.executable = 'singularity'
